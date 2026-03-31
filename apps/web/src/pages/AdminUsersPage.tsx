@@ -2,7 +2,7 @@ export function AdminUsersPage() {
   return (
     <section className="card">
       <h2>User Management</h2>
-      <p>Supabase Auth + profiles role management is controlled server-side.</p>
+      <p>Custom JWT auth + role management is enforced in Railway API.</p>
     </section>
   );
 }

@@ -1,83 +1,61 @@
 import type { FastifyInstance } from "fastify";
-import { db } from "../db.js";
+import { one, q } from "../db.js";
+import { requireAuth, requireRole } from "./auth.js";
 
 export async function registerOpsRoutes(app: FastifyInstance) {
-  app.get("/v1/schedules", async () => {
-    const { data, error } = await db.from("schedules").select("*").order("date");
-    if (error) throw error;
-    return data;
+  app.get("/v1/schedules", { preHandler: requireAuth }, async () => {
+    return q("select * from schedules order by date asc, start_time asc");
   });
 
-  app.post("/v1/schedules", async (req) => {
+  app.post("/v1/schedules", { preHandler: requireRole("admin") }, async (req) => {
     const body = req.body as { date: string; startTime: string; streamerId: string };
-    const { data, error } = await db
-      .from("schedules")
-      .insert({
-        date: body.date,
-        start_time: body.startTime,
-        streamer_id: body.streamerId
-      })
-      .select("*")
-      .single();
-    if (error) throw error;
-    return data;
+    await q("insert into schedules (date, start_time, streamer_id) values (?, ?, ?)", [
+      body.date,
+      body.startTime,
+      body.streamerId
+    ]);
+    return one("select * from schedules order by rowid desc limit 1");
   });
 
-  app.delete("/v1/schedules/:id", async (req) => {
+  app.delete("/v1/schedules/:id", { preHandler: requireRole("admin") }, async (req) => {
     const { id } = req.params as { id: string };
-    const { error } = await db.from("schedules").delete().eq("id", id);
-    if (error) throw error;
+    await q("delete from schedules where id = ?", [id]);
     return { ok: true };
   });
 
-  app.get("/v1/expenses", async () => {
-    const { data, error } = await db.from("expenses").select("*").order("date", { ascending: false });
-    if (error) throw error;
-    return data;
+  app.get("/v1/expenses", { preHandler: requireAuth }, async () => {
+    return q("select * from expenses order by date desc");
   });
 
-  app.post("/v1/expenses", async (req) => {
+  app.post("/v1/expenses", { preHandler: requireRole("admin") }, async (req) => {
     const body = req.body as { date: string; name: string; cost: number };
-    const { data, error } = await db.from("expenses").insert(body).select("*").single();
-    if (error) throw error;
-    return data;
+    await q("insert into expenses (date, name, cost) values (?, ?, ?)", [body.date, body.name, body.cost]);
+    return one("select * from expenses order by rowid desc limit 1");
   });
 
-  app.delete("/v1/expenses/:id", async (req) => {
+  app.delete("/v1/expenses/:id", { preHandler: requireRole("admin") }, async (req) => {
     const { id } = req.params as { id: string };
-    const { error } = await db.from("expenses").delete().eq("id", id);
-    if (error) throw error;
+    await q("delete from expenses where id = ?", [id]);
     return { ok: true };
   });
 
-  app.get("/v1/payroll", async () => {
-    const { data, error } = await db
-      .from("payroll_records")
-      .select("*")
-      .order("imported_at", { ascending: false });
-    if (error) throw error;
-    return data;
+  app.get("/v1/payroll", { preHandler: requireRole("admin") }, async () => {
+    return q("select * from payroll_records order by imported_at desc");
   });
 
-  app.post("/v1/payroll", async (req) => {
+  app.post("/v1/payroll", { preHandler: requireRole("admin") }, async (req) => {
     const body = req.body as { userId: string; filename: string; rows: number };
-    const { data, error } = await db
-      .from("payroll_records")
-      .insert({
-        user_id: body.userId,
-        filename: body.filename,
-        rows: body.rows
-      })
-      .select("*")
-      .single();
-    if (error) throw error;
-    return data;
+    await q("insert into payroll_records (user_id, filename, rows) values (?, ?, ?)", [
+      body.userId,
+      body.filename,
+      body.rows
+    ]);
+    return one("select * from payroll_records order by rowid desc limit 1");
   });
 
-  app.delete("/v1/payroll/:id", async (req) => {
+  app.delete("/v1/payroll/:id", { preHandler: requireRole("admin") }, async (req) => {
     const { id } = req.params as { id: string };
-    const { error } = await db.from("payroll_records").delete().eq("id", id);
-    if (error) throw error;
+    await q("delete from payroll_records where id = ?", [id]);
     return { ok: true };
   });
 }

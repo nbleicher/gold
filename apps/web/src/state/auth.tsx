@@ -1,18 +1,16 @@
 import { createContext, useContext, useEffect, useMemo, useState } from "react";
-import type { Session, User } from "@supabase/supabase-js";
-import { supabase } from "../lib/supabase";
-import { api } from "../lib/api";
+import { api, getAuthToken, setAuthToken } from "../lib/api";
 
-type Profile = {
+type AppUser = {
   id: string;
+  email: string;
   role: "admin" | "user";
   displayName: string | null;
 };
 
 type AuthContextValue = {
-  user: User | null;
-  session: Session | null;
-  profile: Profile | null;
+  user: AppUser | null;
+  profile: AppUser | null;
   loading: boolean;
   signIn: (email: string, password: string) => Promise<void>;
   signOut: () => Promise<void>;
@@ -21,46 +19,47 @@ type AuthContextValue = {
 const AuthContext = createContext<AuthContextValue | null>(null);
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
-  const [session, setSession] = useState<Session | null>(null);
-  const [profile, setProfile] = useState<Profile | null>(null);
+  const [profile, setProfile] = useState<AppUser | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    supabase.auth.getSession().then(async ({ data }) => {
-      setSession(data.session);
-      if (data.session?.user) {
-        const p = await api<Profile>(`/v1/auth/profile/${data.session.user.id}`);
-        setProfile(p);
-      }
+    const token = getAuthToken();
+    if (!token) {
       setLoading(false);
-    });
-    const { data } = supabase.auth.onAuthStateChange(async (_evt, next) => {
-      setSession(next);
-      if (next?.user) {
-        const p = await api<Profile>(`/v1/auth/profile/${next.user.id}`);
+      return;
+    }
+    api<AppUser>("/v1/auth/me")
+      .then((p) => {
         setProfile(p);
-      } else {
+      })
+      .catch(() => {
+        setAuthToken(null);
         setProfile(null);
-      }
-    });
-    return () => data.subscription.unsubscribe();
+      })
+      .finally(() => {
+        setLoading(false);
+      });
   }, []);
 
   const value = useMemo<AuthContextValue>(
     () => ({
-      user: session?.user ?? null,
-      session,
+      user: profile,
       profile,
       loading,
       signIn: async (email, password) => {
-        const { error } = await supabase.auth.signInWithPassword({ email, password });
-        if (error) throw error;
+        const res = await api<{ token: string; user: AppUser }>("/v1/auth/login", {
+          method: "POST",
+          body: JSON.stringify({ email, password })
+        });
+        setAuthToken(res.token);
+        setProfile(res.user);
       },
       signOut: async () => {
-        await supabase.auth.signOut();
+        setAuthToken(null);
+        setProfile(null);
       }
     }),
-    [session, profile, loading]
+    [profile, loading]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

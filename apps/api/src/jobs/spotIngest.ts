@@ -1,5 +1,5 @@
 import { env } from "../env.js";
-import { db } from "../db.js";
+import { q } from "../db.js";
 
 type SpotPayload = {
   gold: { price: number; sourceState: string };
@@ -50,8 +50,13 @@ async function run() {
       source_state: data.silver.sourceState
     }
   ];
-  const { error } = await db.from("spot_snapshots").insert(rows);
-  if (error) throw error;
+  for (const row of rows) {
+    await q("insert into spot_snapshots (metal, price, source_state) values (?, ?, ?)", [
+      row.metal,
+      row.price,
+      row.source_state
+    ]);
+  }
   console.log("spot ingestion complete", data.updatedAt);
 }
 

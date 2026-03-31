@@ -9,8 +9,9 @@ function required(name: string): string {
 export const env = {
   port: Number(process.env.PORT ?? 8787),
   corsOrigin: process.env.CORS_ORIGIN ?? "http://localhost:5173",
-  supabaseUrl: required("SUPABASE_URL"),
-  supabaseServiceRoleKey: required("SUPABASE_SERVICE_ROLE_KEY"),
+  tursoDatabaseUrl: required("TURSO_DATABASE_URL"),
+  tursoAuthToken: required("TURSO_AUTH_TOKEN"),
+  jwtSecret: required("JWT_SECRET"),
   spotPrimaryFeedUrl: process.env.SPOT_PRIMARY_FEED_URL ?? "",
   spotFallbackFeedUrl:
     process.env.SPOT_FALLBACK_FEED_URL ??

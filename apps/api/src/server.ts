@@ -31,6 +31,9 @@ await registerOpsRoutes(app);
 app.setErrorHandler((error, _req, reply) => {
   app.log.error(error);
   const message = error instanceof Error ? error.message : "Unhandled error";
+  if (message === "Unauthorized") return reply.status(401).send({ error: message });
+  if (message === "Forbidden") return reply.status(403).send({ error: message });
+  if (message.includes("Invalid credentials")) return reply.status(401).send({ error: message });
   reply.status(500).send({ error: message });
 });
 

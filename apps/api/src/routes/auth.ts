@@ -1,17 +1,103 @@
 import type { FastifyInstance } from "fastify";
-import { db } from "../db.js";
+import bcrypt from "bcrypt";
+import jwt from "jsonwebtoken";
+import { env } from "../env.js";
+import { one, q } from "../db.js";
+
+type JwtPayload = { sub: string; role: "admin" | "user"; email: string };
+
+declare module "fastify" {
+  interface FastifyRequest {
+    authUser?: JwtPayload;
+  }
+}
+
+export async function requireAuth(request: import("fastify").FastifyRequest) {
+  const auth = request.headers.authorization;
+  if (!auth?.startsWith("Bearer ")) throw new Error("Unauthorized");
+  const token = auth.slice("Bearer ".length);
+  let decoded: JwtPayload;
+  try {
+    decoded = jwt.verify(token, env.jwtSecret) as JwtPayload;
+  } catch {
+    throw new Error("Unauthorized");
+  }
+  request.authUser = decoded;
+}
+
+export function requireRole(role: "admin" | "user") {
+  return async (request: import("fastify").FastifyRequest) => {
+    await requireAuth(request);
+    if (!request.authUser || (role === "admin" && request.authUser.role !== "admin")) {
+      throw new Error("Forbidden");
+    }
+  };
+}
 
 export async function registerAuthRoutes(app: FastifyInstance) {
-  app.get("/v1/auth/profile/:userId", async (req) => {
-    const { userId } = req.params as { userId: string };
-    const { data, error } = await db
-      .from("profiles")
-      .select("id, role, display_name")
-      .eq("id", userId)
-      .single();
-    if (error || !data) throw error ?? new Error("Profile not found");
+  app.post("/v1/auth/register", async (req) => {
+    const body = req.body as { email: string; password: string; displayName?: string; role?: "admin" | "user" };
+    const countRow = await one<{ count: number }>("select count(*) as count from users");
+    const hasUsers = Number(countRow?.count ?? 0) > 0;
+    if (hasUsers) {
+      await requireRole("admin")(req);
+    }
+    const email = body.email.trim().toLowerCase();
+    const exists = await one<{ id: string }>("select id from users where email = ?", [email]);
+    if (exists) throw new Error("Email already exists");
+    const passwordHash = await bcrypt.hash(body.password, 12);
+    const role = body.role === "admin" ? "admin" : "user";
+    await q(
+      "insert into users (email, password_hash, role, display_name) values (?, ?, ?, ?)",
+      [email, passwordHash, role, body.displayName ?? null]
+    );
+    const row = await one<{ id: string; role: "admin" | "user"; display_name: string | null }>(
+      "select id, role, display_name from users where email = ?",
+      [email]
+    );
+    return { id: row?.id, role: row?.role, displayName: row?.display_name ?? null };
+  });
+
+  app.post("/v1/auth/login", async (req) => {
+    const body = req.body as { email: string; password: string };
+    const email = body.email.trim().toLowerCase();
+    const user = await one<{
+      id: string;
+      email: string;
+      password_hash: string;
+      role: "admin" | "user";
+      display_name: string | null;
+    }>("select id, email, password_hash, role, display_name from users where email = ?", [email]);
+    if (!user) throw new Error("Invalid credentials");
+    const ok = await bcrypt.compare(body.password, user.password_hash);
+    if (!ok) throw new Error("Invalid credentials");
+    const token = jwt.sign(
+      { sub: user.id, role: user.role, email: user.email } satisfies JwtPayload,
+      env.jwtSecret,
+      { expiresIn: "12h" }
+    );
+    return {
+      token,
+      user: {
+        id: user.id,
+        email: user.email,
+        role: user.role,
+        displayName: user.display_name
+      }
+    };
+  });
+
+  app.get("/v1/auth/me", { preHandler: requireAuth }, async (req) => {
+    const userId = req.authUser?.sub;
+    if (!userId) throw new Error("Unauthorized");
+    const data = await one<{ id: string; email: string; role: "admin" | "user"; display_name: string | null }>(
+      "select id, email, role, display_name from users where id = ?",
+      [userId]
+    );
+    if (!data) throw new Error("Profile not found");
     return {
       id: data.id,
+      email: data.email,
       role: data.role,
       displayName: data.display_name
     };

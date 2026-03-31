@@ -1,28 +1,17 @@
 import type { FastifyInstance } from "fastify";
-import { db } from "../db.js";
+import { one } from "../db.js";
+import { requireAuth } from "./auth.js";
 
 export async function registerSpotRoutes(app: FastifyInstance) {
-  app.get("/v1/spot/latest", async () => {
+  app.get("/v1/spot/latest", { preHandler: requireAuth }, async () => {
     const [gold, silver] = await Promise.all([
-      db
-        .from("spot_snapshots")
-        .select("*")
-        .eq("metal", "gold")
-        .order("created_at", { ascending: false })
-        .limit(1)
-        .single(),
-      db
-        .from("spot_snapshots")
-        .select("*")
-        .eq("metal", "silver")
-        .order("created_at", { ascending: false })
-        .limit(1)
-        .single()
+      one("select * from spot_snapshots where metal = 'gold' order by created_at desc limit 1"),
+      one("select * from spot_snapshots where metal = 'silver' order by created_at desc limit 1")
     ]);
-    if (gold.error || silver.error) throw gold.error ?? silver.error;
+    if (!gold || !silver) throw new Error("Spot feed unavailable");
     return {
-      gold: gold.data,
-      silver: silver.data,
+      gold,
+      silver,
       updatedAt: new Date().toISOString()
     };
   });

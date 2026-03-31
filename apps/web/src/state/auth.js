@@ -1,47 +1,45 @@
 import { jsx as _jsx } from "react/jsx-runtime";
 import { createContext, useContext, useEffect, useMemo, useState } from "react";
-import { supabase } from "../lib/supabase";
-import { api } from "../lib/api";
+import { api, getAuthToken, setAuthToken } from "../lib/api";
 const AuthContext = createContext(null);
 export function AuthProvider({ children }) {
-    const [session, setSession] = useState(null);
     const [profile, setProfile] = useState(null);
     const [loading, setLoading] = useState(true);
     useEffect(() => {
-        supabase.auth.getSession().then(async ({ data }) => {
-            setSession(data.session);
-            if (data.session?.user) {
-                const p = await api(`/v1/auth/profile/${data.session.user.id}`);
-                setProfile(p);
-            }
+        const token = getAuthToken();
+        if (!token) {
+            setLoading(false);
+            return;
+        }
+        api("/v1/auth/me")
+            .then((p) => {
+            setProfile(p);
+        })
+            .catch(() => {
+            setAuthToken(null);
+            setProfile(null);
+        })
+            .finally(() => {
             setLoading(false);
         });
-        const { data } = supabase.auth.onAuthStateChange(async (_evt, next) => {
-            setSession(next);
-            if (next?.user) {
-                const p = await api(`/v1/auth/profile/${next.user.id}`);
-                setProfile(p);
-            }
-            else {
-                setProfile(null);
-            }
-        });
-        return () => data.subscription.unsubscribe();
     }, []);
     const value = useMemo(() => ({
-        user: session?.user ?? null,
-        session,
+        user: profile,
         profile,
         loading,
         signIn: async (email, password) => {
-            const { error } = await supabase.auth.signInWithPassword({ email, password });
-            if (error)
-                throw error;
+            const res = await api("/v1/auth/login", {
+                method: "POST",
+                body: JSON.stringify({ email, password })
+            });
+            setAuthToken(res.token);
+            setProfile(res.user);
         },
         signOut: async () => {
-            await supabase.auth.signOut();
+            setAuthToken(null);
+            setProfile(null);
         }
-    }), [session, profile, loading]);
+    }), [profile, loading]);
     return _jsx(AuthContext.Provider, { value: value, children: children });
 }
 export function useAuth() {

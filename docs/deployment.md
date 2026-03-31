@@ -1,13 +1,11 @@
 # Deployment Guide
 
-## Supabase
+## Turso
 
-1. Create project.
-2. Apply SQL migrations in `supabase/migrations`:
+1. Create Turso database and auth token.
+2. Apply SQL migrations in `turso/migrations`:
    - `001_init.sql`
-   - `002_profile_trigger.sql`
-3. Create first auth user and set role:
-   - `update public.profiles set role = 'admin' where id = '<auth-user-id>';`
+   - `002_seed_admin_template.sql` (after replacing placeholders)
 
 ## Railway (API + Spot Job)
 
@@ -17,8 +15,9 @@
    - `npm --workspace @gold/api run start`
 4. Configure env vars:
    - `PORT`
-   - `SUPABASE_URL`
-   - `SUPABASE_SERVICE_ROLE_KEY`
+   - `TURSO_DATABASE_URL`
+   - `TURSO_AUTH_TOKEN`
+   - `JWT_SECRET`
    - `CORS_ORIGIN`
    - `SPOT_PRIMARY_FEED_URL`
    - `SPOT_FALLBACK_FEED_URL`
@@ -34,10 +33,10 @@
 4. Build output: `apps/web/dist`
 5. Environment variables:
    - `VITE_API_BASE_URL` = Railway API URL
-   - `VITE_SUPABASE_URL`
-   - `VITE_SUPABASE_ANON_KEY`
+6. Custom domain:
+   - attach `gold.jawnix.com` to the Pages project.
 
 ## CORS
 
-- Set API `CORS_ORIGIN` to Cloudflare Pages URL in production.
+- Set API `CORS_ORIGIN` to `https://gold.jawnix.com` in production.
 - For preview branches, include preview domains or use strict wildcard strategy with care.
