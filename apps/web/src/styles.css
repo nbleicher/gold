@@ -1,0 +1,89 @@
+:root {
+  font-family: Inter, system-ui, Arial, sans-serif;
+  color: #f4f4f4;
+  background: #101010;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: #101010;
+}
+
+.app-shell {
+  min-height: 100vh;
+}
+
+.topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 1rem;
+  border-bottom: 1px solid #2a2a2a;
+}
+
+.topbar nav {
+  display: flex;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.topbar a {
+  color: #d6d6d6;
+  text-decoration: none;
+}
+
+.topbar a.active {
+  color: #f4cd76;
+}
+
+.content {
+  padding: 1rem;
+}
+
+.card {
+  background: #151515;
+  border: 1px solid #2a2a2a;
+  border-radius: 8px;
+  padding: 1rem;
+}
+
+.centered {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+}
+
+.login {
+  width: min(420px, 100%);
+  margin: 10vh auto;
+  display: grid;
+  gap: 0.75rem;
+}
+
+input,
+button {
+  padding: 0.6rem;
+  border-radius: 6px;
+  border: 1px solid #333;
+}
+
+button {
+  cursor: pointer;
+}
+
+.error {
+  color: #ff9595;
+  margin: 0;
+}
+
+.grid-form {
+  display: grid;
+  gap: 0.6rem;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  margin-bottom: 0.9rem;
+}

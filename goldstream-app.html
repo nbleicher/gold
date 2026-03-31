@@ -1,0 +1,2079 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>GoldStream Live</title>
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,700;0,900;1,400&family=DM+Mono:wght@300;400;500&family=Cormorant+Garamond:wght@300;400;600&display=swap" rel="stylesheet">
+<style>
+:root {
+  --gold: #C9A84C;
+  --gold-light: #E8C96A;
+  --gold-dark: #8B6914;
+  --gold-pale: #F5E6B2;
+  --gold-glow: rgba(201,168,76,0.15);
+  --obsidian: #080808;
+  --charcoal: #111111;
+  --slate: #181818;
+  --panel: #141414;
+  --border: #222;
+  --border-gold: #2a2010;
+  --muted: #666;
+  --text: #EAE0C8;
+  --text-dim: #8A7D60;
+  --red: #c44;
+  --green: #5a9;
+}
+
+*{margin:0;padding:0;box-sizing:border-box;}
+html,body{height:100%;background:var(--obsidian);color:var(--text);font-family:'DM Mono',monospace;font-size:20px;}
+
+/* ── SHIMMER TOP BAR ── */
+.shimmer-bar{position:fixed;top:0;left:0;width:100%;height:2px;background:linear-gradient(90deg,transparent 0%,var(--gold) 40%,var(--gold-light) 50%,var(--gold) 60%,transparent 100%);background-size:300% 100%;animation:shimmer 2.5s linear infinite;z-index:9999;}
+@keyframes shimmer{0%{background-position:200% 0}100%{background-position:-200% 0}}
+
+/* ── LOGIN SCREEN ── */
+#login-screen{position:fixed;inset:0;background:var(--obsidian);display:flex;align-items:center;justify-content:center;z-index:500;flex-direction:column;gap:0;}
+.login-bg{position:absolute;inset:0;background:radial-gradient(ellipse 80% 60% at 50% 40%,rgba(139,105,20,0.08) 0%,transparent 70%);}
+.login-box{position:relative;width:380px;padding:3rem 2.5rem;border:1px solid var(--gold-dark);background:var(--charcoal);}
+.login-logo{font-family:'Playfair Display',serif;font-size:2rem;font-weight:900;background:linear-gradient(135deg,var(--gold-light),var(--gold),var(--gold-dark));-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;text-align:center;margin-bottom:0.2rem;}
+.login-tagline{text-align:center;font-size:0.58rem;letter-spacing:0.3em;color:var(--gold-dark);text-transform:uppercase;margin-bottom:2.5rem;}
+.login-field{margin-bottom:1rem;}
+.login-label{display:block;font-size:0.6rem;letter-spacing:0.18em;text-transform:uppercase;color:var(--muted);margin-bottom:0.4rem;}
+.login-input{width:100%;background:var(--obsidian);border:1px solid var(--border);color:var(--text);font-family:'DM Mono',monospace;font-size:0.8rem;padding:0.65rem 0.9rem;outline:none;transition:border-color .2s;}
+.login-input:focus{border-color:var(--gold-dark);}
+.login-btn{width:100%;margin-top:0.5rem;background:linear-gradient(135deg,var(--gold-dark),var(--gold));border:none;color:var(--obsidian);font-family:'DM Mono',monospace;font-size:0.7rem;font-weight:500;letter-spacing:0.15em;text-transform:uppercase;padding:0.85rem;cursor:pointer;transition:filter .2s;}
+.login-btn:hover{filter:brightness(1.15);}
+.login-err{font-size:0.65rem;color:var(--red);text-align:center;margin-top:0.75rem;min-height:1rem;}
+
+/* ── APP SHELL ── */
+#app{display:none;height:100vh;flex-direction:column;}
+#app.visible{display:flex;}
+
+/* ── TOP HEADER ── */
+.app-header{background:linear-gradient(180deg,#000 0%,var(--obsidian) 100%);border-bottom:1px solid var(--border-gold);padding:0 1.5rem;flex-shrink:0;display:flex;align-items:center;justify-content:space-between;height:52px;}
+.app-logo{font-family:'Playfair Display',serif;font-size:1.3rem;font-weight:900;background:linear-gradient(135deg,var(--gold-light),var(--gold));-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;}
+.header-center{display:flex;gap:0;}
+.nav-tab{background:none;border:none;color:var(--text-dim);font-family:'DM Mono',monospace;font-size:0.62rem;letter-spacing:0.14em;text-transform:uppercase;padding:0 1.1rem;height:52px;cursor:pointer;border-bottom:2px solid transparent;transition:all .2s;}
+.nav-tab:hover{color:var(--gold-light);}
+.nav-tab.active{color:var(--gold);border-bottom-color:var(--gold);}
+.header-right{display:flex;align-items:center;gap:1rem;}
+.admin-alert{display:none;font-size:0.55rem;letter-spacing:0.12em;text-transform:uppercase;color:#e6b3b3;border:1px solid #5c2d2d;background:rgba(140,50,50,0.18);padding:0.25rem 0.55rem;border-radius:2px;}
+.admin-alert.visible{display:inline-block;}
+.user-pill{font-size:0.6rem;letter-spacing:0.1em;color:var(--text-dim);border:1px solid var(--border);padding:0.3rem 0.7rem;border-radius:20px;}
+.admin-badge{font-size:0.55rem;letter-spacing:0.12em;background:var(--gold-glow);color:var(--gold);border:1px solid var(--gold-dark);padding:0.2rem 0.5rem;border-radius:2px;text-transform:uppercase;}
+.logout-btn{background:none;border:1px solid var(--border);color:var(--muted);font-family:'DM Mono',monospace;font-size:0.58rem;letter-spacing:0.1em;padding:0.35rem 0.75rem;cursor:pointer;transition:all .2s;border-radius:2px;}
+.logout-btn:hover{border-color:var(--red);color:var(--red);}
+
+/* ── LAYOUT ── */
+.app-body{flex:1;overflow:hidden;display:flex;}
+.sidebar{width:180px;background:var(--charcoal);border-right:1px solid var(--border);flex-shrink:0;padding:1.2rem 0;}
+.sidebar-section{font-size:0.52rem;letter-spacing:0.2em;text-transform:uppercase;color:var(--muted);padding:0 1rem 0.5rem;margin-top:0.5rem;}
+.sidebar-btn{display:block;width:100%;background:none;border:none;color:var(--text-dim);font-family:'DM Mono',monospace;font-size:0.65rem;letter-spacing:0.08em;padding:0.55rem 1rem;text-align:left;cursor:pointer;border-left:2px solid transparent;transition:all .15s;}
+.sidebar-btn:hover{color:var(--gold-light);background:rgba(201,168,76,0.04);}
+.sidebar-btn.active{color:var(--gold);border-left-color:var(--gold);background:var(--gold-glow);}
+.main-panel{flex:1;overflow-y:auto;padding:2rem;}
+
+/* ── PAGE TITLES ── */
+.pg-title{font-family:'Playfair Display',serif;font-size:1.8rem;color:var(--gold-light);margin-bottom:0.25rem;}
+.pg-sub{font-size:0.62rem;letter-spacing:0.18em;text-transform:uppercase;color:var(--muted);margin-bottom:1.8rem;}
+
+/* ── CARDS / PANELS ── */
+.card{background:var(--charcoal);border:1px solid var(--border);border-radius:3px;padding:1.5rem;margin-bottom:1.2rem;}
+.card-title{font-size:0.62rem;letter-spacing:0.18em;text-transform:uppercase;color:var(--gold);margin-bottom:1rem;}
+
+/* ── FORM ELEMENTS ── */
+.form-row{display:flex;gap:1rem;margin-bottom:0.9rem;flex-wrap:wrap;align-items:flex-end;}
+.form-group{display:flex;flex-direction:column;gap:0.35rem;flex:1;min-width:140px;}
+.form-label{font-size:0.58rem;letter-spacing:0.15em;text-transform:uppercase;color:var(--muted);}
+.form-input,.form-select{background:var(--obsidian);border:1px solid var(--border);color:var(--text);font-family:'DM Mono',monospace;font-size:0.78rem;padding:0.55rem 0.8rem;outline:none;transition:border-color .2s;width:100%;border-radius:2px;}
+.form-input:focus,.form-select:focus{border-color:var(--gold-dark);}
+.form-select option{background:var(--charcoal);}
+.checkbox-row{display:flex;align-items:center;gap:0.5rem;margin-top:0.5rem;}
+.checkbox-row input[type=checkbox]{width:15px;height:15px;accent-color:var(--gold);cursor:pointer;}
+.checkbox-row label{font-size:0.65rem;color:var(--text-dim);cursor:pointer;}
+
+/* ── BUTTONS ── */
+.btn{border:none;font-family:'DM Mono',monospace;font-size:0.65rem;letter-spacing:0.12em;text-transform:uppercase;padding:0.6rem 1.3rem;cursor:pointer;transition:all .2s;border-radius:2px;}
+.btn-gold{background:linear-gradient(135deg,var(--gold-dark),var(--gold));color:var(--obsidian);font-weight:500;}
+.btn-gold:hover{filter:brightness(1.12);transform:translateY(-1px);}
+.btn-outline{background:none;border:1px solid var(--border);color:var(--muted);}
+.btn-outline:hover{border-color:var(--gold-dark);color:var(--gold);}
+.btn-danger{background:none;border:1px solid transparent;color:#c66;font-size:0.62rem;padding:0.3rem 0.5rem;}
+.btn-danger:hover{color:var(--red);}
+.btn-sm{padding:0.4rem 0.8rem;font-size:0.6rem;}
+.btn-green{background:rgba(85,170,120,0.15);border:1px solid rgba(85,170,120,0.3);color:#5a9;}
+.btn-green:hover{background:rgba(85,170,120,0.25);}
+
+/* ── TABLES ── */
+.tbl-wrap{overflow-x:auto;border:1px solid var(--border);border-radius:3px;}
+.tbl{width:100%;border-collapse:collapse;font-size:0.72rem;}
+.tbl th{background:var(--slate);color:var(--muted);font-size:0.57rem;letter-spacing:0.15em;text-transform:uppercase;padding:0.7rem 0.9rem;text-align:left;border-bottom:1px solid var(--border);white-space:nowrap;}
+.tbl td{padding:0.75rem 0.9rem;border-bottom:1px solid #181818;color:var(--text-dim);vertical-align:middle;}
+.tbl tr:last-child td{border-bottom:none;}
+.tbl tr:hover td{background:rgba(201,168,76,0.025);}
+.tbl-gold{color:var(--gold-light);font-family:'Playfair Display',serif;}
+.tbl-green{color:#5a9;}
+.tbl-empty{text-align:center;padding:3rem;color:var(--muted);font-size:0.7rem;letter-spacing:0.1em;}
+
+/* ── BADGES ── */
+.badge{display:inline-block;padding:0.2rem 0.55rem;border-radius:2px;font-size:0.57rem;letter-spacing:0.1em;text-transform:uppercase;}
+.badge-admin{background:rgba(201,168,76,0.15);color:var(--gold);border:1px solid rgba(201,168,76,0.25);}
+.badge-user{background:rgba(100,120,180,0.12);color:#8899cc;border:1px solid rgba(100,120,180,0.2);}
+.badge-morning{background:rgba(201,168,76,0.1);color:var(--gold);border:1px solid rgba(201,168,76,0.2);}
+.badge-evening{background:rgba(80,80,160,0.12);color:#99a;border:1px solid rgba(80,80,160,0.2);}
+.badge-mixed{background:rgba(120,180,220,0.14);color:#9cc8e6;border:1px solid rgba(120,180,220,0.32);}
+
+/* ── STATS ROW ── */
+.stats-row{display:grid;grid-template-columns:repeat(4,1fr);gap:0.75rem;margin-bottom:1.5rem;}
+.stat-box{background:var(--charcoal);border:1px solid var(--border);border-radius:3px;padding:1rem 1.2rem;}
+.stat-lbl{font-size:0.55rem;letter-spacing:0.2em;text-transform:uppercase;color:var(--muted);margin-bottom:0.35rem;}
+.stat-val{font-family:'Playfair Display',serif;font-size:1.5rem;color:var(--gold-light);line-height:1;}
+.stat-unit{font-size:0.58rem;color:var(--muted);margin-left:0.2rem;}
+
+/* ── DATE GROUP ── */
+.date-group{margin-bottom:1.5rem;}
+.date-group-header{display:flex;align-items:center;gap:0.75rem;margin-bottom:0.6rem;}
+.date-group-label{font-family:'Playfair Display',serif;font-size:1rem;color:var(--gold);}
+.date-line{flex:1;height:1px;background:var(--border);}
+
+/* ── PAYROLL ── */
+.upload-zone{border:2px dashed var(--border);border-radius:4px;padding:2.5rem;text-align:center;cursor:pointer;transition:border-color .2s;margin-bottom:1rem;}
+.upload-zone:hover,.upload-zone.drag{border-color:var(--gold-dark);}
+.upload-icon{font-size:2rem;margin-bottom:0.5rem;opacity:0.4;}
+.upload-text{font-size:0.7rem;color:var(--muted);letter-spacing:0.08em;}
+.upload-hint{font-size:0.6rem;color:var(--muted);opacity:0.6;margin-top:0.3rem;}
+
+/* ── GOLD TICKER ── */
+.spot-ticker{display:flex;align-items:stretch;gap:0.75rem;background:var(--charcoal);border:1px solid var(--gold-dark);border-radius:3px;padding:0.75rem 0.9rem;margin-bottom:1.5rem;flex-wrap:wrap;}
+.spot-card{flex:1;min-width:220px;border:1px solid var(--border);border-radius:3px;background:var(--obsidian);padding:0.7rem 0.85rem;}
+.spot-card.active{border-color:var(--gold-dark);}
+.spot-label{font-size:0.58rem;letter-spacing:0.18em;text-transform:uppercase;color:var(--muted);}
+.spot-price{font-family:'Playfair Display',serif;font-size:2rem;color:var(--gold-light);line-height:1;}
+.spot-change{font-size:0.65rem;}
+.spot-status{font-size:0.52rem;letter-spacing:0.1em;text-transform:uppercase;border:1px solid var(--border);border-radius:2px;padding:0.15rem 0.35rem;color:var(--muted);}
+.spot-status.primary{border-color:rgba(85,170,120,0.4);color:#78b88f;}
+.spot-status.fallback{border-color:rgba(201,168,76,0.4);color:var(--gold);}
+.spot-status.offline{border-color:rgba(200,85,85,0.4);color:#d18888;}
+.spot-up{color:#5a9;}
+.spot-down{color:#c55;}
+.spot-unit{font-size:0.6rem;color:var(--muted);margin-left:0.3rem;}
+.spot-live-dot{width:7px;height:7px;background:#f44;border-radius:50%;animation:pulse 1.5s infinite;margin-left:auto;}
+.spot-live-text{font-size:0.55rem;letter-spacing:0.15em;text-transform:uppercase;color:var(--muted);}
+@keyframes pulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.4;transform:scale(.8)}}
+
+/* ── STREAM SESSION ── */
+.stream-item-row{display:grid;grid-template-columns:1fr 1fr 1fr 50px;gap:0.75rem;align-items:center;padding:0.6rem 0.9rem;border-bottom:1px solid var(--border);}
+.stream-item-row.header{background:var(--slate);font-size:0.57rem;letter-spacing:0.14em;text-transform:uppercase;color:var(--muted);}
+.stream-total{display:flex;justify-content:flex-end;padding:0.75rem 1rem;font-size:0.8rem;color:var(--gold);}
+
+/* ── MODAL ── */
+.modal-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.85);z-index:300;align-items:center;justify-content:center;backdrop-filter:blur(4px);}
+.modal-overlay.open{display:flex;}
+.modal{background:var(--charcoal);border:1px solid var(--gold-dark);border-radius:4px;padding:2rem;width:90%;max-width:480px;position:relative;max-height:90vh;overflow-y:auto;}
+.modal-title{font-family:'Playfair Display',serif;font-size:1.3rem;color:var(--gold-light);margin-bottom:1.2rem;padding-bottom:1rem;border-bottom:1px solid var(--border);}
+.modal-close{position:absolute;top:1rem;right:1rem;background:none;border:none;color:var(--muted);font-size:1.1rem;cursor:pointer;}
+.modal-close:hover{color:var(--gold);}
+.modal-actions{display:flex;gap:0.75rem;margin-top:1.5rem;padding-top:1.2rem;border-top:1px solid var(--border);}
+
+/* ── TOAST ── */
+.toast{position:fixed;bottom:1.5rem;right:1.5rem;background:var(--charcoal);border:1px solid var(--gold-dark);color:var(--gold-light);font-family:'DM Mono',monospace;font-size:0.7rem;padding:0.7rem 1.2rem;border-radius:3px;transform:translateY(80px);opacity:0;transition:all .3s;z-index:999;}
+.toast.show{transform:translateY(0);opacity:1;}
+
+/* ── PAST STREAMS LIST ── */
+.stream-card{background:var(--charcoal);border:1px solid var(--border);border-radius:3px;padding:1rem 1.25rem;margin-bottom:0.75rem;display:flex;align-items:center;gap:1.5rem;cursor:pointer;transition:border-color .2s;}
+.stream-card:hover{border-color:var(--gold-dark);}
+.stream-card-date{font-family:'Playfair Display',serif;font-size:1rem;color:var(--gold-light);min-width:120px;}
+.stream-card-info{flex:1;font-size:0.65rem;color:var(--text-dim);}
+.stream-card-val{font-size:0.8rem;color:#5a9;text-align:right;}
+
+/* ── RESPONSIVE ── */
+@media(max-width:768px){
+  .sidebar{display:none;}
+  .stats-row{grid-template-columns:1fr 1fr;}
+  .form-row{flex-direction:column;}
+}
+</style>
+</head>
+<body>
+<div class="shimmer-bar"></div>
+
+<!-- ══════════════════ LOGIN ══════════════════ -->
+<div id="login-screen">
+  <div class="login-bg"></div>
+  <div class="login-box">
+    <div class="login-logo">⬡ GoldStream</div>
+    <div class="login-tagline">Live Gold · Direct Sales Platform</div>
+    <div class="login-field">
+      <label class="login-label">Username</label>
+      <input class="login-input" id="li-user" type="text" placeholder="username" autocomplete="username">
+    </div>
+    <div class="login-field">
+      <label class="login-label">Password</label>
+      <input class="login-input" id="li-pass" type="password" placeholder="••••••••" autocomplete="current-password" onkeydown="if(event.key==='Enter')doLogin()">
+    </div>
+    <button class="login-btn" onclick="doLogin()">Sign In</button>
+    <div class="login-err" id="login-err"></div>
+  </div>
+</div>
+
+<!-- ══════════════════ APP ══════════════════ -->
+<div id="app">
+  <div class="app-header">
+    <div class="app-logo">⬡ GoldStream Live</div>
+    <div class="header-center" id="main-nav">
+      <!-- tabs injected by JS -->
+    </div>
+    <div class="header-right">
+      <span class="admin-alert" id="admin-source-alert"></span>
+      <span class="user-pill" id="user-pill"></span>
+      <span class="admin-badge" id="admin-badge" style="display:none">Admin</span>
+      <button class="logout-btn" onclick="doLogout()">Sign Out</button>
+    </div>
+  </div>
+
+  <div class="app-body">
+    <div class="sidebar" id="sidebar"></div>
+    <div class="main-panel" id="main-panel"><!-- content here --></div>
+  </div>
+</div>
+
+<!-- ══════════ MODALS ══════════ -->
+<!-- User modal -->
+<div class="modal-overlay" id="user-modal">
+  <div class="modal">
+    <button class="modal-close" onclick="closeModal('user-modal')">✕</button>
+    <div class="modal-title" id="um-title">Add User</div>
+    <div class="form-row">
+      <div class="form-group">
+        <label class="form-label">Username</label>
+        <input class="form-input" id="um-username" placeholder="username">
+      </div>
+    </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label class="form-label">Password</label>
+        <input class="form-input" id="um-password" type="password" placeholder="password">
+      </div>
+    </div>
+    <div class="checkbox-row">
+      <input type="checkbox" id="um-admin">
+      <label for="um-admin">Grant admin privileges</label>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-outline" onclick="closeModal('user-modal')">Cancel</button>
+      <button class="btn btn-gold" onclick="saveUser()">Save User</button>
+    </div>
+  </div>
+</div>
+
+<!-- Inventory batch modal -->
+<div class="modal-overlay" id="batch-modal">
+  <div class="modal">
+    <button class="modal-close" onclick="closeModal('batch-modal')">✕</button>
+    <div class="modal-title">Add Batch — Orders</div>
+    <div class="form-row">
+      <div class="form-group">
+        <label class="form-label">Date</label>
+        <input class="form-input" id="bm-date" type="date">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Metal</label>
+        <select class="form-select" id="bm-metal">
+          <option value="gold">Gold</option>
+          <option value="silver">Silver</option>
+        </select>
+      </div>
+    </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label class="form-label">Amount (grams)</label>
+        <input class="form-input" id="bm-grams" type="number" min="0" step="0.0001" placeholder="0.0000">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Spot at Purchase ($/oz)</label>
+        <input class="form-input" id="bm-spot" type="number" min="0" step="0.01" placeholder="0.00">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Total Cost ($)</label>
+        <input class="form-input" id="bm-cost" type="number" min="0" step="0.01" placeholder="0.00">
+      </div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-outline" onclick="closeModal('batch-modal')">Cancel</button>
+      <button class="btn btn-gold" onclick="saveBatch()">Save Batch</button>
+    </div>
+  </div>
+</div>
+
+<!-- Expense modal -->
+<div class="modal-overlay" id="expense-modal">
+  <div class="modal">
+    <button class="modal-close" onclick="closeModal('expense-modal')">✕</button>
+    <div class="modal-title">Add Expense</div>
+    <div class="form-row">
+      <div class="form-group">
+        <label class="form-label">Date</label>
+        <input class="form-input" id="ex-date" type="date">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Cost ($)</label>
+        <input class="form-input" id="ex-cost" type="number" min="0" step="0.01" placeholder="0.00">
+      </div>
+    </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label class="form-label">Name / Description</label>
+        <input class="form-input" id="ex-name" placeholder="Shipping supplies, ad spend, etc.">
+      </div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-outline" onclick="closeModal('expense-modal')">Cancel</button>
+      <button class="btn btn-gold" onclick="saveExpense()">Save Expense</button>
+    </div>
+  </div>
+</div>
+
+<!-- Schedule stream modal -->
+<div class="modal-overlay" id="schedule-modal">
+  <div class="modal">
+    <button class="modal-close" onclick="closeModal('schedule-modal')">✕</button>
+    <div class="modal-title" id="sc-title">Add Scheduled Stream</div>
+    <div class="form-row">
+      <div class="form-group">
+        <label class="form-label">Date</label>
+        <input class="form-input" id="sc-date" type="date">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Start Time</label>
+        <input class="form-input" id="sc-time" type="time">
+      </div>
+    </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label class="form-label">Streamer</label>
+        <select class="form-select" id="sc-streamer"></select>
+      </div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-outline" onclick="closeModal('schedule-modal')">Cancel</button>
+      <button class="btn btn-gold" onclick="saveScheduleSlot()">Save Stream</button>
+    </div>
+  </div>
+</div>
+
+<!-- Start stream: batch selection -->
+<div class="modal-overlay" id="stream-start-modal">
+  <div class="modal">
+    <button class="modal-close" onclick="closeModal('stream-start-modal')">✕</button>
+    <div class="modal-title">Start stream</div>
+    <p style="font-size:0.65rem;color:var(--muted);margin-bottom:1rem;line-height:1.45;">Choose which batch <strong>raw gram pulls</strong> deduct from. Sticker sales always use the batch tied to that bag.</p>
+    <div class="form-row">
+      <div class="form-group">
+        <label class="form-label">Gold batch</label>
+        <select class="form-select" id="ss-gold"></select>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Silver batch</label>
+        <select class="form-select" id="ss-silver"></select>
+      </div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-outline" onclick="closeModal('stream-start-modal')">Cancel</button>
+      <button class="btn btn-gold" onclick="confirmStartStream()">Start stream</button>
+    </div>
+  </div>
+</div>
+
+<!-- Active stream: swap raw-pull batches -->
+<div class="modal-overlay" id="stream-batch-modal">
+  <div class="modal">
+    <button class="modal-close" onclick="closeModal('stream-batch-modal')">✕</button>
+    <div class="modal-title">Select New Batch</div>
+    <p style="font-size:0.65rem;color:var(--muted);margin-bottom:1rem;line-height:1.45;">Switch raw-pull batches when one runs out. Sticker sales still use the batch tied to each sticker.</p>
+    <div class="form-row">
+      <div class="form-group">
+        <label class="form-label">Gold batch</label>
+        <select class="form-select" id="sb-gold"></select>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Silver batch</label>
+        <select class="form-select" id="sb-silver"></select>
+      </div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-outline" onclick="closeModal('stream-batch-modal')">Cancel</button>
+      <button class="btn btn-gold" onclick="saveActiveStreamBatches()">Save Batches</button>
+    </div>
+  </div>
+</div>
+
+<!-- Stream Item modal (user mode) -->
+<div class="modal-overlay" id="sitem-modal">
+  <div class="modal">
+    <button class="modal-close" onclick="closeModal('sitem-modal')">✕</button>
+    <div class="modal-title">Add Item to Stream</div>
+    <div class="form-row">
+      <div class="form-group">
+        <label class="form-label">Item Name</label>
+        <input class="form-input" id="si-name" placeholder="e.g. 1oz Nugget">
+      </div>
+    </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label class="form-label">Weight (grams)</label>
+        <input class="form-input" id="si-weight" type="number" step="0.0001" placeholder="0.0000" oninput="calcSIValue()">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Spot Value (auto)</label>
+        <input class="form-input" id="si-value" readonly style="color:var(--gold-light);background:rgba(139,105,20,0.08);border-color:var(--gold-dark);" placeholder="$0.00">
+      </div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-outline" onclick="closeModal('sitem-modal')">Cancel</button>
+      <button class="btn btn-gold" onclick="saveStreamItem()">Add to Stream</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+// ═══════════════════════════════════════════════
+//  DATA STORE (localStorage)
+// ═══════════════════════════════════════════════
+const LS = {
+  get(k){try{return JSON.parse(localStorage.getItem('gs_'+k))}catch{return null}},
+  set(k,v){localStorage.setItem('gs_'+k,JSON.stringify(v))},
+};
+
+const DB = {
+  getUsers(){return LS.get('users')||[];},
+  setUsers(v){LS.set('users',v);},
+  getInventory(){return LS.get('inventory')||[];},
+  setInventory(v){LS.set('inventory',v);},
+  getStreams(){return LS.get('streams')||[];},
+  setStreams(v){LS.set('streams',v);},
+  getPayroll(){return LS.get('payroll')||[];},
+  setPayroll(v){LS.set('payroll',v);},
+  getSchedule(){return LS.get('schedule')||{};},
+  setSchedule(v){LS.set('schedule',v);},
+  getExpenses(){return LS.get('expenses')||[];},
+  setExpenses(v){LS.set('expenses',v);},
+  getBagOrders(){return LS.get('bagOrders')||[];},
+  setBagOrders(v){LS.set('bagOrders',v);}
+};
+
+// Editable weight tiers: min inclusive, max exclusive, except last tier uses Infinity.
+// Replace ranges anytime to match your operation; tiers must not overlap.
+const WEIGHT_TIERS = [
+  { min: 0, max: 0.1 },
+  { min: 0.1, max: 0.2 },
+  { min: 0.2, max: 0.3 },
+  { min: 0.3, max: 0.4 },
+  { min: 0.4, max: 0.5 },
+  { min: 0.5, max: 0.6 },
+  { min: 0.6, max: 0.7 },
+  { min: 0.7, max: 0.8 },
+  { min: 0.8, max: 0.9 },
+  { min: 0.9, max: 1.0 },
+  { min: 1.0, max: 1.5 },
+  { min: 1.5, max: 2.001 },
+  { min: 2.001, max: Infinity }
+];
+
+function getTierIndex(weightGrams, tiers){
+  const w = parseFloat(weightGrams);
+  if (!(w >= 0) || isNaN(w)) return null;
+  for (let i = 0; i < tiers.length; i++) {
+    const t = tiers[i];
+    const hi = t.max === Infinity ? Infinity : t.max;
+    if (w >= t.min && (hi === Infinity ? w <= hi : w < hi)) return i + 1;
+  }
+  return null;
+}
+
+function seqFromIndex(idx){
+  let n = idx;
+  let out = '';
+  while (n >= 0) {
+    out = String.fromCharCode(65 + (n % 26)) + out;
+    n = Math.floor(n / 26) - 1;
+  }
+  return out || 'A';
+}
+
+function nextStickerSeqForBatchTier(batchId, tierIndex){
+  const bags = DB.getBagOrders().filter(b => b.batchId === batchId && b.tierIndex === tierIndex);
+  return bags.length;
+}
+
+function suggestStickerLetterForMetal(metal, excludeBatchId){
+  const batches = DB.getInventory().filter(b => b.metal === metal && b.id !== excludeBatchId);
+  const used = new Set(batches.map(b => (b.stickerBatchLetter || '').toUpperCase()).filter(Boolean));
+  for (let c = 65; c <= 90; c++) {
+    const L = String.fromCharCode(c);
+    if (!used.has(L)) return L;
+  }
+  return 'X';
+}
+
+function migrateInventoryBatches(){
+  const prev = DB.getInventory();
+  const items = prev.map(b => {
+    const rem = b.remainingGrams != null && !isNaN(parseFloat(b.remainingGrams)) ? parseFloat(b.remainingGrams) : parseFloat(b.grams) || 0;
+    const letter = (b.stickerBatchLetter && String(b.stickerBatchLetter).trim()) ? String(b.stickerBatchLetter).toUpperCase().slice(0, 1) : '';
+    return { ...b, remainingGrams: rem, stickerBatchLetter: letter };
+  });
+  const used = { gold: new Set(), silver: new Set() };
+  ['gold', 'silver'].forEach(metal => {
+    const metalBatches = items.filter(b => b.metal === metal).sort((a, b) =>
+      (a.date || '').localeCompare(b.date || '') || (a.batchNumber || 0) - (b.batchNumber || 0));
+    metalBatches.forEach(b => {
+      let L = b.stickerBatchLetter;
+      if (!L || L.length !== 1 || used[metal].has(L)) {
+        L = '';
+        for (let c = 65; c <= 90; c++) {
+          const ch = String.fromCharCode(c);
+          if (!used[metal].has(ch)) { L = ch; break; }
+        }
+        if (!L) L = 'X';
+      }
+      used[metal].add(L);
+      b.stickerBatchLetter = L;
+    });
+  });
+  if (JSON.stringify(prev) !== JSON.stringify(items)) DB.setInventory(items);
+}
+
+function findBagOrderByStickerCode(code){
+  if (!code || typeof code !== 'string') return null;
+  const norm = code.trim().toUpperCase();
+  return DB.getBagOrders().find(b => (b.stickerCode || '').toUpperCase() === norm) || null;
+}
+
+function isStickerSoldInStreams(stickerCode){
+  const norm = (stickerCode || '').toUpperCase();
+  const streams = DB.getStreams();
+  for (const st of streams) {
+    for (const it of st.items || []) {
+      if ((it.saleType || '') === 'sticker' && String(it.stickerCode || '').toUpperCase() === norm) return true;
+    }
+  }
+  return false;
+}
+
+function getBatchById(id){
+  return DB.getInventory().find(b => b.id === id) || null;
+}
+
+function persistBatch(batch){
+  const items = DB.getInventory().map(b => b.id === batch.id ? batch : b);
+  DB.setInventory(items);
+}
+
+// Seed default admin if no users
+function seedData(){
+  if(!LS.get('users')){
+    DB.setUsers([{id:uid(),username:'admin',password:'admin123',isAdmin:true}]);
+  }
+  if(!LS.get('inventory')) DB.setInventory([]);
+  if(!LS.get('streams')) DB.setStreams([]);
+  if(!LS.get('payroll')) DB.setPayroll([]);
+  if(!LS.get('schedule')) DB.setSchedule({});
+  if(!LS.get('expenses')) DB.setExpenses([]);
+  if(!LS.get('bagOrders')) DB.setBagOrders([]);
+}
+function uid(){return Math.random().toString(36).slice(2,10);}
+seedData();
+migrateInventoryBatches();
+
+// ═══════════════════════════════════════════════
+//  AUTH
+// ═══════════════════════════════════════════════
+let currentUser = null;
+let currentMode = 'user-mode';
+
+function doLogin(){
+  const u = document.getElementById('li-user').value.trim();
+  const p = document.getElementById('li-pass').value;
+  const users = DB.getUsers();
+  const found = users.find(x=>x.username===u && x.password===p);
+  if(!found){document.getElementById('login-err').textContent='Invalid username or password.';return;}
+  currentUser = found;
+  document.getElementById('login-screen').style.display='none';
+  document.getElementById('app').classList.add('visible');
+  document.getElementById('user-pill').textContent = found.username;
+  currentMode = found.isAdmin ? 'admin' : 'user-mode';
+  document.getElementById('admin-badge').style.display = (found.isAdmin && currentMode==='admin') ? 'inline-block':'none';
+  hideAdminSourceAlert();
+  buildNav();
+}
+
+function doLogout(){
+  currentUser=null;
+  document.getElementById('login-screen').style.display='flex';
+  document.getElementById('app').classList.remove('visible');
+  document.getElementById('li-user').value='';
+  document.getElementById('li-pass').value='';
+  document.getElementById('login-err').textContent='';
+  hideAdminSourceAlert();
+}
+
+// ═══════════════════════════════════════════════
+//  NAV
+// ═══════════════════════════════════════════════
+let currentSection = '';
+
+function buildNav(){
+  const nav = document.getElementById('main-nav');
+  const sidebar = document.getElementById('sidebar');
+  nav.innerHTML='';
+  sidebar.innerHTML='';
+
+  if(currentUser.isAdmin){
+    const tabs = [{id:'admin', label:'Admin'},{id:'user-mode', label:'User Mode'}];
+    tabs.forEach(t=>{
+      const btn = document.createElement('button');
+      btn.className='nav-tab'+(t.id===currentMode?' active':'');
+      btn.textContent=t.label;
+      btn.onclick=()=>switchMode(t.id,btn);
+      nav.appendChild(btn);
+    });
+    if(currentMode==='admin'){
+      document.getElementById('admin-badge').style.display='inline-block';
+      buildAdminSidebar();
+      showSection('users');
+    } else {
+      document.getElementById('admin-badge').style.display='inline-block';
+      hideAdminSourceAlert();
+      buildUserSidebar();
+      showSection('my-streams');
+    }
+  } else {
+    // Non-admin goes straight to user mode
+    document.getElementById('admin-badge').style.display='none';
+    hideAdminSourceAlert();
+    buildUserSidebar();
+    showSection('my-streams');
+  }
+}
+
+function switchMode(mode, btn){
+  currentMode=mode;
+  document.querySelectorAll('.nav-tab').forEach(b=>b.classList.remove('active'));
+  if(btn) btn.classList.add('active');
+  buildNav();
+}
+
+function buildAdminSidebar(){
+  const sb = document.getElementById('sidebar');
+  sb.innerHTML=`
+    <div class="sidebar-section">Management</div>
+    <button class="sidebar-btn active" onclick="showSection('users',this)">👤 User Management</button>
+    <button class="sidebar-btn" onclick="showSection('inventory-mgmt',this)">📋 Orders</button>
+    <button class="sidebar-btn" onclick="showSection('orders',this)">📦 Inventory Management</button>
+    <button class="sidebar-btn" onclick="showSection('expenses',this)">🧾 Expenses</button>
+    <button class="sidebar-btn" onclick="showSection('payroll',this)">💰 Payroll</button>
+    <div class="sidebar-section" style="margin-top:1rem;">Tools</div>
+    <button class="sidebar-btn" onclick="showSection('schedule',this)">📅 Schedule</button>
+    <button class="sidebar-btn" onclick="showSection('stream-log',this)">📋 Stream Log</button>
+  `;
+}
+
+function buildUserSidebar(){
+  const sb = document.getElementById('sidebar');
+  sb.innerHTML=`
+    <div class="sidebar-section">Streams</div>
+    <button class="sidebar-btn active" onclick="showSection('my-streams',this)">🎬 My Streams</button>
+    <button class="sidebar-btn" onclick="showSection('schedule',this)">📅 Schedule</button>
+  `;
+}
+
+function showSection(id, btn){
+  currentSection=id;
+  if(btn){
+    document.querySelectorAll('.sidebar-btn').forEach(b=>b.classList.remove('active'));
+    btn.classList.add('active');
+  }
+  const p = document.getElementById('main-panel');
+  const renders = {
+    users: renderUsers,
+    orders: renderOrders,
+    'inventory-mgmt': renderInventoryMgmt,
+    expenses: renderExpenses,
+    payroll: renderPayroll,
+    schedule: renderSchedule,
+    'stream-log': renderStreamLog,
+    'my-streams': renderMyStreams,
+    'active-stream': renderActiveStream,
+  };
+  if(renders[id]) renders[id]();
+}
+
+// ═══════════════════════════════════════════════
+//  ADMIN — USER MANAGEMENT
+// ═══════════════════════════════════════════════
+let editingUserId = null;
+
+function renderUsers(){
+  const users = DB.getUsers();
+  const panel = document.getElementById('main-panel');
+  panel.innerHTML=`
+    <div class="pg-title">User Management</div>
+    <div class="pg-sub">Add and manage platform users</div>
+    <div style="display:flex;justify-content:flex-end;margin-bottom:1rem;">
+      <button class="btn btn-gold" onclick="openUserModal()">+ Add User</button>
+    </div>
+    <div class="tbl-wrap">
+      <table class="tbl">
+        <thead><tr><th>Username</th><th>Role</th><th>ID</th><th></th></tr></thead>
+        <tbody id="users-body"></tbody>
+      </table>
+    </div>`;
+  const tbody = document.getElementById('users-body');
+  if(!users.length){tbody.innerHTML=`<tr><td colspan="4" class="tbl-empty">No users yet</td></tr>`;return;}
+  users.forEach(u=>{
+    const tr=document.createElement('tr');
+    tr.innerHTML=`
+      <td class="tbl-gold">${u.username}</td>
+      <td><span class="badge ${u.isAdmin?'badge-admin':'badge-user'}">${u.isAdmin?'Admin':'User'}</span></td>
+      <td style="font-size:0.6rem;color:var(--muted);">${u.id}</td>
+      <td style="display:flex;gap:0.5rem;">
+        <button class="btn btn-outline btn-sm" onclick="openUserModal('${u.id}')">Edit</button>
+        ${u.id!==currentUser.id?`<button class="btn btn-danger" onclick="deleteUser('${u.id}')">✕</button>`:''}
+      </td>`;
+    tbody.appendChild(tr);
+  });
+}
+
+function openUserModal(id=null){
+  editingUserId=id;
+  document.getElementById('um-title').textContent = id?'Edit User':'Add User';
+  if(id){
+    const u=DB.getUsers().find(x=>x.id===id);
+    if(u){
+      document.getElementById('um-username').value=u.username;
+      document.getElementById('um-password').value=u.password;
+      document.getElementById('um-admin').checked=u.isAdmin;
+    }
+  } else {
+    document.getElementById('um-username').value='';
+    document.getElementById('um-password').value='';
+    document.getElementById('um-admin').checked=false;
+  }
+  openModal('user-modal');
+}
+
+function saveUser(){
+  const username=document.getElementById('um-username').value.trim();
+  const password=document.getElementById('um-password').value;
+  const isAdmin=document.getElementById('um-admin').checked;
+  if(!username||!password){showToast('Username and password required.');return;}
+  let users=DB.getUsers();
+  if(editingUserId){
+    users=users.map(u=>u.id===editingUserId?{...u,username,password,isAdmin}:u);
+    showToast('User updated ✓');
+  } else {
+    if(users.find(u=>u.username===username)){showToast('Username already exists.');return;}
+    users.push({id:uid(),username,password,isAdmin});
+    showToast('User created ✓');
+  }
+  DB.setUsers(users);
+  closeModal('user-modal');
+  renderUsers();
+}
+
+function deleteUser(id){
+  if(!confirm('Delete this user?')) return;
+  DB.setUsers(DB.getUsers().filter(u=>u.id!==id));
+  renderUsers();
+  showToast('User deleted');
+}
+
+// ═══════════════════════════════════════════════
+//  ADMIN — INVENTORY MANAGEMENT (bagger / stickers) — section id: orders
+// ═══════════════════════════════════════════════
+function renderOrders(){
+  const batches = DB.getInventory();
+  const bags = DB.getBagOrders().slice().sort((a,b)=>(b.createdAt||0)-(a.createdAt||0));
+  const panel = document.getElementById('main-panel');
+  const goldOpts = batches.filter(b=>b.metal==='gold' && parseFloat(b.remainingGrams)>0)
+    .map(b=>`<option value="${b.id}">${b.batchName} · ${parseFloat(b.remainingGrams).toFixed(4)}g left</option>`).join('');
+  const silverOpts = batches.filter(b=>b.metal==='silver' && parseFloat(b.remainingGrams)>0)
+    .map(b=>`<option value="${b.id}">${b.batchName} · ${parseFloat(b.remainingGrams).toFixed(4)}g left</option>`).join('');
+  panel.innerHTML=`
+    <div class="pg-title">Inventory Management</div>
+    <div class="pg-sub">Bag from a batch · weight sets tier · sticker code auto-assigned</div>
+    <div class="card">
+      <div class="card-title">New bag</div>
+      <div class="form-row">
+        <div class="form-group" style="min-width:120px;">
+          <label class="form-label">Metal</label>
+          <select class="form-select" id="ord-metal" onchange="renderOrdersMetalBatches()">
+            <option value="gold">Gold</option>
+            <option value="silver">Silver</option>
+          </select>
+        </div>
+        <div class="form-group" style="flex:2;min-width:200px;">
+          <label class="form-label">Batch</label>
+          <select class="form-select" id="ord-batch">${goldOpts||'<option value="">No gold batches with stock</option>'}</select>
+        </div>
+        <div class="form-group" style="min-width:140px;">
+          <label class="form-label">Weight (g)</label>
+          <input class="form-input" id="ord-weight" type="number" min="0" step="0.0001" placeholder="0.0000">
+        </div>
+        <div class="form-group" style="min-width:120px;align-self:flex-end;">
+          <button class="btn btn-gold" type="button" onclick="saveBagOrder()">Create sticker</button>
+        </div>
+      </div>
+      <div class="form-row" style="margin-top:-0.2rem;margin-bottom:0.55rem;">
+        <label style="cursor:pointer;display:flex;align-items:center;gap:0.5rem;font-size:0.68rem;color:var(--text-dim);">
+          <input type="checkbox" id="ord-mixed" onchange="toggleOrderMixedMode()">
+          Add second metal to same bag (gold + silver)
+        </label>
+      </div>
+      <div id="ord-mixed-row" style="display:none;">
+        <div class="form-row">
+          <div class="form-group" style="min-width:180px;">
+            <label class="form-label">Second metal batch</label>
+            <select class="form-select" id="ord-batch-mixed"></select>
+          </div>
+          <div class="form-group" style="min-width:140px;">
+            <label class="form-label">Second metal weight (g)</label>
+            <input class="form-input" id="ord-weight-mixed" type="number" min="0" step="0.0001" placeholder="0.0000">
+          </div>
+        </div>
+      </div>
+      <div id="ord-preview" style="font-size:0.7rem;color:var(--muted);">Tier preview updates from weight (see WEIGHT_TIERS in code).</div>
+    </div>
+    <div class="pg-sub" style="margin-top:0.5rem;">Recent bags</div>
+    <div class="tbl-wrap">
+      <table class="tbl">
+        <thead><tr><th>Sticker</th><th>Batch</th><th>Metal</th><th>Weight (g)</th><th>Tier</th><th>Created</th><th>Status</th><th></th></tr></thead>
+        <tbody>${bags.length?bags.map(bg=>{
+          const bch=getBatchById(bg.batchId);
+          const batchLabel=(bg.components&&bg.components.length)
+            ? bg.components.map(c=>{const bx=getBatchById(c.batchId);return bx?`${bx.batchName} (${parseFloat(c.weightGrams).toFixed(4)}g)`:'—';}).join(' + ')
+            : (bch?bch.batchName:'—');
+          const sold=isStickerSoldInStreams(bg.stickerCode);
+          return`<tr>
+            <td class="tbl-gold">${bg.stickerCode||'—'}</td>
+            <td>${batchLabel}</td>
+            <td>${(bg.metal||'').charAt(0).toUpperCase()+(bg.metal||'').slice(1)}</td>
+            <td>${parseFloat(bg.actualWeightGrams).toFixed(4)}</td>
+            <td>${bg.tierIndex!=null?bg.tierIndex:'—'}</td>
+            <td style="font-size:0.62rem;color:var(--muted);">${bg.createdAt?new Date(bg.createdAt).toLocaleString():'—'}</td>
+            <td>${sold?'<span class="badge badge-evening">Sold</span>':'<span class="badge badge-morning">Open</span>'}</td>
+            <td><button class="btn btn-danger" onclick="deleteBagOrder('${bg.id}')">✕</button></td>
+          </tr>`;
+        }).join(''):`<tr><td colspan="8" class="tbl-empty">No bag orders yet</td></tr>`}
+        </tbody>
+      </table>
+    </div>`;
+  const wEl=document.getElementById('ord-weight');
+  if(wEl) wEl.addEventListener('input', updateOrderTierPreview);
+  const w2El=document.getElementById('ord-weight-mixed');
+  if(w2El) w2El.addEventListener('input', updateOrderTierPreview);
+  renderOrdersMetalBatches();
+  updateOrderTierPreview();
+}
+
+function renderOrdersMetalBatches(){
+  const metal=document.getElementById('ord-metal').value;
+  const metal2=metal==='gold'?'silver':'gold';
+  const sel=document.getElementById('ord-batch');
+  const sel2=document.getElementById('ord-batch-mixed');
+  const batches=DB.getInventory().filter(b=>b.metal===metal && parseFloat(b.remainingGrams)>0);
+  sel.innerHTML=batches.length
+    ? batches.map(b=>`<option value="${b.id}">${b.batchName} · ${parseFloat(b.remainingGrams).toFixed(4)}g left</option>`).join('')
+    : `<option value="">No ${metal} batches with stock</option>`;
+  if(sel2){
+    const batches2=DB.getInventory().filter(b=>b.metal===metal2 && parseFloat(b.remainingGrams)>0);
+    sel2.innerHTML=batches2.length
+      ? batches2.map(b=>`<option value="${b.id}">${b.batchName} · ${parseFloat(b.remainingGrams).toFixed(4)}g left</option>`).join('')
+      : `<option value="">No ${metal2} batches with stock</option>`;
+  }
+  updateOrderTierPreview();
+}
+
+function toggleOrderMixedMode(){
+  const on=!!document.getElementById('ord-mixed')?.checked;
+  const row=document.getElementById('ord-mixed-row');
+  if(row) row.style.display=on?'block':'none';
+  updateOrderTierPreview();
+}
+
+function updateOrderTierPreview(){
+  const el=document.getElementById('ord-preview');
+  if(!el) return;
+  const w=parseFloat(document.getElementById('ord-weight')?.value)||0;
+  const mixed=!!document.getElementById('ord-mixed')?.checked;
+  const w2=mixed?(parseFloat(document.getElementById('ord-weight-mixed')?.value)||0):0;
+  const total=w+w2;
+  const t=total>0?getTierIndex(total,WEIGHT_TIERS):null;
+  el.textContent=t!=null
+    ? `Matched tier index: ${t} (total ${total.toFixed(4)} g${mixed?`, primary ${w.toFixed(4)} g + second ${w2.toFixed(4)} g`:''})`
+    : (total>0?'Weight outside configured tiers — adjust WEIGHT_TIERS or weight.':'Enter weight to preview tier.');
+}
+
+function saveBagOrder(){
+  const metal=document.getElementById('ord-metal').value;
+  const mixed=!!document.getElementById('ord-mixed')?.checked;
+  const secondMetal=metal==='gold'?'silver':'gold';
+  const batchId=document.getElementById('ord-batch').value;
+  const weight=parseFloat(document.getElementById('ord-weight').value);
+  const batchId2=document.getElementById('ord-batch-mixed')?.value||'';
+  const weight2=mixed?(parseFloat(document.getElementById('ord-weight-mixed')?.value)||0):0;
+  if(!batchId){showToast('Select a batch with remaining stock.');return;}
+  if(!(weight>0)){showToast('Enter weight (g).');return;}
+  if(mixed){
+    if(!batchId2){showToast('Select a second-metal batch.');return;}
+    if(!(weight2>0)){showToast('Enter second-metal weight (g).');return;}
+  }
+  const batch=getBatchById(batchId);
+  if(!batch||batch.metal!==metal){showToast('Invalid batch.');return;}
+  const batch2=mixed?getBatchById(batchId2):null;
+  if(mixed && (!batch2||batch2.metal!==secondMetal)){showToast('Invalid second-metal batch.');return;}
+  const totalWeight=weight+weight2;
+  const tierIndex=getTierIndex(totalWeight,WEIGHT_TIERS);
+  if(tierIndex==null){showToast('Weight does not match any tier.');return;}
+  const rem=parseFloat(batch.remainingGrams)||0;
+  if(rem+1e-9<weight){showToast('Not enough remaining in batch.');return;}
+  if(mixed){
+    const rem2=parseFloat(batch2.remainingGrams)||0;
+    if(rem2+1e-9<weight2){showToast('Not enough remaining in second-metal batch.');return;}
+  }
+  const seq=nextStickerSeqForBatchTier(batchId,tierIndex);
+  const stickerCode=(batch.stickerBatchLetter||'X')+tierIndex+seqFromIndex(seq);
+  const components=[{batchId,metal,weightGrams:weight}];
+  if(mixed) components.push({batchId:batchId2,metal:secondMetal,weightGrams:weight2});
+  const bags=DB.getBagOrders();
+  bags.push({
+    id:uid(),
+    batchId,
+    metal:mixed?'mixed':metal,
+    actualWeightGrams:totalWeight,
+    tierIndex,
+    stickerCode,
+    components,
+    createdAt:Date.now()
+  });
+  DB.setBagOrders(bags);
+  batch.remainingGrams=rem-weight;
+  persistBatch(batch);
+  if(mixed){
+    const rem2=parseFloat(batch2.remainingGrams)||0;
+    batch2.remainingGrams=rem2-weight2;
+    persistBatch(batch2);
+  }
+  document.getElementById('ord-weight').value='';
+  const w2El=document.getElementById('ord-weight-mixed');
+  if(w2El) w2El.value='';
+  showToast('Sticker '+stickerCode+' ✓');
+  renderOrders();
+}
+
+
+function deleteBagOrder(bagId){
+  const bags=DB.getBagOrders();
+  const bag=bags.find(b=>b.id===bagId);
+  if(!bag){showToast('Bag order not found.');return;}
+  if(isStickerSoldInStreams(bag.stickerCode)){showToast('Cannot delete: sticker already sold in stream log.');return;}
+  if(!confirm('Delete bag order '+(bag.stickerCode||'')+'?')) return;
+  DB.setBagOrders(bags.filter(b=>b.id!==bagId));
+  if(bag.components&&bag.components.length){
+    bag.components.forEach(c=>{
+      const bx=getBatchById(c.batchId);
+      if(!bx) return;
+      bx.remainingGrams=(parseFloat(bx.remainingGrams)||0)+(parseFloat(c.weightGrams)||0);
+      persistBatch(bx);
+    });
+  }else{
+    const batch=getBatchById(bag.batchId);
+    if(batch){
+      batch.remainingGrams=(parseFloat(batch.remainingGrams)||0)+(parseFloat(bag.actualWeightGrams)||0);
+      persistBatch(batch);
+    }
+  }
+  showToast('Bag order deleted');
+  renderOrders();
+}
+
+// ═══════════════════════════════════════════════
+//  ADMIN — ORDERS (metal batches) — section id: inventory-mgmt
+// ═══════════════════════════════════════════════
+function renderInventoryMgmt(){
+  const items = DB.getInventory().sort((a,b)=>b.date.localeCompare(a.date));
+  const panel = document.getElementById('main-panel');
+
+  const totalCost = items.reduce((s,i)=>s+(parseFloat(i.totalCost)||0),0);
+  const totalGrams = items.reduce((s,i)=>s+(parseFloat(i.grams)||0),0);
+  const totalRem = items.reduce((s,i)=>s+(parseFloat(i.remainingGrams)||0),0);
+
+  panel.innerHTML=`
+    <div class="pg-title">Orders</div>
+    <div class="pg-sub">Metal batches · remaining weight after bagging & stream sales</div>
+    <div class="stats-row" style="grid-template-columns:repeat(4,1fr);">
+      <div class="stat-box"><div class="stat-lbl">Total Batches</div><div class="stat-val">${items.length}</div></div>
+      <div class="stat-box"><div class="stat-lbl">Purchased (g)</div><div class="stat-val">${totalGrams.toFixed(2)}<span class="stat-unit">g</span></div></div>
+      <div class="stat-box"><div class="stat-lbl">Remaining (g)</div><div class="stat-val">${totalRem.toFixed(2)}<span class="stat-unit">g</span></div></div>
+      <div class="stat-box"><div class="stat-lbl">Total Cost</div><div class="stat-val">$${totalCost.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})}</div></div>
+    </div>
+    <div style="display:flex;justify-content:flex-end;margin-bottom:1rem;">
+      <button class="btn btn-gold" onclick="openBatchModal()">+ Add Batch</button>
+    </div>
+    <div id="inv-groups"></div>`;
+
+  const byDate={};
+  items.forEach(i=>{if(!byDate[i.date])byDate[i.date]=[];byDate[i.date].push(i);});
+  const grpEl = document.getElementById('inv-groups');
+  const dates = Object.keys(byDate).sort((a,b)=>b.localeCompare(a));
+  if(!dates.length){grpEl.innerHTML=`<div style="text-align:center;padding:3rem;color:var(--muted);font-size:0.7rem;">No batches yet</div>`;return;}
+  dates.forEach(date=>{
+    const groupItems=byDate[date];
+    const dtLabel=new Date(date+'T12:00:00').toLocaleDateString('en-US',{weekday:'short',month:'long',day:'numeric',year:'numeric'});
+    const groupTotal=groupItems.reduce((s,i)=>s+(parseFloat(i.totalCost)||0),0);
+    const wrap=document.createElement('div');
+    wrap.className='date-group';
+    wrap.innerHTML=`
+      <div class="date-group-header">
+        <span class="date-group-label">${dtLabel}</span>
+        <div class="date-line"></div>
+        <span style="font-size:0.65rem;color:var(--muted);">$${groupTotal.toFixed(2)} total</span>
+      </div>
+      <div class="tbl-wrap">
+        <table class="tbl">
+          <thead><tr><th>Batch</th><th>Code</th><th>Metal</th><th>Purchased (g)</th><th>Remaining (g)</th><th>Spot @ Buy</th><th>Total Cost</th><th></th></tr></thead>
+          <tbody>${groupItems.map(i=>`
+            <tr>
+              <td class="tbl-gold">${i.batchName}</td>
+              <td><input class="form-input" style="max-width:3.2rem;padding:0.35rem 0.5rem;text-align:center;text-transform:uppercase;" maxlength="1" value="${(i.stickerBatchLetter||'').replace(/"/g,'')}" data-batch-id="${i.id}" onchange="updateBatchStickerLetter('${i.id}',this.value)"></td>
+              <td>${i.metal[0].toUpperCase()+i.metal.slice(1)}</td>
+              <td>${parseFloat(i.grams).toFixed(4)}</td>
+              <td class="tbl-green">${parseFloat(i.remainingGrams!=null?i.remainingGrams:i.grams).toFixed(4)}</td>
+              <td>$${parseFloat(i.purchaseSpot).toFixed(2)}</td>
+              <td class="tbl-green">$${parseFloat(i.totalCost).toFixed(2)}</td>
+              <td><button class="btn btn-danger" onclick="deleteBatch('${i.id}')">✕</button></td>
+            </tr>`).join('')}
+          </tbody>
+        </table>
+      </div>`;
+    grpEl.appendChild(wrap);
+  });
+}
+
+function updateBatchStickerLetter(batchId, letter){
+  const L=(letter||'').trim().toUpperCase().slice(0,1);
+  if(!L||L<'A'||L>'Z'){showToast('Use letters A–Z.');renderInventoryMgmt();return;}
+  const items=DB.getInventory();
+  const b=items.find(x=>x.id===batchId);
+  if(!b) return;
+  const conflict=items.some(x=>x.id!==batchId&&x.metal===b.metal&&(x.stickerBatchLetter||'').toUpperCase()===L);
+  if(conflict){showToast('That letter is already used for this metal.');renderInventoryMgmt();return;}
+  b.stickerBatchLetter=L;
+  DB.setInventory(items.map(x=>x.id===batchId?b:x));
+  showToast('Batch code updated');
+  renderInventoryMgmt();
+}
+
+function openBatchModal(){
+  const d=document.getElementById('bm-date');
+  if(d && !d.value) d.value=fmtDate(new Date());
+  document.getElementById('bm-metal').value='gold';
+  document.getElementById('bm-grams').value='';
+  document.getElementById('bm-spot').value='';
+  document.getElementById('bm-cost').value='';
+  openModal('batch-modal');
+}
+
+function saveBatch(){
+  const date=document.getElementById('bm-date').value;
+  const metal=document.getElementById('bm-metal').value;
+  const grams=parseFloat(document.getElementById('bm-grams').value);
+  const purchaseSpot=parseFloat(document.getElementById('bm-spot').value);
+  const totalCost=parseFloat(document.getElementById('bm-cost').value);
+  if(!date || !metal || !(grams>0) || !(purchaseSpot>=0) || !(totalCost>=0)){showToast('All fields required.');return;}
+  const items=DB.getInventory();
+  const nextIndex=items.filter(i=>i.metal===metal).length+1;
+  const label=metal[0].toUpperCase()+metal.slice(1);
+  const stickerBatchLetter=suggestStickerLetterForMetal(metal,null);
+  items.push({
+    id:uid(),
+    date,
+    metal,
+    grams,
+    remainingGrams:grams,
+    purchaseSpot,
+    totalCost,
+    batchNumber:nextIndex,
+    batchName:label+' Batch #'+nextIndex,
+    stickerBatchLetter
+  });
+  DB.setInventory(items);
+  closeModal('batch-modal');
+  if(currentSection==='inventory-mgmt') renderInventoryMgmt();
+  if(currentSection==='orders') renderOrders();
+  showToast('Batch added ✓');
+}
+
+function deleteBatch(id){
+  if(!confirm('Remove this batch?'))return;
+  DB.setInventory(DB.getInventory().filter(i=>i.id!==id));
+  DB.setBagOrders(DB.getBagOrders().filter(b=>b.batchId!==id));
+  if(currentSection==='inventory-mgmt') renderInventoryMgmt();
+  else if(currentSection==='orders') renderOrders();
+  showToast('Batch removed');
+}
+
+// ═══════════════════════════════════════════════
+//  ADMIN — EXPENSES
+// ═══════════════════════════════════════════════
+function renderExpenses(){
+  const items=DB.getExpenses().sort((a,b)=>b.date.localeCompare(a.date));
+  const panel=document.getElementById('main-panel');
+  const total=items.reduce((s,i)=>s+(parseFloat(i.cost)||0),0);
+  panel.innerHTML=`
+    <div class="pg-title">Expenses</div>
+    <div class="pg-sub">Track operating expenses by date</div>
+    <div class="stats-row" style="grid-template-columns:repeat(2,1fr);">
+      <div class="stat-box"><div class="stat-lbl">Total Expenses</div><div class="stat-val">${items.length}</div></div>
+      <div class="stat-box"><div class="stat-lbl">Total Cost</div><div class="stat-val">$${total.toFixed(2)}</div></div>
+    </div>
+    <div style="display:flex;justify-content:flex-end;margin-bottom:1rem;">
+      <button class="btn btn-gold" onclick="openExpenseModal()">+ Add Expense</button>
+    </div>
+    <div class="tbl-wrap">
+      <table class="tbl">
+        <thead><tr><th>Date</th><th>Description</th><th>Cost</th><th></th></tr></thead>
+        <tbody>${items.length?items.map(i=>`
+          <tr>
+            <td>${new Date(i.date+'T12:00:00').toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'})}</td>
+            <td class="tbl-gold">${i.name}</td>
+            <td class="tbl-green">$${parseFloat(i.cost).toFixed(2)}</td>
+            <td><button class="btn btn-danger" onclick="deleteExpense('${i.id}')">✕</button></td>
+          </tr>`).join(''):`<tr><td colspan="4" class="tbl-empty">No expenses recorded</td></tr>`}
+        </tbody>
+      </table>
+    </div>`;
+}
+
+function openExpenseModal(){
+  const d=document.getElementById('ex-date');
+  if(d && !d.value) d.value=fmtDate(new Date());
+  document.getElementById('ex-name').value='';
+  document.getElementById('ex-cost').value='';
+  openModal('expense-modal');
+}
+
+function saveExpense(){
+  const date=document.getElementById('ex-date').value;
+  const name=document.getElementById('ex-name').value.trim();
+  const cost=parseFloat(document.getElementById('ex-cost').value);
+  if(!date || !name || !(cost>=0)){showToast('All fields required.');return;}
+  const items=DB.getExpenses();
+  items.push({id:uid(),date,name,cost});
+  DB.setExpenses(items);
+  closeModal('expense-modal');
+  renderExpenses();
+  showToast('Expense added ✓');
+}
+
+function deleteExpense(id){
+  if(!confirm('Remove this expense?'))return;
+  DB.setExpenses(DB.getExpenses().filter(i=>i.id!==id));
+  renderExpenses();
+  showToast('Expense removed');
+}
+
+// ═══════════════════════════════════════════════
+//  ADMIN — PAYROLL
+// ═══════════════════════════════════════════════
+let payrollData=[];
+
+function renderPayroll(){
+  const users=DB.getUsers();
+  const records=DB.getPayroll();
+  const panel=document.getElementById('main-panel');
+  panel.innerHTML=`
+    <div class="pg-title">Payroll</div>
+    <div class="pg-sub">Import CSV & assign to user</div>
+    <div class="card">
+      <div class="card-title">Import Payroll CSV</div>
+      <div class="form-row" style="align-items:flex-end;">
+        <div class="form-group" style="max-width:220px;">
+          <label class="form-label">Assign to User</label>
+          <select class="form-select" id="pr-user">
+            <option value="">— Select user —</option>
+            ${users.map(u=>`<option value="${u.id}">${u.username}</option>`).join('')}
+          </select>
+        </div>
+      </div>
+      <div class="upload-zone" id="upload-zone" onclick="document.getElementById('csv-input').click()">
+        <div class="upload-icon">📄</div>
+        <div class="upload-text">Click to upload CSV file</div>
+        <div class="upload-hint">Columns will be auto-detected</div>
+      </div>
+      <input type="file" id="csv-input" accept=".csv" style="display:none" onchange="handleCSV(event)">
+      <div id="csv-preview"></div>
+    </div>
+    <div class="card">
+      <div class="card-title">Payroll Records</div>
+      <div class="tbl-wrap">
+        <table class="tbl">
+          <thead><tr><th>Date Imported</th><th>User</th><th>Rows</th><th>File</th><th></th></tr></thead>
+          <tbody>${records.length?records.map(r=>{
+            const u=(users.find(x=>x.id===r.userId)||{username:'Unknown'});
+            return`<tr>
+              <td>${new Date(r.importedAt).toLocaleDateString()}</td>
+              <td class="tbl-gold">${u.username}</td>
+              <td>${r.rows}</td>
+              <td style="font-size:0.65rem;color:var(--muted)">${r.filename}</td>
+              <td><button class="btn btn-danger" onclick="deletePayroll('${r.id}')">✕</button></td>
+            </tr>`;}).join(''):`<tr><td colspan="5" class="tbl-empty">No payroll records</td></tr>`}
+          </tbody>
+        </table>
+      </div>
+    </div>`;
+
+  // drag drop
+  const zone=document.getElementById('upload-zone');
+  zone.addEventListener('dragover',e=>{e.preventDefault();zone.classList.add('drag');});
+  zone.addEventListener('dragleave',()=>zone.classList.remove('drag'));
+  zone.addEventListener('drop',e=>{e.preventDefault();zone.classList.remove('drag');handleCSVFile(e.dataTransfer.files[0]);});
+}
+
+function handleCSV(e){handleCSVFile(e.target.files[0]);}
+
+function handleCSVFile(file){
+  if(!file||!file.name.endsWith('.csv')){showToast('Please upload a .csv file');return;}
+  const reader=new FileReader();
+  reader.onload=e=>{
+    const text=e.target.result;
+    const lines=text.split('\n').filter(l=>l.trim());
+    const headers=lines[0].split(',').map(h=>h.trim());
+    const rows=lines.slice(1).map(l=>l.split(',').map(c=>c.trim()));
+    payrollData={file,filename:file.name,headers,rows};
+    renderCSVPreview(headers,rows,file.name);
+  };
+  reader.readAsText(file);
+}
+
+function renderCSVPreview(headers,rows,filename){
+  const preview=document.getElementById('csv-preview');
+  preview.innerHTML=`
+    <div style="margin-top:1rem;">
+      <div style="font-size:0.6rem;color:var(--muted);letter-spacing:0.12em;margin-bottom:0.5rem;">PREVIEW — ${filename} — ${rows.length} rows</div>
+      <div class="tbl-wrap">
+        <table class="tbl">
+          <thead><tr>${headers.map(h=>`<th>${h}</th>`).join('')}</tr></thead>
+          <tbody>${rows.slice(0,8).map(r=>`<tr>${r.map(c=>`<td>${c}</td>`).join('')}</tr>`).join('')}</tbody>
+        </table>
+      </div>
+      ${rows.length>8?`<div style="font-size:0.6rem;color:var(--muted);padding:0.5rem 0;">…and ${rows.length-8} more rows</div>`:''}
+      <div style="display:flex;gap:0.75rem;margin-top:1rem;">
+        <button class="btn btn-gold" onclick="importPayroll('${filename}',${rows.length})">✓ Import This CSV</button>
+        <button class="btn btn-outline" onclick="document.getElementById('csv-preview').innerHTML='';payrollData=[];">Cancel</button>
+      </div>
+    </div>`;
+}
+
+function importPayroll(filename,rowCount){
+  const userId=document.getElementById('pr-user').value;
+  if(!userId){showToast('Please select a user first.');return;}
+  const records=DB.getPayroll();
+  records.push({id:uid(),userId,filename,rows:rowCount,importedAt:Date.now()});
+  DB.setPayroll(records);
+  payrollData=[];
+  renderPayroll();
+  showToast('Payroll imported ✓');
+}
+
+function deletePayroll(id){
+  if(!confirm('Delete this payroll record?'))return;
+  DB.setPayroll(DB.getPayroll().filter(r=>r.id!==id));
+  renderPayroll();
+  showToast('Record deleted');
+}
+
+// ═══════════════════════════════════════════════
+//  ADMIN — SCHEDULE (reused from v1)
+// ═══════════════════════════════════════════════
+let weekOffset=0;
+let schedule=DB.getSchedule();
+let editingScheduleSlot = {date:null,id:null};
+
+function renderSchedule(){
+  schedule=DB.getSchedule();
+  const users=DB.getUsers();
+  const canEdit=!!(currentUser && currentUser.isAdmin);
+  const panel=document.getElementById('main-panel');
+  panel.innerHTML=`
+    <div class="pg-title">Stream Schedule</div>
+    <div class="pg-sub">${canEdit?'Create stream cards by day':'Weekly stream schedule (read only)'}</div>
+    <div style="display:flex;align-items:center;gap:1rem;margin-bottom:1.5rem;">
+      <button class="btn btn-outline" onclick="weekOffset--;renderSchedule()">◀ Prev</button>
+      <span style="flex:1;text-align:center;font-size:0.75rem;color:var(--text-dim);" id="wk-lbl"></span>
+      <button class="btn btn-outline" onclick="weekOffset++;renderSchedule()">Next ▶</button>
+    </div>
+    <div id="sched-grid" style="display:grid;grid-template-columns:repeat(7,1fr);gap:0.6rem;"></div>`;
+  buildScheduleGrid(users, canEdit);
+}
+
+function getWeekDates(off){
+  const now=new Date(),day=now.getDay();
+  const mon=new Date(now);
+  mon.setDate(now.getDate()-(day===0?6:day-1)+off*7);
+  return Array.from({length:7},(_,i)=>{const d=new Date(mon);d.setDate(mon.getDate()+i);return d;});
+}
+function fmtDate(d){return d.toISOString().split('T')[0];}
+
+function buildScheduleGrid(users, canEdit){
+  const dates=getWeekDates(weekOffset);
+  const today=fmtDate(new Date());
+  const days=['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
+  document.getElementById('wk-lbl').textContent=
+    dates[0].toLocaleDateString('en-US',{month:'short',day:'numeric'})+' — '+
+    dates[6].toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'});
+  const grid=document.getElementById('sched-grid');
+  grid.innerHTML='';
+  dates.forEach((date,i)=>{
+    const key=fmtDate(date);
+    const slots=(schedule[key]||[]).slice().sort((a,b)=>a.startTime.localeCompare(b.startTime));
+    const isTd=key===today;
+    const card=document.createElement('div');
+    card.style.cssText=`background:var(--charcoal);border:1px solid ${isTd?'var(--gold)':'var(--border)'};border-radius:3px;overflow:hidden;`;
+    card.innerHTML=`
+      <div style="background:var(--slate);padding:0.5rem 0.7rem;display:flex;justify-content:space-between;align-items:baseline;border-bottom:1px solid var(--border);">
+        <span style="font-size:0.6rem;letter-spacing:0.12em;text-transform:uppercase;color:var(--muted)">${days[i]}</span>
+        <span style="font-family:'Playfair Display',serif;font-size:1rem;color:${isTd?'var(--gold)':'var(--gold-light)'}">${date.getDate()}</span>
+      </div>
+      <div style="padding:0.5rem;display:flex;flex-direction:column;gap:0.4rem;">
+        ${slots.length?slots.map(s=>slotCardHTML(key,s,users,canEdit)).join(''):`<div style="font-size:0.6rem;color:var(--muted);padding:0.45rem 0.35rem;border:1px dashed var(--border);border-radius:2px;">No streams</div>`}
+        ${canEdit?`<button class="btn btn-outline btn-sm" style="width:100%;" onclick="openScheduleModal('${key}')">+ Add Stream</button>`:''}
+      </div>`;
+    grid.appendChild(card);
+  });
+}
+
+function slotCardHTML(key,slot,users,canEdit){
+  const u=users.find(x=>x.id===slot.streamerId);
+  const label=u?u.username:'Unknown';
+  return`<div style="background:rgba(139,105,20,0.07);border:1px solid var(--gold-dark);border-radius:2px;padding:0.45rem;">
+    <div style="font-size:0.52rem;letter-spacing:0.1em;text-transform:uppercase;color:var(--muted);margin-bottom:0.3rem;">Stream</div>
+    <div style="font-size:0.72rem;color:var(--gold-light);margin-bottom:0.2rem;">${slot.startTime||'--:--'}</div>
+    <div style="font-size:0.62rem;color:var(--text-dim);">Host: ${label}</div>
+    ${canEdit?`<div style="display:flex;gap:0.35rem;margin-top:0.45rem;">
+      <button class="btn btn-outline btn-sm" onclick="openScheduleModal('${key}','${slot.id}')">Edit</button>
+      <button class="btn btn-danger btn-sm" onclick="removeScheduleSlot('${key}','${slot.id}')">✕</button>
+    </div>`:''}
+  </div>`;
+}
+
+function openScheduleModal(dateKey,slotId=null){
+  const users=DB.getUsers();
+  if(!users.length){showToast('Add users first.');return;}
+  const select=document.getElementById('sc-streamer');
+  select.innerHTML=users.map(u=>`<option value="${u.id}">${u.username}</option>`).join('');
+  const dateEl=document.getElementById('sc-date');
+  const timeEl=document.getElementById('sc-time');
+  const title=document.getElementById('sc-title');
+  editingScheduleSlot={date:dateKey,id:slotId};
+  if(slotId){
+    const slot=(schedule[dateKey]||[]).find(s=>s.id===slotId);
+    if(!slot) return;
+    title.textContent='Edit Scheduled Stream';
+    dateEl.value=slot.date||dateKey;
+    timeEl.value=slot.startTime||'09:00';
+    select.value=slot.streamerId;
+  } else {
+    title.textContent='Add Scheduled Stream';
+    dateEl.value=dateKey;
+    timeEl.value='09:00';
+    select.value=users[0].id;
+  }
+  openModal('schedule-modal');
+}
+
+function saveScheduleSlot(){
+  const date=document.getElementById('sc-date').value;
+  const startTime=document.getElementById('sc-time').value;
+  const streamerId=document.getElementById('sc-streamer').value;
+  if(!date||!startTime||!streamerId){showToast('All fields required.');return;}
+  const {date:oldDate,id}=editingScheduleSlot;
+  if(id && oldDate && schedule[oldDate]){
+    schedule[oldDate]=schedule[oldDate].filter(s=>s.id!==id);
+    if(!schedule[oldDate].length) delete schedule[oldDate];
+  }
+  if(!schedule[date]) schedule[date]=[];
+  schedule[date].push({id:id||uid(),date,startTime,streamerId});
+  DB.setSchedule(schedule);
+  closeModal('schedule-modal');
+  renderSchedule();
+  showToast('Schedule updated ✓');
+}
+
+function removeScheduleSlot(key,slotId){
+  if(!confirm('Delete this stream card?')) return;
+  schedule[key]=(schedule[key]||[]).filter(s=>s.id!==slotId);
+  if(!schedule[key].length) delete schedule[key];
+  DB.setSchedule(schedule);
+  renderSchedule();
+}
+
+// ═══════════════════════════════════════════════
+//  ADMIN — STREAM LOG
+// ═══════════════════════════════════════════════
+function renderStreamLog(){
+  const streams=DB.getStreams();
+  const users=DB.getUsers();
+  const panel=document.getElementById('main-panel');
+
+  const totalItems=streams.reduce((s,st)=>s+(st.items||[]).length,0);
+  const totalVal=streams.reduce((s,st)=>s+(st.items||[]).reduce((ss,it)=>ss+(parseFloat(it.spotValue)||0),0),0);
+
+  panel.innerHTML=`
+    <div class="pg-title">Stream Log</div>
+    <div class="pg-sub">All completed streaming sessions</div>
+    <div class="stats-row" style="grid-template-columns:repeat(3,1fr);margin-bottom:1.5rem;">
+      <div class="stat-box"><div class="stat-lbl">Total Streams</div><div class="stat-val">${streams.length}</div></div>
+      <div class="stat-box"><div class="stat-lbl">Total Items Sold</div><div class="stat-val">${totalItems}</div></div>
+      <div class="stat-box"><div class="stat-lbl">Total Spot Value</div><div class="stat-val">$${totalVal.toFixed(0)}</div></div>
+    </div>
+    <div class="tbl-wrap">
+      <table class="tbl">
+        <thead><tr><th>Date</th><th>Host</th><th>Metal</th><th>Sales mix</th><th>Raw batches</th><th>Items</th><th>Spot Value Total</th><th>Avg Spot</th></tr></thead>
+        <tbody>${streams.length?[...streams].sort((a,b)=>b.startedAt-a.startedAt).map(st=>{
+          const u=users.find(x=>x.id===st.userId)||{username:'—'};
+          const its=st.items||[];
+          const itemsTotal=its.reduce((s,i)=>s+(parseFloat(i.spotValue)||0),0);
+          const metals=[...new Set(its.map(i=>(i.metal||'gold')))];
+          const metal=metals.length>1?'mixed':(metals[0]||'gold');
+          const avgSpot=its.length ? its.reduce((s,i)=>s+(parseFloat(i.spotPrice)||0),0)/its.length : 0;
+          const stN=its.filter(i=>i.saleType==='sticker').length;
+          const rw=its.filter(i=>i.saleType==='raw').length;
+          const leg=its.length-stN-rw;
+          const mix=leg>0?`${stN} sticker · ${rw} raw · ${leg} legacy`:`${stN} sticker · ${rw} raw`;
+          const rawB=`G: ${streamBatchLabel(st.goldBatchId)} · S: ${streamBatchLabel(st.silverBatchId)}`;
+          return`<tr>
+            <td>${new Date(st.startedAt).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'})}</td>
+            <td class="tbl-gold">${u.username}</td>
+            <td><span class="badge badge-morning">${metal}</span></td>
+            <td style="font-size:0.62rem;">${mix}</td>
+            <td style="font-size:0.58rem;color:var(--muted);">${rawB}</td>
+            <td>${its.length}</td>
+            <td class="tbl-green">$${itemsTotal.toFixed(2)}</td>
+            <td>$${parseFloat(avgSpot||0).toFixed(2)}/oz</td>
+          </tr>`;}).join(''):`<tr><td colspan="8" class="tbl-empty">No streams logged yet</td></tr>`}
+        </tbody>
+      </table>
+    </div>`;
+}
+
+// ═══════════════════════════════════════════════
+//  USER MODE — MY STREAMS
+// ═══════════════════════════════════════════════
+function renderMyStreams(){
+  const allStreams=DB.getStreams();
+  const myStreams=allStreams.filter(s=>s.userId===currentUser.id).sort((a,b)=>b.startedAt-a.startedAt);
+  const panel=document.getElementById('main-panel');
+
+  const totalItems=myStreams.reduce((s,st)=>s+(st.items||[]).length,0);
+  const totalVal=myStreams.reduce((s,st)=>s+(st.items||[]).reduce((ss,it)=>ss+(parseFloat(it.spotValue)||0),0),0);
+
+  panel.innerHTML=`
+    <div class="pg-title">My Streams</div>
+    <div class="pg-sub">Your streaming history & performance</div>
+    <div class="stats-row" style="grid-template-columns:repeat(3,1fr);margin-bottom:1.5rem;">
+      <div class="stat-box"><div class="stat-lbl">Streams</div><div class="stat-val">${myStreams.length}</div></div>
+      <div class="stat-box"><div class="stat-lbl">Items Sold</div><div class="stat-val">${totalItems}</div></div>
+      <div class="stat-box"><div class="stat-lbl">Total Spot Value</div><div class="stat-val">$${totalVal.toFixed(0)}</div></div>
+    </div>
+    <div style="display:flex;justify-content:flex-end;margin-bottom:1.2rem;">
+      <button class="btn btn-gold" onclick="startNewStream()">▶ Start New Stream</button>
+    </div>
+    <div id="my-streams-list">
+      ${myStreams.length?myStreams.map(st=>{
+        const d=new Date(st.startedAt);
+        const dateStr=d.toLocaleDateString('en-US',{weekday:'short',month:'long',day:'numeric',year:'numeric'});
+        const timeStr=d.toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit'});
+        const items=st.items||[];
+        const metals=[...new Set(items.map(i=>(i.metal||'gold')))];
+        const metal=metals.length>1?'mixed':(metals[0]||'gold');
+        const spotTotal=items.reduce((s,i)=>s+(parseFloat(i.spotValue)||0),0);
+        const stN=items.filter(i=>i.saleType==='sticker').length;
+        const rw=items.filter(i=>i.saleType==='raw').length;
+        const leg=items.length-stN-rw;
+        const mix=leg>0?`${stN} sticker · ${rw} raw · ${leg} older`:`${stN} sticker · ${rw} raw`;
+        return`<div class="stream-card">
+          <div class="stream-card-date">${dateStr}</div>
+          <div class="stream-card-info">
+            <div style="margin-bottom:0.2rem;">${timeStr} · <span class="badge badge-morning">${metal}</span></div>
+            <div>${items.length} sale line${items.length!==1?'s':''} · ${mix}</div>
+            <div style="font-size:0.58rem;color:var(--muted);margin-top:0.25rem;">Raw batches: G ${streamBatchLabel(st.goldBatchId)} · S ${streamBatchLabel(st.silverBatchId)}</div>
+          </div>
+          <div class="stream-card-val">$${spotTotal.toFixed(2)}</div>
+        </div>`;
+      }).join(''):`<div style="text-align:center;padding:3rem;color:var(--muted);font-size:0.7rem;letter-spacing:0.08em;">No streams yet — start your first one above.</div>`}
+    </div>`;
+}
+
+// ═══════════════════════════════════════════════
+//  USER MODE — ACTIVE STREAM
+// ═══════════════════════════════════════════════
+let activeStream = null;
+let spotState = {
+  gold:{price:0,change:0,sourceState:'primary',updatedAt:0},
+  silver:{price:0,change:0,sourceState:'primary',updatedAt:0}
+};
+let spotInterval = null;
+const OZT_TO_GRAMS = 31.1034768;
+// Override at runtime if needed: window.GS_SPOT_FEED_URL = 'https://your-domain/spot-feed.json'
+const SPOT_FEED_URL = window.GS_SPOT_FEED_URL || 'https://example.com/spot-feed.json';
+const SPOT_FEED_STALE_MS = 90000;
+let lastAlertState = '';
+
+function fillStreamStartBatchSelects(){
+  const inv=DB.getInventory();
+  const goldB=inv.filter(b=>b.metal==='gold' && parseFloat(b.remainingGrams)>0);
+  const silB=inv.filter(b=>b.metal==='silver' && parseFloat(b.remainingGrams)>0);
+  const gEl=document.getElementById('ss-gold');
+  const sEl=document.getElementById('ss-silver');
+  if(!gEl||!sEl) return;
+  gEl.innerHTML='<option value="">— None —</option>'+goldB.map(b=>`<option value="${b.id}">${b.batchName} (${parseFloat(b.remainingGrams).toFixed(4)}g)</option>`).join('');
+  sEl.innerHTML='<option value="">— None —</option>'+silB.map(b=>`<option value="${b.id}">${b.batchName} (${parseFloat(b.remainingGrams).toFixed(4)}g)</option>`).join('');
+}
+
+function fillActiveStreamBatchSelects(){
+  if(!activeStream) return;
+  const inv=DB.getInventory();
+  const goldB=inv.filter(b=>b.metal==='gold' && parseFloat(b.remainingGrams)>0);
+  const silB=inv.filter(b=>b.metal==='silver' && parseFloat(b.remainingGrams)>0);
+  const gEl=document.getElementById('sb-gold');
+  const sEl=document.getElementById('sb-silver');
+  if(!gEl||!sEl) return;
+  gEl.innerHTML='<option value="">— None —</option>'+goldB.map(b=>`<option value="${b.id}">${b.batchName} (${parseFloat(b.remainingGrams).toFixed(4)}g)</option>`).join('');
+  sEl.innerHTML='<option value="">— None —</option>'+silB.map(b=>`<option value="${b.id}">${b.batchName} (${parseFloat(b.remainingGrams).toFixed(4)}g)</option>`).join('');
+  gEl.value=activeStream.goldBatchId||'';
+  sEl.value=activeStream.silverBatchId||'';
+}
+
+function startNewStream(){
+  fillStreamStartBatchSelects();
+  openModal('stream-start-modal');
+}
+
+function confirmStartStream(){
+  const goldBatchId=document.getElementById('ss-gold').value||null;
+  const silverBatchId=document.getElementById('ss-silver').value||null;
+  closeModal('stream-start-modal');
+  activeStream={
+    id:uid(),
+    userId:currentUser.id,
+    startedAt:Date.now(),
+    items:[],
+    goldBatchId,
+    silverBatchId
+  };
+  currentSection='active-stream';
+  renderActiveStream();
+  startSpotFeed();
+}
+
+function streamBatchLabel(batchId){
+  const b=getBatchById(batchId);
+  return b?b.batchName:'—';
+}
+
+function streamSaleBadge(it){
+  if((it.saleType||'')==='sticker' && (it.metal||'')==='mixed') return {lbl:'Mixed',cls:'badge-mixed'};
+  if((it.saleType||'')==='sticker') return {lbl:'Sticker',cls:'badge-morning'};
+  if(it.saleType==='raw') return {lbl:'Raw',cls:'badge-evening'};
+  return {lbl:'Sale',cls:'badge-morning'};
+}
+
+function isStickerInActiveStream(code){
+  const norm=String(code||'').toUpperCase();
+  if(!activeStream||!activeStream.items) return false;
+  return activeStream.items.some(it=>(it.saleType||'')==='sticker'&&String(it.stickerCode||'').toUpperCase()===norm);
+}
+
+function openActiveStreamBatchModal(){
+  if(!activeStream) return;
+  fillActiveStreamBatchSelects();
+  openModal('stream-batch-modal');
+}
+
+function saveActiveStreamBatches(){
+  if(!activeStream) return;
+  const g=document.getElementById('sb-gold');
+  const s=document.getElementById('sb-silver');
+  activeStream.goldBatchId=(g&&g.value)?g.value:null;
+  activeStream.silverBatchId=(s&&s.value)?s.value:null;
+  closeModal('stream-batch-modal');
+  showToast('Raw pull batches updated');
+  renderActiveStream();
+}
+
+function renderActiveStream(){
+  if(!activeStream){showSection('my-streams');return;}
+  const panel=document.getElementById('main-panel');
+  const items=activeStream.items||[];
+  const totalSpot=items.reduce((s,i)=>s+(parseFloat(i.spotValue)||0),0);
+
+  panel.innerHTML=`
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:1rem;flex-wrap:wrap;gap:1rem;">
+      <div>
+        <div class="pg-title">Live Stream</div>
+        <div class="pg-sub">Session in progress · ${new Date(activeStream.startedAt).toLocaleTimeString()}</div>
+      </div>
+      <button class="btn btn-outline" style="border-color:#c55;color:#c55;" onclick="endStream()">■ End Stream</button>
+    </div>
+    <div style="font-size:0.62rem;color:var(--muted);margin-bottom:1rem;line-height:1.55;border:1px solid var(--border);border-radius:3px;padding:0.65rem 0.85rem;background:var(--charcoal);">
+      <strong style="color:var(--gold-dark);letter-spacing:0.08em;">RAW PULL BATCHES</strong><br>
+      Gold → <span style="color:var(--gold-light);">${streamBatchLabel(activeStream.goldBatchId)}</span>
+      · Silver → <span style="color:var(--gold-light);">${streamBatchLabel(activeStream.silverBatchId)}</span>
+    </div>
+
+    <!-- SPOT TICKER -->
+    <div class="spot-ticker">
+      <div class="spot-card" id="spot-card-gold">
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:0.5rem;margin-bottom:0.3rem;">
+          <div class="spot-label">Gold Spot</div>
+          <span class="spot-status" id="spot-status-gold">loading</span>
+        </div>
+        <div><span class="spot-price" id="spot-display-gold">Loading…</span><span class="spot-unit">/ troy oz</span></div>
+        <div class="spot-change" id="spot-change-gold"></div>
+      </div>
+      <div class="spot-card" id="spot-card-silver">
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:0.5rem;margin-bottom:0.3rem;">
+          <div class="spot-label">Silver Spot</div>
+          <span class="spot-status" id="spot-status-silver">loading</span>
+        </div>
+        <div><span class="spot-price" id="spot-display-silver">Loading…</span><span class="spot-unit">/ troy oz</span></div>
+        <div class="spot-change" id="spot-change-silver"></div>
+      </div>
+      <div style="margin-left:auto;display:flex;align-items:center;gap:0.5rem;">
+        <div class="spot-live-dot"></div>
+        <div class="spot-live-text">Live</div>
+      </div>
+    </div>
+
+    <!-- ITEMS TABLE -->
+    <div class="card" style="padding:0;">
+      <!-- HEADER -->
+      <div style="display:grid;grid-template-columns:2fr 1.2fr 1.2fr 44px;gap:0;background:var(--slate);border-bottom:1px solid var(--border);">
+        <span style="font-size:0.57rem;letter-spacing:0.14em;text-transform:uppercase;color:var(--muted);padding:0.65rem 0.9rem;">Sale</span>
+        <span style="font-size:0.57rem;letter-spacing:0.14em;text-transform:uppercase;color:var(--muted);padding:0.65rem 0.9rem;">Weight (g)</span>
+        <span style="font-size:0.57rem;letter-spacing:0.14em;text-transform:uppercase;color:var(--muted);padding:0.65rem 0.9rem;">Spot Value</span>
+        <span></span>
+      </div>
+
+      <!-- LOGGED ROWS -->
+      <div id="stream-rows">
+        ${items.length?items.map((it,i)=>{
+          const bg=streamSaleBadge(it);
+          return`<div style="display:grid;grid-template-columns:2fr 1.2fr 1.2fr 44px;align-items:center;border-bottom:1px solid #181818;transition:background .15s;" onmouseover="this.style.background='rgba(201,168,76,0.03)'" onmouseout="this.style.background=''">
+            <span style="padding:0.75rem 0.9rem;"><span class="badge ${bg.cls}" style="margin-right:0.4rem;vertical-align:middle;">${bg.lbl}</span><span style="color:var(--gold-light);font-family:'Playfair Display',serif;">${it.name}</span></span>
+            <span style="padding:0.75rem 0.9rem;color:var(--text-dim);">${parseFloat(it.weightGrams).toFixed(4)}</span>
+            <span style="padding:0.75rem 0.9rem;color:#5a9;">$${parseFloat(it.spotValue).toFixed(2)}</span>
+            <span style="padding:0.5rem;"><button class="btn btn-danger" style="padding:0.2rem 0.4rem;" onclick="removeStreamItem(${i})">✕</button></span>
+          </div>`;
+        }).join(''):`<div id="empty-row" style="text-align:center;padding:1.5rem;color:var(--muted);font-size:0.7rem;border-bottom:1px solid #181818;">No sales yet — log sticker or raw pull below</div>`}
+      </div>
+
+      <!-- SALE ENTRY -->
+      <div id="inline-add-row" style="background:rgba(139,105,20,0.06);border-top:1px solid var(--gold-dark);padding:0.85rem 1rem;">
+        <div style="display:flex;gap:1.25rem;flex-wrap:wrap;margin-bottom:0.75rem;font-size:0.68rem;color:var(--text-dim);">
+          <label style="cursor:pointer;display:flex;align-items:center;gap:0.35rem;"><input type="radio" name="stream-sale-mode" value="sticker" checked onchange="toggleStreamSaleMode()"> Sticker code</label>
+          <label style="cursor:pointer;display:flex;align-items:center;gap:0.35rem;"><input type="radio" name="stream-sale-mode" value="raw" onchange="toggleStreamSaleMode()"> Raw grams</label>
+        </div>
+        <div id="stream-pane-sticker" style="display:grid;grid-template-columns:1fr auto;gap:0.65rem;align-items:end;max-width:520px;">
+          <div class="form-group" style="margin:0;">
+            <label class="form-label">Sticker</label>
+            <input class="form-input" id="st-sticker" placeholder="e.g. B1A" style="text-transform:uppercase;"
+              onkeydown="if(event.key==='Enter')addStreamStickerSale()">
+          </div>
+          <button class="btn btn-gold" type="button" onclick="addStreamStickerSale()">Add sale</button>
+        </div>
+        <div id="stream-pane-raw" style="display:none;grid-template-columns:110px 1fr auto;gap:0.65rem;align-items:end;max-width:640px;">
+          <div class="form-group" style="margin:0;">
+            <label class="form-label">Metal</label>
+            <select class="form-select" id="st-raw-metal" onchange="calcStreamRawPreview()">
+              <option value="gold">Gold</option>
+              <option value="silver">Silver</option>
+            </select>
+          </div>
+          <div class="form-group" style="margin:0;">
+            <label class="form-label">Weight (g)</label>
+            <input class="form-input" id="st-raw-weight" type="number" step="0.0001" min="0" placeholder="0.0000"
+              oninput="calcStreamRawPreview()" onkeydown="if(event.key==='Enter')addStreamRawSale()">
+          </div>
+          <button class="btn btn-gold" type="button" style="margin-bottom:2px;" onclick="addStreamRawSale()">Add sale</button>
+          <div id="st-raw-preview" style="grid-column:1/-1;font-size:0.68rem;color:#5a9;font-family:'DM Mono',monospace;"></div>
+        </div>
+      </div>
+
+      <!-- TOTAL ROW -->
+      ${items.length?`<div style="display:flex;justify-content:flex-end;align-items:center;padding:0.75rem 1rem;border-top:1px solid var(--border);">
+        <span style="font-size:0.65rem;color:var(--muted);margin-right:1rem;letter-spacing:0.1em;">TOTAL SPOT VALUE</span>
+        <span style="color:var(--gold-light);font-family:'Playfair Display',serif;font-size:1.2rem;">$${totalSpot.toFixed(2)}</span>
+      </div>`:''}
+    </div>
+    <div style="display:flex;justify-content:center;margin-top:0.85rem;">
+      <button class="btn btn-gold" type="button" onclick="openActiveStreamBatchModal()">New Batch</button>
+    </div>`;
+
+  updateSpotDisplayForMetal('gold');
+  updateSpotDisplayForMetal('silver');
+  toggleStreamSaleMode();
+  calcStreamRawPreview();
+  setTimeout(()=>{const el=document.getElementById('st-sticker');if(el)el.focus();},50);
+}
+
+function toggleStreamSaleMode(){
+  const r=document.querySelector('input[name="stream-sale-mode"]:checked');
+  const sticker=r&&r.value==='sticker';
+  const ps=document.getElementById('stream-pane-sticker');
+  const pr=document.getElementById('stream-pane-raw');
+  if(ps) ps.style.display=sticker?'grid':'none';
+  if(pr) pr.style.display=sticker?'none':'grid';
+  if(sticker) calcStreamRawPreview();
+}
+
+function calcStreamRawPreview(){
+  const wEl=document.getElementById('st-raw-weight');
+  const pr=document.getElementById('st-raw-preview');
+  const mEl=document.getElementById('st-raw-metal');
+  if(!wEl||!pr||!mEl) return;
+  const w=parseFloat(wEl.value)||0;
+  const metal=mEl.value;
+  const spot=spotState[metal].price||0;
+  pr.textContent=(w>0&&spot>0)?(`Spot value ≈ $${(w*(spot/OZT_TO_GRAMS)).toFixed(2)} (${metal})`):'';
+}
+
+function addStreamStickerSale(){
+  const codeEl=document.getElementById('st-sticker');
+  if(!codeEl||!activeStream) return;
+  const code=codeEl.value.trim().toUpperCase();
+  if(!code){showToast('Enter sticker code.');return;}
+  // Hard block duplicate stickers in active stream (case-insensitive).
+  if(isStickerInActiveStream(code)){showToast('This sticker is already in current stream.');return;}
+  const bag=findBagOrderByStickerCode(code);
+  if(!bag){showToast('Unknown sticker code.');return;}
+  if(isStickerSoldInStreams(code)){showToast('This sticker was already sold.');return;}
+  const components=(bag.components&&bag.components.length)
+    ? bag.components.map(c=>({metal:c.metal,batchId:c.batchId,weightGrams:parseFloat(c.weightGrams)||0})).filter(c=>c.weightGrams>0)
+    : [{metal:(bag.metal==='silver'?'silver':'gold'),batchId:bag.batchId,weightGrams:parseFloat(bag.actualWeightGrams)||0}];
+  if(!components.length){showToast('Bag has no valid weights.');return;}
+  let spotValue=0;
+  let totalWeight=0;
+  for(const c of components){
+    const m=c.metal==='silver'?'silver':'gold';
+    const spot=spotState[m].price||0;
+    const sourceState=spotState[m].sourceState;
+    if(sourceState==='offline'&&!(spot>0)){showToast((m==='gold'?'Gold':'Silver')+' spot offline.');return;}
+    if(!(spot>0)){showToast('Spot price unavailable. Please wait.');return;}
+    spotValue += c.weightGrams*(spot/OZT_TO_GRAMS);
+    totalWeight += c.weightGrams;
+  }
+  const weightGrams=totalWeight;
+  const spotPerGram=weightGrams>0?(spotValue/weightGrams):0;
+  const spotPrice=spotPerGram*OZT_TO_GRAMS;
+  const metals=[...new Set(components.map(c=>c.metal==='silver'?'silver':'gold'))];
+  const itemMetal=metals.length>1?'mixed':metals[0];
+  if(!activeStream.items) activeStream.items=[];
+  activeStream.items.push({
+    name:code,
+    metal:itemMetal,
+    weightGrams,
+    spotValue,
+    spotPrice,
+    saleType:'sticker',
+    stickerCode:code,
+    batchId:components[0].batchId||bag.batchId,
+    componentBatchIds:components.map(c=>c.batchId)
+  });
+  codeEl.value='';
+  refreshStreamRows();
+  calcStreamRawPreview();
+  codeEl.focus();
+}
+
+function addStreamRawSale(){
+  const wEl=document.getElementById('st-raw-weight');
+  const mEl=document.getElementById('st-raw-metal');
+  if(!wEl||!mEl||!activeStream) return;
+  const metal=mEl.value==='silver'?'silver':'gold';
+  const weightGrams=parseFloat(wEl.value);
+  if(!(weightGrams>0)){showToast('Enter weight (g).');return;}
+  const batchId=metal==='silver'?activeStream.silverBatchId:activeStream.goldBatchId;
+  if(!batchId){showToast('No '+metal+' batch selected for raw pulls. End and start stream with a batch.');return;}
+  const batch=getBatchById(batchId);
+  if(!batch||batch.metal!==metal){showToast('Invalid batch.');return;}
+  const rem=parseFloat(batch.remainingGrams)||0;
+  if(rem+1e-9<weightGrams&&!confirm('This exceeds remaining in batch by '+(weightGrams-rem).toFixed(4)+' g. Add anyway?')) return;
+  const spotPrice=spotState[metal].price||0;
+  const sourceState=spotState[metal].sourceState;
+  if(sourceState==='offline'&&!(spotPrice>0)){showToast('Spot offline.');return;}
+  if(!(spotPrice>0)){showToast('Spot price unavailable. Please wait.');return;}
+  batch.remainingGrams=rem-weightGrams;
+  persistBatch(batch);
+  const spotValue=weightGrams*(spotPrice/OZT_TO_GRAMS);
+  if(!activeStream.items) activeStream.items=[];
+  activeStream.items.push({
+    name:'Raw '+weightGrams+'g '+metal,
+    metal,
+    weightGrams,
+    spotValue,
+    spotPrice,
+    saleType:'raw',
+    batchId,
+    stickerCode:null
+  });
+  wEl.value='';
+  refreshStreamRows();
+  calcStreamRawPreview();
+  wEl.focus();
+}
+
+function startSpotFeed(){
+  if(spotInterval) clearInterval(spotInterval);
+  fetchSpot();
+  spotInterval=setInterval(fetchSpot,30000);
+}
+
+async function fetchSpot(){
+  try{
+    const feed=await fetchSpotFeed();
+    ['gold','silver'].forEach(metal=>{
+      const prev=spotState[metal].price||0;
+      const next=parseFloat(feed[metal].price);
+      if(!(next>0)) throw new Error('Invalid feed value');
+      spotState[metal]={
+        price:next,
+        change:prev?next-prev:0,
+        sourceState:feed[metal].sourceState||'primary',
+        updatedAt:new Date(feed.updatedAt).getTime()
+      };
+      updateSpotDisplayForMetal(metal);
+    });
+    updateAdminSourceAlert();
+    calcInlineValue();
+    return;
+  }catch(e){
+    await fetchSpotForMetal('gold');
+    await fetchSpotForMetal('silver');
+    calcInlineValue();
+  }
+}
+
+async function fetchSpotForMetal(metal){
+  const prev=spotState[metal].price||0;
+  try{
+    const next=parseFloat(await fetchFallbackSpot(metal));
+    if(!(next>0)) throw new Error('Invalid fallback value');
+    spotState[metal]={
+      price:next,
+      change:prev?next-prev:0,
+      sourceState:'fallback',
+      updatedAt:Date.now()
+    };
+    updateSpotDisplayForMetal(metal);
+    updateAdminSourceAlert();
+    return;
+  }catch(e){
+    try{
+      throw new Error('Fallback unavailable');
+    }catch(err){
+      spotState[metal]={
+        price:prev||0,
+        change:0,
+        sourceState:'offline',
+        updatedAt:spotState[metal].updatedAt||0
+      };
+      updateSpotDisplayForMetal(metal);
+      updateAdminSourceAlert();
+    }
+  }
+}
+
+async function fetchSpotFeed(){
+  const res=await fetchWithTimeout(SPOT_FEED_URL,{cache:'no-store'},4500);
+  if(!res.ok) throw new Error('Spot feed unavailable');
+  const data=await res.json();
+  if(!data || !data.gold || !data.silver || !data.updatedAt) throw new Error('Spot feed invalid');
+  const age=Date.now()-new Date(data.updatedAt).getTime();
+  if(!(age>=0) || age>SPOT_FEED_STALE_MS) throw new Error('Spot feed stale');
+  return data;
+}
+
+async function fetchWithTimeout(url,options,timeoutMs){
+  const controller=new AbortController();
+  const t=setTimeout(()=>controller.abort(),timeoutMs);
+  try{
+    return await fetch(url,{...options,signal:controller.signal,mode:'cors'});
+  }finally{
+    clearTimeout(t);
+  }
+}
+
+async function fetchFallbackSpot(metal){
+  const res=await fetchWithTimeout('https://data-asg.goldprice.org/dbXRates/USD',{cache:'no-store'},4000);
+  if(!res.ok) throw new Error('Fallback API failed');
+  const data=await res.json();
+  if(!data.items || !data.items[0]) throw new Error('Fallback data invalid');
+  const key=metal==='silver'?'xagPrice':'xauPrice';
+  const val=parseFloat(data.items[0][key]);
+  if(!(val>0)) throw new Error('Fallback value invalid');
+  return val;
+}
+
+function showAdminSourceAlert(message){
+  const el=document.getElementById('admin-source-alert');
+  if(!el) return;
+  el.textContent=message;
+  el.classList.add('visible');
+}
+
+function hideAdminSourceAlert(){
+  const el=document.getElementById('admin-source-alert');
+  if(!el) return;
+  el.textContent='';
+  el.classList.remove('visible');
+}
+
+function updateAdminSourceAlert(){
+  if(!currentUser || !currentUser.isAdmin || currentMode!=='admin') return;
+  const g=spotState.gold.sourceState;
+  const s=spotState.silver.sourceState;
+  const nextState=[g,s].includes('offline')?'offline':([g,s].includes('fallback')?'fallback':'primary');
+  if(nextState==='primary'){
+    hideAdminSourceAlert();
+    lastAlertState='primary';
+    return;
+  }
+  if(nextState==='fallback'){
+    showAdminSourceAlert('Primary source degraded. Fallback active.');
+    if(lastAlertState!=='fallback') showToast('Fallback feed active');
+    lastAlertState='fallback';
+    return;
+  }
+  showAdminSourceAlert('Live spot feed offline. Using last known values.');
+  if(lastAlertState!=='offline') showToast('Live spot feed offline');
+  lastAlertState='offline';
+}
+
+function updateSpotDisplayForMetal(metal){
+  const state=spotState[metal];
+  const el=document.getElementById('spot-display-'+metal);
+  const chEl=document.getElementById('spot-change-'+metal);
+  const stEl=document.getElementById('spot-status-'+metal);
+  if(!el || !chEl || !stEl) return;
+  el.textContent = state.price>0 ? ('$'+state.price.toFixed(2)) : '—';
+  stEl.textContent=state.sourceState;
+  stEl.className='spot-status '+state.sourceState;
+  if(chEl){
+    if(state.change>0){chEl.className='spot-change spot-up';chEl.textContent='▲ +$'+state.change.toFixed(2);}
+    else if(state.change<0){chEl.className='spot-change spot-down';chEl.textContent='▼ $'+state.change.toFixed(2);}
+    else{chEl.textContent='';}
+  }
+}
+
+function calcSIValue(){} // legacy no-op
+
+function saveStreamItem(){} // legacy no-op
+
+function calcInlineValue(){
+  calcStreamRawPreview();
+}
+
+function refreshStreamRows(){
+  const items=activeStream.items||[];
+  const totalSpot=items.reduce((s,i)=>s+(parseFloat(i.spotValue)||0),0);
+  const rowsEl=document.getElementById('stream-rows');
+  if(rowsEl){
+    rowsEl.innerHTML=items.length?items.map((it,i)=>{
+      const bg=streamSaleBadge(it);
+      return`<div style="display:grid;grid-template-columns:2fr 1.2fr 1.2fr 44px;align-items:center;border-bottom:1px solid #181818;" onmouseover="this.style.background='rgba(201,168,76,0.03)'" onmouseout="this.style.background=''">
+        <span style="padding:0.75rem 0.9rem;"><span class="badge ${bg.cls}" style="margin-right:0.4rem;vertical-align:middle;">${bg.lbl}</span><span style="color:var(--gold-light);font-family:'Playfair Display',serif;">${it.name}</span></span>
+        <span style="padding:0.75rem 0.9rem;color:var(--text-dim);">${parseFloat(it.weightGrams).toFixed(4)}</span>
+        <span style="padding:0.75rem 0.9rem;color:#5a9;">$${parseFloat(it.spotValue).toFixed(2)}</span>
+        <span style="padding:0.5rem;"><button class="btn btn-danger" style="padding:0.2rem 0.4rem;" onclick="removeStreamItem(${i})">✕</button></span>
+      </div>`;
+    }).join('')
+    :'<div style="text-align:center;padding:1.5rem;color:var(--muted);font-size:0.7rem;border-bottom:1px solid #181818;">No sales yet — log sticker or raw pull below</div>';
+  }
+  let totEl=document.getElementById('stream-total-row');
+  if(!totEl){
+    totEl=document.createElement('div');
+    totEl.id='stream-total-row';
+    const addRow=document.getElementById('inline-add-row');
+    if(addRow) addRow.insertAdjacentElement('afterend',totEl);
+  }
+  if(items.length){
+    totEl.style.cssText='display:flex;justify-content:flex-end;align-items:center;padding:0.75rem 1rem;border-top:1px solid var(--border);';
+    totEl.innerHTML=`<span style="font-size:0.65rem;color:var(--muted);margin-right:1rem;letter-spacing:0.1em;">TOTAL SPOT VALUE</span><span style="color:var(--gold-light);font-family:'Playfair Display',serif;font-size:1.2rem;">$${totalSpot.toFixed(2)}</span>`;
+  } else { totEl.innerHTML=''; }
+}
+
+function removeStreamItem(idx){
+  const it=(activeStream.items||[])[idx];
+  if(!it) return;
+  if((it.saleType||'')==='raw'){
+    const b=getBatchById(it.batchId);
+    if(b){
+      b.remainingGrams=(parseFloat(b.remainingGrams)||0)+parseFloat(it.weightGrams);
+      persistBatch(b);
+    }
+  }
+  activeStream.items.splice(idx,1);
+  refreshStreamRows();
+  setTimeout(()=>{const el=document.getElementById('st-sticker');if(el)el.focus();},20);
+}
+
+function endStream(){
+  if(!activeStream) return;
+  if(activeStream.items&&activeStream.items.length===0&&!confirm('No items were added. End stream anyway?'))return;
+  if(spotInterval){clearInterval(spotInterval);spotInterval=null;}
+  const streams=DB.getStreams();
+  streams.push({...activeStream});
+  DB.setStreams(streams);
+  activeStream=null;
+  spotState = {
+    gold:{price:0,change:0,sourceState:'primary',updatedAt:0},
+    silver:{price:0,change:0,sourceState:'primary',updatedAt:0}
+  };
+  // Go back to my streams
+  const sbBtns=document.querySelectorAll('.sidebar-btn');
+  sbBtns.forEach(b=>{b.classList.remove('active');if(b.textContent.includes('My Streams'))b.classList.add('active');});
+  showSection('my-streams');
+  showToast('Stream saved ✓');
+}
+
+// ═══════════════════════════════════════════════
+//  MODAL HELPERS
+// ═══════════════════════════════════════════════
+function openModal(id){document.getElementById(id).classList.add('open');}
+function closeModal(id){document.getElementById(id).classList.remove('open');}
+document.querySelectorAll('.modal-overlay').forEach(m=>{
+  m.addEventListener('click',e=>{if(e.target===m)m.classList.remove('open');});
+});
+
+// ═══════════════════════════════════════════════
+//  TOAST
+// ═══════════════════════════════════════════════
+function showToast(msg){
+  const t=document.getElementById('toast');
+  t.textContent=msg;t.classList.add('show');
+  setTimeout(()=>t.classList.remove('show'),2800);
+}
+
+// ═══════════════════════════════════════════════
+//  DEFAULT DATE FOR MODALS
+// ═══════════════════════════════════════════════
+document.getElementById('bm-date').value=fmtDate(new Date());
+document.getElementById('ex-date').value=fmtDate(new Date());
+</script>
+</body>
+</html>

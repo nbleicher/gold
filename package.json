@@ -1,0 +1,18 @@
+{
+  "name": "gold-platform",
+  "private": true,
+  "version": "0.1.0",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev:web": "npm --workspace @gold/web run dev",
+    "dev:api": "npm --workspace @gold/api run dev",
+    "build": "npm run build --workspaces --if-present",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "lint": "npm run lint --workspaces --if-present",
+    "test": "npm run test --workspaces --if-present",
+    "import:legacy": "node scripts/import-localstorage.mjs"
+  }
+}
