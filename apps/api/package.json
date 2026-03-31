@@ -10,7 +10,8 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "lint": "echo \"No lint configured for api\"",
     "test": "tsx --test src/**/*.test.ts",
-    "job:spot": "tsx src/jobs/spotIngest.ts"
+    "job:spot": "tsx src/jobs/spotIngest.ts",
+    "prestart": "npm --workspace @gold/shared run build && npm --workspace @gold/api run build"
   },
   "dependencies": {
     "@libsql/client": "^0.14.0",

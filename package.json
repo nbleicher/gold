@@ -9,7 +9,7 @@
   "scripts": {
     "dev:web": "npm --workspace @gold/web run dev",
     "dev:api": "npm --workspace @gold/api run dev",
-    "build": "npm run build --workspaces --if-present",
+    "build": "npm --workspace @gold/shared run build && npm --workspace @gold/api run build && npm --workspace @gold/web run build",
     "typecheck": "npm run typecheck --workspaces --if-present",
     "lint": "npm run lint --workspaces --if-present",
     "test": "npm run test --workspaces --if-present",
