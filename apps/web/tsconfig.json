@@ -8,6 +8,7 @@
   },
   "include": [
     "src",
+    "worker.ts",
     "vite.config.ts"
   ]
 }

@@ -25,15 +25,17 @@
    - command: `npm --workspace @gold/api run job:spot`
    - schedule: every 30 seconds or 1 minute.
 
-## Cloudflare Pages (Web)
+## Cloudflare Workers (Web)
 
-1. Create Pages project from this repo.
+The frontend is a **Cloudflare Worker** with `main = "worker.ts"` plus **static assets** from the Vite build (`[assets] directory = "./dist"`). Edge logic runs in [`apps/web/worker.ts`](apps/web/worker.ts) (e.g. `GET /health`); everything else is served from `dist/` via the `ASSETS` binding.
+
+1. Create a Workers (or compatible) project from this repo.
 2. Set root directory: `apps/web`
-3. Build command: `npm install && npm run build && npx wrangler deploy` (Vite writes `dist/`; Wrangler uploads it via [`apps/web/wrangler.toml`](apps/web/wrangler.toml) `[assets]` — no Worker `main` entry).
+3. Build command: `npm install && npm run build && npx wrangler deploy` (`npm run build` runs `tsc` + `vite build` so `dist/` exists before deploy).
 4. Environment variables:
    - `VITE_API_BASE_URL` = Railway API URL
 5. Custom domain:
-   - attach `gold.jawnix.com` to the Pages project.
+   - attach `gold.jawnix.com` to the project.
 
 ## CORS
 
