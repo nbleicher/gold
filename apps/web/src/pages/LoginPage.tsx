@@ -18,18 +18,51 @@ export function LoginPage() {
   };
 
   return (
-    <form className="card login" onSubmit={onSubmit}>
-      <h1>Gold Platform</h1>
-      <label>
-        Email
-        <input value={email} onChange={(e) => setEmail(e.target.value)} type="email" required />
-      </label>
-      <label>
-        Password
-        <input value={password} onChange={(e) => setPassword(e.target.value)} type="password" required />
-      </label>
-      {error ? <p className="error">{error}</p> : null}
-      <button type="submit">Sign in</button>
-    </form>
+    <>
+      <div className="shimmer-bar" aria-hidden />
+      <div className="login-screen">
+        <div className="login-bg" aria-hidden />
+        <form className="login-box" onSubmit={onSubmit}>
+          <div className="login-logo">⬡ GoldStream</div>
+          <div className="login-tagline">Live Gold · Direct Sales Platform</div>
+          <div className="login-field">
+            <label className="login-label" htmlFor="login-email">
+              Email
+            </label>
+            <input
+              id="login-email"
+              className="login-input"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              type="email"
+              autoComplete="username"
+              placeholder="you@example.com"
+              required
+            />
+          </div>
+          <div className="login-field">
+            <label className="login-label" htmlFor="login-password">
+              Password
+            </label>
+            <input
+              id="login-password"
+              className="login-input"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              type="password"
+              autoComplete="current-password"
+              placeholder="••••••••"
+              required
+            />
+          </div>
+          <button type="submit" className="login-btn">
+            Sign in
+          </button>
+          <div className="login-err" role={error ? "alert" : undefined}>
+            {error}
+          </div>
+        </form>
+      </div>
+    </>
   );
 }
