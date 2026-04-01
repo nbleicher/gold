@@ -29,11 +29,10 @@
 
 1. Create Pages project from this repo.
 2. Set root directory: `apps/web`
-3. Build command: `npm install && npm --workspace @gold/web run build`
-4. Build output: `apps/web/dist`
-5. Environment variables:
+3. Build command: `npm install && npm run build && npx wrangler deploy` (Vite writes `dist/`; Wrangler uploads it via [`apps/web/wrangler.toml`](apps/web/wrangler.toml) `[assets]` — no Worker `main` entry).
+4. Environment variables:
    - `VITE_API_BASE_URL` = Railway API URL
-6. Custom domain:
+5. Custom domain:
    - attach `gold.jawnix.com` to the Pages project.
 
 ## CORS
