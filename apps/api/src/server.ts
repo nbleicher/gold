@@ -8,6 +8,7 @@ import { registerStreamRoutes } from "./routes/streams.js";
 import { registerSpotRoutes } from "./routes/spot.js";
 import { registerAuthRoutes } from "./routes/auth.js";
 import { registerOpsRoutes } from "./routes/ops.js";
+import { registerAdminRoutes } from "./routes/admin.js";
 
 const app = Fastify({ logger: true });
 
@@ -27,6 +28,7 @@ await registerStreamRoutes(app);
 await registerSpotRoutes(app);
 await registerAuthRoutes(app);
 await registerOpsRoutes(app);
+await registerAdminRoutes(app);
 
 app.setErrorHandler((error, _req, reply) => {
   app.log.error(error);

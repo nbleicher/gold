@@ -31,18 +31,13 @@ function Shell() {
             Streams
           </NavLink>
           {isAdmin ? (
+            <NavLink to="/admin/stream-log" className={navTabClass}>
+              Stream Log
+            </NavLink>
+          ) : null}
+          {isAdmin ? (
             <NavLink to="/admin/orders" className={navTabClass}>
               Orders
-            </NavLink>
-          ) : null}
-          {isAdmin ? (
-            <NavLink to="/admin/inventory-management" className={navTabClass}>
-              Inventory
-            </NavLink>
-          ) : null}
-          {isAdmin ? (
-            <NavLink to="/admin/users" className={navTabClass}>
-              Users
             </NavLink>
           ) : null}
           {isAdmin ? (
@@ -51,8 +46,8 @@ function Shell() {
             </NavLink>
           ) : null}
           {isAdmin ? (
-            <NavLink to="/admin/payroll" className={navTabClass}>
-              Payroll
+            <NavLink to="/admin/inventory-management" className={navTabClass}>
+              Inventory
             </NavLink>
           ) : null}
           {isAdmin ? (
@@ -61,8 +56,8 @@ function Shell() {
             </NavLink>
           ) : null}
           {isAdmin ? (
-            <NavLink to="/admin/stream-log" className={navTabClass}>
-              Stream log
+            <NavLink to="/admin/payroll" className={navTabClass}>
+              Payroll
             </NavLink>
           ) : null}
         </nav>

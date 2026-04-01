@@ -17,10 +17,15 @@ async function getLatestSpot(metal: "gold" | "silver") {
 export async function registerStreamRoutes(app: FastifyInstance) {
   app.get("/v1/streams", { preHandler: requireAuth }, async (req) => {
     const { userId } = req.query as { userId?: string };
-    if (userId) {
-      return q("select * from streams where user_id = ? order by started_at desc", [userId]);
+    const self = req.authUser?.sub;
+    const isAdmin = req.authUser?.role === "admin";
+    if (isAdmin && !userId) {
+      return q("select * from streams order by started_at desc");
     }
-    return q("select * from streams order by started_at desc");
+    const filterId = userId ?? self;
+    if (!filterId) throw new Error("Unauthorized");
+    if (!isAdmin && userId && userId !== self) throw new Error("Forbidden");
+    return q("select * from streams where user_id = ? order by started_at desc", [filterId]);
   });
 
   app.post("/v1/streams/start", { preHandler: requireAuth }, async (req) => {
