@@ -44,16 +44,18 @@ export async function registerStreamRoutes(app: FastifyInstance) {
   app.post("/v1/streams/:id/end", { preHandler: requireAuth }, async (req) => {
     const { id } = req.params as { id: string };
     const stream = await one<{ user_id: string }>("select user_id from streams where id = ?", [id]);
-    if (!stream) throw new Error("Stream not found");
+    if (!stream) {
+      return { ok: true, idempotent: true };
+    }
     const self = req.authUser?.sub;
     const isAdmin = req.authUser?.role === "admin";
     if (!isAdmin && stream.user_id !== self) throw new Error("Forbidden");
 
-    const countRow = await one<{ c: number }>(
-      "select count(*) as c from stream_items where stream_id = ?",
-      [id]
-    );
-    const n = Number(countRow?.c ?? 0);
+    const countRows = await q("select count(*) from stream_items where stream_id = ?", [id]);
+    const first = countRows[0] as unknown as { 0?: unknown } | undefined;
+    const raw = first?.[0];
+    const n = typeof raw === "bigint" ? Number(raw) : Number(raw ?? 0);
+
     if (n === 0) {
       await q("delete from streams where id = ?", [id]);
       return { ok: true, discarded: true };

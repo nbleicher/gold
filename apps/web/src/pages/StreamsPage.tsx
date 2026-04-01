@@ -69,7 +69,10 @@ export function StreamsPage() {
   });
 
   const endMutation = useMutation({
-    mutationFn: () => api<{ ok: boolean; discarded?: boolean }>(`/v1/streams/${activeStreamId}/end`, { method: "POST" }),
+    mutationFn: (streamId: string) =>
+      api<{ ok: boolean; discarded?: boolean; idempotent?: boolean }>(`/v1/streams/${streamId}/end`, {
+        method: "POST"
+      }),
     onSuccess: () => {
       setActiveStreamId(null);
       setSaleCount(0);
@@ -78,12 +81,13 @@ export function StreamsPage() {
   });
 
   const requestEnd = () => {
-    if (!activeStreamId) return;
+    const streamId = activeStreamId;
+    if (!streamId) return;
     if (saleCount === 0) {
       const ok = window.confirm("No sales logged — discard this session?");
       if (!ok) return;
     }
-    endMutation.mutate();
+    endMutation.mutate(streamId);
   };
 
   return (
@@ -138,16 +142,34 @@ export function StreamsPage() {
               value={stickerCode}
               onChange={(e) => setStickerCode(e.target.value)}
               placeholder="sticker code"
+              disabled={endMutation.isPending}
             />
-            <button type="button" onClick={() => stickerMutation.mutate()} disabled={stickerMutation.isPending}>
+            <button
+              type="button"
+              onClick={() => stickerMutation.mutate()}
+              disabled={stickerMutation.isPending || endMutation.isPending}
+            >
               Add sticker sale
             </button>
-            <select value={rawMetal} onChange={(e) => setRawMetal(e.target.value as "gold" | "silver")}>
+            <select
+              value={rawMetal}
+              onChange={(e) => setRawMetal(e.target.value as "gold" | "silver")}
+              disabled={endMutation.isPending}
+            >
               <option value="gold">Gold</option>
               <option value="silver">Silver</option>
             </select>
-            <input value={rawWeight} onChange={(e) => setRawWeight(e.target.value)} placeholder="raw grams" />
-            <button type="button" onClick={() => rawMutation.mutate()} disabled={rawMutation.isPending}>
+            <input
+              value={rawWeight}
+              onChange={(e) => setRawWeight(e.target.value)}
+              placeholder="raw grams"
+              disabled={endMutation.isPending}
+            />
+            <button
+              type="button"
+              onClick={() => rawMutation.mutate()}
+              disabled={rawMutation.isPending || endMutation.isPending}
+            >
               Add raw sale
             </button>
           </div>
