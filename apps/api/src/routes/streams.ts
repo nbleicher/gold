@@ -43,8 +43,23 @@ export async function registerStreamRoutes(app: FastifyInstance) {
 
   app.post("/v1/streams/:id/end", { preHandler: requireAuth }, async (req) => {
     const { id } = req.params as { id: string };
+    const stream = await one<{ user_id: string }>("select user_id from streams where id = ?", [id]);
+    if (!stream) throw new Error("Stream not found");
+    const self = req.authUser?.sub;
+    const isAdmin = req.authUser?.role === "admin";
+    if (!isAdmin && stream.user_id !== self) throw new Error("Forbidden");
+
+    const countRow = await one<{ c: number }>(
+      "select count(*) as c from stream_items where stream_id = ?",
+      [id]
+    );
+    const n = Number(countRow?.c ?? 0);
+    if (n === 0) {
+      await q("delete from streams where id = ?", [id]);
+      return { ok: true, discarded: true };
+    }
     await q("update streams set ended_at = ? where id = ?", [new Date().toISOString(), id]);
-    return { ok: true };
+    return { ok: true, discarded: false };
   });
 
   app.post("/v1/streams/sticker-sale", { preHandler: requireAuth }, async (req) => {
@@ -71,21 +86,36 @@ export async function registerStreamRoutes(app: FastifyInstance) {
       totalSpotValue += Number(c.weight_grams) * (spot / OZT_TO_GRAMS);
     }
     const spotPrice = totalWeight ? (totalSpotValue / totalWeight) * OZT_TO_GRAMS : 0;
+    const codeUpper = body.stickerCode.toUpperCase();
 
-    await q(
-      "insert into stream_items (stream_id, sale_type, name, metal, weight_grams, spot_value, spot_price, sticker_code, batch_id) values (?, 'sticker', ?, ?, ?, ?, ?, ?, ?)",
-      [
-        body.streamId,
-        body.stickerCode.toUpperCase(),
-        order.metal,
-        totalWeight,
-        totalSpotValue,
-        spotPrice,
-        body.stickerCode.toUpperCase(),
-        order.primary_batch_id
-      ]
-    );
-    return one("select * from stream_items order by rowid desc limit 1");
+    await q("begin");
+    try {
+      await q(
+        "insert into stream_items (stream_id, sale_type, name, metal, weight_grams, spot_value, spot_price, sticker_code, batch_id) values (?, 'sticker', ?, ?, ?, ?, ?, ?, ?)",
+        [
+          body.streamId,
+          codeUpper,
+          order.metal,
+          totalWeight,
+          totalSpotValue,
+          spotPrice,
+          codeUpper,
+          order.primary_batch_id
+        ]
+      );
+      await q(
+        "update bag_orders set sold_at = coalesce(sold_at, datetime('now')) where upper(sticker_code) = ?",
+        [codeUpper]
+      );
+      await q("commit");
+      return one(
+        "select * from stream_items where stream_id = ? order by created_at desc limit 1",
+        [body.streamId]
+      );
+    } catch (e) {
+      await q("rollback");
+      throw e;
+    }
   });
 
   app.post("/v1/streams/raw-sale", { preHandler: requireAuth }, async (req) => {

@@ -1,21 +1,30 @@
 import type { FastifyInstance } from "fastify";
 import { createBagOrderSchema } from "@gold/shared";
-import { db, one, q } from "../db.js";
+import { one, q } from "../db.js";
 import { getTierIndex, seqFromIndex } from "../domain/tiers.js";
 import { requireAuth, requireRole } from "./auth.js";
 
 export async function registerBagOrderRoutes(app: FastifyInstance) {
   app.get("/v1/bag-orders", { preHandler: requireAuth }, async () => {
     const orders = await q<Record<string, unknown>>(
-      "select id, primary_batch_id, metal, actual_weight_grams, tier_index, sticker_code, created_at from bag_orders order by created_at desc"
+      "select id, primary_batch_id, metal, actual_weight_grams, tier_index, sticker_code, created_at, sold_at from bag_orders order by created_at desc"
     );
     const comps = await q<Record<string, unknown>>(
       "select id, bag_order_id, batch_id, metal, weight_grams, created_at from bag_order_components"
     );
-    return orders.map((o) => ({
-      ...o,
-      bag_order_components: comps.filter((c) => c.bag_order_id === o.id)
-    }));
+    const streamSoldCodes = await q<{ c: string }>(
+      "select distinct upper(sticker_code) as c from stream_items where sale_type = 'sticker' and sticker_code is not null"
+    );
+    const soldSet = new Set(streamSoldCodes.map((r) => r.c));
+    return orders.map((o) => {
+      const code = String(o.sticker_code ?? "").toUpperCase();
+      const soldAt = o.sold_at != null && o.sold_at !== "";
+      return {
+        ...o,
+        sold: soldAt || (code.length > 0 && soldSet.has(code)),
+        bag_order_components: comps.filter((c) => c.bag_order_id === o.id)
+      };
+    });
   });
 
   app.post("/v1/bag-orders", { preHandler: requireRole("admin") }, async (req) => {
@@ -88,26 +97,18 @@ export async function registerBagOrderRoutes(app: FastifyInstance) {
     }
   });
 
-  app.delete("/v1/bag-orders/:id", { preHandler: requireRole("admin") }, async (req) => {
+  app.patch("/v1/bag-orders/:id/mark-sold", { preHandler: requireRole("admin") }, async (req) => {
     const { id } = req.params as { id: string };
-    const comps = await q<{ batch_id: string; weight_grams: number }>(
-      "select batch_id, weight_grams from bag_order_components where bag_order_id = ?",
-      [id]
-    );
-    await q("begin");
-    try {
-      for (const c of comps) {
-        await q("update inventory_batches set remaining_grams = remaining_grams + ? where id = ?", [
-          c.weight_grams,
-          c.batch_id
-        ]);
-      }
-      await q("delete from bag_orders where id = ?", [id]);
-      await q("commit");
-    } catch (e) {
-      await q("rollback");
-      throw e;
+    const existing = await one<{ sold_at: string | null }>("select sold_at from bag_orders where id = ?", [id]);
+    if (!existing) throw new Error("Bag order not found");
+    if (existing.sold_at) {
+      return one("select * from bag_orders where id = ?", [id]);
     }
-    return { ok: true };
+    await q("update bag_orders set sold_at = datetime('now') where id = ?", [id]);
+    return one("select * from bag_orders where id = ?", [id]);
+  });
+
+  app.delete("/v1/bag-orders/:id", { preHandler: requireRole("admin") }, async (_req, reply) => {
+    return reply.status(405).send({ error: "Bag orders cannot be deleted" });
   });
 }

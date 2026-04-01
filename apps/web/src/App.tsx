@@ -36,7 +36,7 @@ function Shell() {
             </NavLink>
           ) : null}
           {isAdmin ? (
-            <NavLink to="/admin/orders" className={navTabClass}>
+            <NavLink to="/admin/inventory-management" className={navTabClass}>
               Orders
             </NavLink>
           ) : null}
@@ -46,8 +46,8 @@ function Shell() {
             </NavLink>
           ) : null}
           {isAdmin ? (
-            <NavLink to="/admin/inventory-management" className={navTabClass}>
-              Inventory
+            <NavLink to="/admin/orders" className={navTabClass}>
+              Inventory Management
             </NavLink>
           ) : null}
           {isAdmin ? (

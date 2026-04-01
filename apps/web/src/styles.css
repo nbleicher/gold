@@ -658,6 +658,63 @@ body {
   margin: 0;
 }
 
+/* ── STREAMS SESSION ── */
+.stream-session-card {
+  position: relative;
+  padding-bottom: 3.5rem;
+}
+
+.stream-live-bar {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.5rem;
+}
+
+.stream-live-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #e33;
+  box-shadow: 0 0 10px rgba(238, 51, 51, 0.7);
+  animation: stream-live-pulse 1.4s ease-in-out infinite;
+}
+
+@keyframes stream-live-pulse {
+  0%,
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.75;
+    transform: scale(0.92);
+  }
+}
+
+.stream-live-label {
+  font-size: 0.62rem;
+  letter-spacing: 0.2em;
+  color: #e88;
+  font-weight: 600;
+}
+
+.stream-card-footer {
+  position: absolute;
+  right: 1.25rem;
+  bottom: 1.25rem;
+}
+
+.stream-end-btn {
+  border-color: #a44 !important;
+  color: #e99 !important;
+}
+
+.stream-end-btn:hover {
+  border-color: #c66 !important;
+  color: #fcc !important;
+}
+
 /* ── TABLES ── */
 .tbl-wrap {
   overflow-x: auto;

@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useMutation, useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "../lib/api";
 import { useAuth } from "../state/auth";
 
@@ -7,8 +7,10 @@ type Stream = { id: string; started_at: string };
 type Batch = { id: string; batch_name: string; metal: "gold" | "silver"; remaining_grams: number };
 
 export function StreamsPage() {
+  const qc = useQueryClient();
   const { user } = useAuth();
   const [activeStreamId, setActiveStreamId] = useState<string | null>(null);
+  const [saleCount, setSaleCount] = useState(0);
   const [goldBatchId, setGoldBatchId] = useState("");
   const [silverBatchId, setSilverBatchId] = useState("");
   const [stickerCode, setStickerCode] = useState("");
@@ -16,7 +18,7 @@ export function StreamsPage() {
   const [rawWeight, setRawWeight] = useState("0.0000");
 
   const batches = useQuery({
-    queryKey: ["stream-batches"],
+    queryKey: ["batches"],
     queryFn: () => api<Batch[]>("/v1/inventory/batches")
   });
 
@@ -27,11 +29,19 @@ export function StreamsPage() {
   });
 
   const startMutation = useMutation({
-    mutationFn: () => api<{ id: string }>("/v1/streams/start", {
-      method: "POST",
-      body: JSON.stringify({ userId: user?.id, goldBatchId: goldBatchId || null, silverBatchId: silverBatchId || null })
-    }),
-    onSuccess: (stream) => setActiveStreamId(stream.id)
+    mutationFn: () =>
+      api<{ id: string }>("/v1/streams/start", {
+        method: "POST",
+        body: JSON.stringify({
+          userId: user?.id,
+          goldBatchId: goldBatchId || null,
+          silverBatchId: silverBatchId || null
+        })
+      }),
+    onSuccess: (stream) => {
+      setActiveStreamId(stream.id);
+      setSaleCount(0);
+    }
   });
 
   const stickerMutation = useMutation({
@@ -40,7 +50,10 @@ export function StreamsPage() {
         method: "POST",
         body: JSON.stringify({ streamId: activeStreamId, stickerCode })
       }),
-    onSuccess: () => setStickerCode("")
+    onSuccess: () => {
+      setStickerCode("");
+      setSaleCount((c) => c + 1);
+    }
   });
 
   const rawMutation = useMutation({
@@ -49,64 +62,111 @@ export function StreamsPage() {
         method: "POST",
         body: JSON.stringify({ streamId: activeStreamId, metal: rawMetal, weightGrams: Number(rawWeight) })
       }),
-    onSuccess: () => setRawWeight("0.0000")
+    onSuccess: () => {
+      setRawWeight("0.0000");
+      setSaleCount((c) => c + 1);
+    }
   });
 
   const endMutation = useMutation({
-    mutationFn: () => api(`/v1/streams/${activeStreamId}/end`, { method: "POST" }),
-    onSuccess: () => setActiveStreamId(null)
+    mutationFn: () => api<{ ok: boolean; discarded?: boolean }>(`/v1/streams/${activeStreamId}/end`, { method: "POST" }),
+    onSuccess: () => {
+      setActiveStreamId(null);
+      setSaleCount(0);
+      qc.invalidateQueries({ queryKey: ["streams", user?.id] });
+    }
   });
 
+  const requestEnd = () => {
+    if (!activeStreamId) return;
+    if (saleCount === 0) {
+      const ok = window.confirm("No sales logged — discard this session?");
+      if (!ok) return;
+    }
+    endMutation.mutate();
+  };
+
   return (
-    <section className="card">
+    <section className={`card${activeStreamId ? " stream-session-card" : ""}`}>
       <h2>Streams</h2>
-      <div className="grid-form">
-        <select value={goldBatchId} onChange={(e) => setGoldBatchId(e.target.value)}>
-          <option value="">Gold raw batch</option>
-          {(batches.data ?? [])
-            .filter((b) => b.metal === "gold")
-            .map((b) => (
-              <option key={b.id} value={b.id}>
-                {b.batch_name} · {Number(b.remaining_grams).toFixed(4)}g
-              </option>
-            ))}
-        </select>
-        <select value={silverBatchId} onChange={(e) => setSilverBatchId(e.target.value)}>
-          <option value="">Silver raw batch</option>
-          {(batches.data ?? [])
-            .filter((b) => b.metal === "silver")
-            .map((b) => (
-              <option key={b.id} value={b.id}>
-                {b.batch_name} · {Number(b.remaining_grams).toFixed(4)}g
-              </option>
-            ))}
-        </select>
-      </div>
-      <button onClick={() => startMutation.mutate()} disabled={!user || startMutation.isPending}>
-        Start Stream
-      </button>
-      <p>Active stream: {activeStreamId ?? "none"}</p>
-      <p>My stream records loaded: {streams.data?.length ?? 0}</p>
+
+      {!activeStreamId ? (
+        <>
+          <div className="grid-form">
+            <select value={goldBatchId} onChange={(e) => setGoldBatchId(e.target.value)}>
+              <option value="">Gold raw batch</option>
+              {(batches.data ?? [])
+                .filter((b) => b.metal === "gold")
+                .map((b) => (
+                  <option key={b.id} value={b.id}>
+                    {b.batch_name} · {Number(b.remaining_grams).toFixed(4)}g
+                  </option>
+                ))}
+            </select>
+            <select value={silverBatchId} onChange={(e) => setSilverBatchId(e.target.value)}>
+              <option value="">Silver raw batch</option>
+              {(batches.data ?? [])
+                .filter((b) => b.metal === "silver")
+                .map((b) => (
+                  <option key={b.id} value={b.id}>
+                    {b.batch_name} · {Number(b.remaining_grams).toFixed(4)}g
+                  </option>
+                ))}
+            </select>
+          </div>
+          <button
+            type="button"
+            className="btn btn-gold"
+            style={{ marginTop: "0.75rem" }}
+            onClick={() => startMutation.mutate()}
+            disabled={!user || startMutation.isPending}
+          >
+            Start stream
+          </button>
+        </>
+      ) : (
+        <>
+          <div className="stream-live-bar">
+            <span className="stream-live-dot" aria-hidden />
+            <span className="stream-live-label">LIVE</span>
+          </div>
+          <p style={{ fontSize: "0.65rem", color: "var(--muted)", marginBottom: "0.75rem" }}>
+            Session active · add sales below
+          </p>
+          <div className="grid-form">
+            <input
+              value={stickerCode}
+              onChange={(e) => setStickerCode(e.target.value)}
+              placeholder="sticker code"
+            />
+            <button type="button" onClick={() => stickerMutation.mutate()} disabled={stickerMutation.isPending}>
+              Add sticker sale
+            </button>
+            <select value={rawMetal} onChange={(e) => setRawMetal(e.target.value as "gold" | "silver")}>
+              <option value="gold">Gold</option>
+              <option value="silver">Silver</option>
+            </select>
+            <input value={rawWeight} onChange={(e) => setRawWeight(e.target.value)} placeholder="raw grams" />
+            <button type="button" onClick={() => rawMutation.mutate()} disabled={rawMutation.isPending}>
+              Add raw sale
+            </button>
+          </div>
+        </>
+      )}
+
+      <p style={{ fontSize: "0.65rem", color: "var(--muted)", marginTop: "1rem" }}>
+        My stream records: {streams.data?.length ?? 0}
+      </p>
+
       {activeStreamId ? (
-        <div className="grid-form">
-          <input
-            value={stickerCode}
-            onChange={(e) => setStickerCode(e.target.value)}
-            placeholder="sticker code"
-          />
-          <button onClick={() => stickerMutation.mutate()} disabled={stickerMutation.isPending}>
-            Add sticker sale
-          </button>
-          <select value={rawMetal} onChange={(e) => setRawMetal(e.target.value as "gold" | "silver")}>
-            <option value="gold">Gold</option>
-            <option value="silver">Silver</option>
-          </select>
-          <input value={rawWeight} onChange={(e) => setRawWeight(e.target.value)} placeholder="raw grams" />
-          <button onClick={() => rawMutation.mutate()} disabled={rawMutation.isPending}>
-            Add raw sale
-          </button>
-          <button onClick={() => endMutation.mutate()} disabled={endMutation.isPending}>
-            End Stream
+        <div className="stream-card-footer">
+          <button
+            type="button"
+            className="btn btn-outline stream-end-btn"
+            disabled={endMutation.isPending}
+            onClick={requestEnd}
+          >
+            End stream
           </button>
         </div>
       ) : null}
