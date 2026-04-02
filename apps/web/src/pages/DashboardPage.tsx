@@ -91,7 +91,9 @@ export function DashboardPage() {
 
   const spot = useQuery({
     queryKey: ["spot-latest"],
-    queryFn: () => api<SpotLatestResponse>("/v1/spot/latest")
+    queryFn: () => api<SpotLatestResponse>("/v1/spot/latest"),
+    refetchInterval: 60_000,
+    refetchIntervalInBackground: true
   });
 
   const last = home.data?.lastStream ?? null;
@@ -112,6 +114,9 @@ export function DashboardPage() {
             <SpotMetalCard label="Gold" row={spot.data.gold} emphasize />
             <SpotMetalCard label="Silver" row={spot.data.silver} />
           </div>
+          <p style={{ fontSize: "0.55rem", color: "var(--muted)", marginTop: "0.5rem", marginBottom: 0 }}>
+            Refreshes every 60s from the server snapshot.
+          </p>
         </>
       ) : spot.isError ? (
         <p className="error" style={{ marginBottom: "1rem" }}>
