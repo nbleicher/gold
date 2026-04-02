@@ -8,11 +8,21 @@ export async function registerSpotRoutes(app: FastifyInstance) {
       one("select * from spot_snapshots where metal = 'gold' order by created_at desc limit 1"),
       one("select * from spot_snapshots where metal = 'silver' order by created_at desc limit 1")
     ]);
-    if (!gold || !silver) throw new Error("Spot feed unavailable");
+
+    const tGold = gold?.created_at ? new Date(String(gold.created_at)).getTime() : 0;
+    const tSilver = silver?.created_at ? new Date(String(silver.created_at)).getTime() : 0;
+    const maxT = Math.max(tGold, tSilver);
+    const updatedAt = maxT > 0 ? new Date(maxT).toISOString() : new Date().toISOString();
+
+    const available = Boolean(gold && silver);
+    const partial = Boolean(gold || silver) && !available;
+
     return {
-      gold,
-      silver,
-      updatedAt: new Date().toISOString()
+      gold: gold ?? null,
+      silver: silver ?? null,
+      available,
+      partial,
+      updatedAt
     };
   });
 }

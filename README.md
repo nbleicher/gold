@@ -29,9 +29,16 @@ This repository migrates the legacy static `goldstream-app.html` app to:
 ## Migration checklist
 
 - [ ] Insert first admin user (bcrypt hash) using `turso/migrations/002_seed_admin_template.sql`.
+- [ ] Apply `turso/migrations/003_bag_orders_sold_at.sql` on **production** Turso (`bag_orders.sold_at`). Without it, admin stream delete and sticker flows can fail with SQL errors.
 - [ ] Export localStorage from legacy app into `legacy-export.json`.
 - [ ] Run `npm run import:legacy -- ./legacy-export.json`.
 - [ ] Validate reconciliation counts in script output.
+
+## Spot prices (production)
+
+- `GET /v1/spot/latest` reads `spot_snapshots`. Rows are populated by **`npm --workspace @gold/api run job:spot`** ([`apps/api/src/jobs/spotIngest.ts`](apps/api/src/jobs/spotIngest.ts)).
+- Set **`SPOT_PRIMARY_FEED_URL`** and **`SPOT_FALLBACK_FEED_URL`** (see [`apps/api/src/env.ts`](apps/api/src/env.ts)) plus the same Turso env vars as the API.
+- On **Railway**, add a **Cron** or recurring service that runs `npm --workspace @gold/api run job:spot` on an interval (e.g. every 5–15 minutes). Without this, the Home dashboard shows “No data yet” for spot until snapshots exist.
 
 ## Observability baseline
 

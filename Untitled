@@ -1,0 +1,69 @@
+Error with Permissions-Policy header: Unrecognized feature: 'browsing-topics'.
+(index):16  GET https://static.cloudflareinsights.com/beacon.min.js/v8c78df7c7c0f484497ecbca7046644da1771523124516 net::ERR_BLOCKED_BY_CLIENT
+index-DgumS2ps.js:51  GET https://gold-production-029c.up.railway.app/v1/spot/latest 500 (Internal Server Error)
+xe @ index-DgumS2ps.js:51
+queryFn @ index-DgumS2ps.js:51
+h @ index-DgumS2ps.js:40
+D @ index-DgumS2ps.js:40
+start @ index-DgumS2ps.js:40
+fetch @ index-DgumS2ps.js:40
+ql @ index-DgumS2ps.js:40
+onSubscribe @ index-DgumS2ps.js:40
+subscribe @ index-DgumS2ps.js:40
+(anonymous) @ index-DgumS2ps.js:40
+qc @ index-DgumS2ps.js:38
+Xs @ index-DgumS2ps.js:40
+Br @ index-DgumS2ps.js:40
+(anonymous) @ index-DgumS2ps.js:40
+Y @ index-DgumS2ps.js:25
+Oe @ index-DgumS2ps.js:25
+index-DgumS2ps.js:51  GET https://gold-production-029c.up.railway.app/v1/spot/latest 500 (Internal Server Error)
+xe @ index-DgumS2ps.js:51
+queryFn @ index-DgumS2ps.js:51
+h @ index-DgumS2ps.js:40
+D @ index-DgumS2ps.js:40
+(anonymous) @ index-DgumS2ps.js:40
+Promise.then
+(anonymous) @ index-DgumS2ps.js:40
+Promise.catch
+D @ index-DgumS2ps.js:40
+start @ index-DgumS2ps.js:40
+fetch @ index-DgumS2ps.js:40
+ql @ index-DgumS2ps.js:40
+onSubscribe @ index-DgumS2ps.js:40
+subscribe @ index-DgumS2ps.js:40
+(anonymous) @ index-DgumS2ps.js:40
+qc @ index-DgumS2ps.js:38
+Xs @ index-DgumS2ps.js:40
+Br @ index-DgumS2ps.js:40
+(anonymous) @ index-DgumS2ps.js:40
+Y @ index-DgumS2ps.js:25
+Oe @ index-DgumS2ps.js:25
+index-DgumS2ps.js:51  GET https://gold-production-029c.up.railway.app/v1/spot/latest 500 (Internal Server Error)
+xe @ index-DgumS2ps.js:51
+queryFn @ index-DgumS2ps.js:51
+h @ index-DgumS2ps.js:40
+D @ index-DgumS2ps.js:40
+(anonymous) @ index-DgumS2ps.js:40
+Promise.then
+(anonymous) @ index-DgumS2ps.js:40
+Promise.catch
+D @ index-DgumS2ps.js:40
+(anonymous) @ index-DgumS2ps.js:40
+Promise.then
+(anonymous) @ index-DgumS2ps.js:40
+Promise.catch
+D @ index-DgumS2ps.js:40
+start @ index-DgumS2ps.js:40
+fetch @ index-DgumS2ps.js:40
+ql @ index-DgumS2ps.js:40
+onSubscribe @ index-DgumS2ps.js:40
+subscribe @ index-DgumS2ps.js:40
+(anonymous) @ index-DgumS2ps.js:40
+qc @ index-DgumS2ps.js:38
+Xs @ index-DgumS2ps.js:40
+Br @ index-DgumS2ps.js:40
+(anonymous) @ index-DgumS2ps.js:40
+Y @ index-DgumS2ps.js:25
+Oe @ index-DgumS2ps.js:25
+index-DgumS2ps.js:51  GET https://gold-production-029c.up.railway.app/v1/spot/latest 500 (Internal Server Error)

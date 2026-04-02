@@ -26,8 +26,10 @@ type SpotSnapshot = {
 };
 
 type SpotLatestResponse = {
-  gold: SpotSnapshot;
-  silver: SpotSnapshot;
+  gold: SpotSnapshot | null;
+  silver: SpotSnapshot | null;
+  available: boolean;
+  partial: boolean;
   updatedAt: string;
 };
 
@@ -39,6 +41,46 @@ function spotStatusClass(state: string) {
   if (state === "primary") return "spot-status primary";
   if (state === "fallback") return "spot-status fallback";
   return "spot-status offline";
+}
+
+function SpotMetalCard({
+  label,
+  row,
+  emphasize
+}: {
+  label: string;
+  row: SpotSnapshot | null;
+  emphasize?: boolean;
+}) {
+  if (!row) {
+    return (
+      <div className={`spot-card${emphasize ? " active" : ""}`}>
+        <div className="spot-label">{label}</div>
+        <div className="spot-price" style={{ fontSize: "1.1rem", color: "var(--muted)" }}>
+          No data yet
+        </div>
+        <p style={{ fontSize: "0.55rem", color: "var(--muted)", marginTop: "0.5rem", lineHeight: 1.4 }}>
+          Run the spot ingest job (see README) or wait for the next scheduled run.
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div className={`spot-card${emphasize ? " active" : ""}`}>
+      <div className="spot-label">{label}</div>
+      <div className="spot-price">
+        {fmtMoney(Number(row.price))}
+        <span className="spot-unit">/oz</span>
+      </div>
+      <div className="spot-live-text" style={{ marginTop: "0.35rem" }}>
+        <span className={spotStatusClass(row.source_state)}>{row.source_state}</span>
+        <span style={{ marginLeft: "0.5rem", color: "var(--muted)" }}>
+          {new Date(row.created_at).toLocaleString()}
+        </span>
+      </div>
+    </div>
+  );
 }
 
 export function DashboardPage() {
@@ -60,38 +102,17 @@ export function DashboardPage() {
       <p className="pg-sub">Streams, last session margin, live spot</p>
 
       {spot.isSuccess ? (
-        <div className="spot-ticker">
-          <div className="spot-card active">
-            <div className="spot-label">Gold</div>
-            <div className="spot-price">
-              {fmtMoney(Number(spot.data.gold.price))}
-              <span className="spot-unit">/oz</span>
-            </div>
-            <div className="spot-live-text" style={{ marginTop: "0.35rem" }}>
-              <span className={spotStatusClass(spot.data.gold.source_state)}>
-                {spot.data.gold.source_state}
-              </span>
-              <span style={{ marginLeft: "0.5rem", color: "var(--muted)" }}>
-                {new Date(spot.data.gold.created_at).toLocaleString()}
-              </span>
-            </div>
+        <>
+          {spot.data.partial ? (
+            <p style={{ fontSize: "0.6rem", color: "var(--gold)", marginBottom: "0.75rem" }}>
+              Spot feed is partial (only one metal has snapshots). Run spot ingest for both metals.
+            </p>
+          ) : null}
+          <div className="spot-ticker">
+            <SpotMetalCard label="Gold" row={spot.data.gold} emphasize />
+            <SpotMetalCard label="Silver" row={spot.data.silver} />
           </div>
-          <div className="spot-card">
-            <div className="spot-label">Silver</div>
-            <div className="spot-price">
-              {fmtMoney(Number(spot.data.silver.price))}
-              <span className="spot-unit">/oz</span>
-            </div>
-            <div className="spot-live-text" style={{ marginTop: "0.35rem" }}>
-              <span className={spotStatusClass(spot.data.silver.source_state)}>
-                {spot.data.silver.source_state}
-              </span>
-              <span style={{ marginLeft: "0.5rem", color: "var(--muted)" }}>
-                {new Date(spot.data.silver.created_at).toLocaleString()}
-              </span>
-            </div>
-          </div>
-        </div>
+        </>
       ) : spot.isError ? (
         <p className="error" style={{ marginBottom: "1rem" }}>
           {(spot.error as Error).message}

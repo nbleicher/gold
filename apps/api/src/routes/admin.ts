@@ -287,6 +287,8 @@ export async function registerAdminRoutes(app: FastifyInstance) {
       await q("commit");
     } catch (e) {
       await q("rollback");
+      const msg = e instanceof Error ? e.message : String(e);
+      req.log.error({ err: e, streamId: id }, `admin delete stream failed: ${msg}`);
       throw e;
     }
     return { ok: true };
