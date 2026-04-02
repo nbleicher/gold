@@ -13,6 +13,8 @@ import { StreamLogPage } from "./pages/StreamLogPage";
 
 const ADMIN_SECTION_PATHS = ["/admin/expenses", "/admin/inventory-management", "/admin/orders"] as const;
 
+const STREAMS_LOG_PATH = "/streams/log";
+
 const navTabClass = ({ isActive }: { isActive: boolean }) => `nav-tab${isActive ? " active" : ""}`;
 
 const navSubTabClass = ({ isActive }: { isActive: boolean }) => `nav-tab nav-tab-sub${isActive ? " active" : ""}`;
@@ -26,6 +28,10 @@ function Shell() {
     location.pathname as (typeof ADMIN_SECTION_PATHS)[number]
   );
   const showAdminSubnav = isAdmin && adminSectionActive;
+  const streamsSectionActive = isAdmin
+    ? location.pathname === "/streams" || location.pathname === STREAMS_LOG_PATH
+    : location.pathname === "/streams";
+  const showStreamsSubnav = isAdmin && (location.pathname === "/streams" || location.pathname === STREAMS_LOG_PATH);
 
   return (
     <div className="app-shell">
@@ -36,14 +42,9 @@ function Shell() {
           <NavLink to="/" end className={navTabClass}>
             Home
           </NavLink>
-          <NavLink to="/streams" className={navTabClass}>
+          <NavLink to="/streams" className={() => `nav-tab${streamsSectionActive ? " active" : ""}`}>
             Streams
           </NavLink>
-          {isAdmin ? (
-            <NavLink to="/admin/stream-log" className={navTabClass}>
-              Stream Log
-            </NavLink>
-          ) : null}
           {isAdmin ? (
             <NavLink
               to="/admin/expenses"
@@ -73,6 +74,18 @@ function Shell() {
           </button>
         </div>
       </header>
+      {showStreamsSubnav ? (
+        <div className="admin-subnav">
+          <nav className="admin-subnav-inner" aria-label="Streams sections">
+            <NavLink to="/streams" end className={navSubTabClass}>
+              Live
+            </NavLink>
+            <NavLink to={STREAMS_LOG_PATH} className={navSubTabClass}>
+              Stream Log
+            </NavLink>
+          </nav>
+        </div>
+      ) : null}
       {showAdminSubnav ? (
         <div className="admin-subnav">
           <nav className="admin-subnav-inner" aria-label="Admin sections">
@@ -94,6 +107,14 @@ function Shell() {
             <Route path="/" element={<DashboardPage />} />
             <Route path="/streams" element={<StreamsPage />} />
             <Route
+              path={STREAMS_LOG_PATH}
+              element={isAdmin ? <StreamLogPage /> : <Navigate to="/streams" replace />}
+            />
+            <Route
+              path="/admin/stream-log"
+              element={isAdmin ? <Navigate to={STREAMS_LOG_PATH} replace /> : <Navigate to="/" replace />}
+            />
+            <Route
               path="/admin"
               element={isAdmin ? <Navigate to="/admin/expenses" replace /> : <Navigate to="/" replace />}
             />
@@ -106,7 +127,6 @@ function Shell() {
             <Route path="/admin/expenses" element={isAdmin ? <ExpensesPage /> : <Navigate to="/" replace />} />
             <Route path="/admin/payroll" element={isAdmin ? <PayrollPage /> : <Navigate to="/" replace />} />
             <Route path="/admin/schedule" element={isAdmin ? <SchedulePage /> : <Navigate to="/" replace />} />
-            <Route path="/admin/stream-log" element={isAdmin ? <StreamLogPage /> : <Navigate to="/" replace />} />
           </Routes>
         </main>
       </div>
