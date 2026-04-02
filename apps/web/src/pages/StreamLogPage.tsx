@@ -1,4 +1,4 @@
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "../lib/api";
 
 type StreamItem = {
@@ -48,10 +48,27 @@ function summarizeStream(st: StreamLogStream) {
 }
 
 export function StreamLogPage() {
+  const qc = useQueryClient();
   const q = useQuery({
     queryKey: ["admin-stream-log"],
     queryFn: () => api<StreamLogResponse>("/v1/admin/stream-log")
   });
+
+  const deleteMutation = useMutation({
+    mutationFn: (streamId: string) =>
+      api<{ ok: boolean }>(`/v1/admin/streams/${streamId}`, { method: "DELETE" }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["admin-stream-log"] });
+    }
+  });
+
+  const requestDelete = (st: StreamLogStream) => {
+    const ok = window.confirm(
+      "Delete this stream session and all logged sales? Raw metal will be returned to batches and sticker bags will be marked unsold."
+    );
+    if (!ok) return;
+    deleteMutation.mutate(st.id);
+  };
 
   const streams = q.data?.streams ?? [];
   const totalItems = streams.reduce((s, st) => s + (st.items?.length ?? 0), 0);
@@ -68,6 +85,9 @@ export function StreamLogPage() {
       </p>
 
       {q.error ? <p className="error">{(q.error as Error).message}</p> : null}
+      {deleteMutation.error ? (
+        <p className="error">{(deleteMutation.error as Error).message}</p>
+      ) : null}
 
       <div className="stats-row" style={{ gridTemplateColumns: "repeat(3, 1fr)", marginBottom: "1.5rem" }}>
         <div className="stat-box">
@@ -96,12 +116,13 @@ export function StreamLogPage() {
               <th>Items</th>
               <th>Spot value total</th>
               <th>Avg spot</th>
+              <th aria-label="Actions" />
             </tr>
           </thead>
           <tbody>
             {streams.length === 0 ? (
               <tr>
-                <td colSpan={8} className="tbl-empty">
+                <td colSpan={9} className="tbl-empty">
                   No streams logged yet
                 </td>
               </tr>
@@ -126,6 +147,16 @@ export function StreamLogPage() {
                     <td>{count}</td>
                     <td className="tbl-green">${itemsTotal.toFixed(2)}</td>
                     <td>${Number(avgSpot || 0).toFixed(2)}/oz</td>
+                    <td>
+                      <button
+                        type="button"
+                        className="btn btn-danger btn-sm"
+                        disabled={deleteMutation.isPending}
+                        onClick={() => requestDelete(st)}
+                      >
+                        Delete
+                      </button>
+                    </td>
                   </tr>
                 );
               })

@@ -59,16 +59,16 @@ export function ExpensesPage() {
 
   return (
     <section className="card">
-      <h2>Expenses</h2>
+      <h2>Supplies</h2>
       <p className="pg-sub" style={{ marginBottom: "1rem", fontSize: "0.65rem", color: "var(--text-dim)" }}>
-        Track operating expenses by date
+        Track supply purchases by date
       </p>
 
       {list.error ? <p className="error">{(list.error as Error).message}</p> : null}
 
       <div className="stats-row" style={{ gridTemplateColumns: "repeat(2, 1fr)" }}>
         <div className="stat-box">
-          <div className="stat-lbl">Total expenses</div>
+          <div className="stat-lbl">Total line items</div>
           <div className="stat-val">{items.length}</div>
         </div>
         <div className="stat-box">
@@ -79,7 +79,7 @@ export function ExpensesPage() {
 
       <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: "1rem" }}>
         <button type="button" className="btn btn-gold" onClick={() => setModalOpen(true)}>
-          + Add expense
+          + Add supply
         </button>
       </div>
 
@@ -97,7 +97,7 @@ export function ExpensesPage() {
             {items.length === 0 ? (
               <tr>
                 <td colSpan={4} className="tbl-empty">
-                  No expenses recorded
+                  No supplies recorded
                 </td>
               </tr>
             ) : (
@@ -117,7 +117,7 @@ export function ExpensesPage() {
                       type="button"
                       className="btn btn-danger btn-sm"
                       onClick={() => {
-                        if (confirm("Remove this expense?")) remove.mutate(i.id);
+                        if (confirm("Remove this supply entry?")) remove.mutate(i.id);
                       }}
                     >
                       ✕
@@ -139,7 +139,7 @@ export function ExpensesPage() {
           <button type="button" className="modal-close" onClick={() => setModalOpen(false)} aria-label="Close">
             ✕
           </button>
-          <div className="modal-title">Add expense</div>
+          <div className="modal-title">Add supply</div>
           <form onSubmit={onSubmit}>
             <div className="form-group">
               <label className="form-label" htmlFor="ex-date">

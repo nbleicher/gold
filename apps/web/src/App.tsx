@@ -1,4 +1,4 @@
-import { NavLink, Navigate, Route, Routes } from "react-router-dom";
+import { NavLink, Navigate, Route, Routes, useLocation } from "react-router-dom";
 import { useAuth } from "./state/auth";
 import { LoginPage } from "./pages/LoginPage";
 import { DashboardPage } from "./pages/DashboardPage";
@@ -11,12 +11,21 @@ import { ExpensesPage } from "./pages/ExpensesPage";
 import { PayrollPage } from "./pages/PayrollPage";
 import { StreamLogPage } from "./pages/StreamLogPage";
 
+const ADMIN_SECTION_PATHS = ["/admin/expenses", "/admin/inventory-management", "/admin/orders"] as const;
+
 const navTabClass = ({ isActive }: { isActive: boolean }) => `nav-tab${isActive ? " active" : ""}`;
 
+const navSubTabClass = ({ isActive }: { isActive: boolean }) => `nav-tab nav-tab-sub${isActive ? " active" : ""}`;
+
 function Shell() {
+  const location = useLocation();
   const { profile, signOut } = useAuth();
   const isAdmin = profile?.role === "admin";
   const userLabel = profile?.displayName?.trim() || profile?.email || "—";
+  const adminSectionActive = ADMIN_SECTION_PATHS.includes(
+    location.pathname as (typeof ADMIN_SECTION_PATHS)[number]
+  );
+  const showAdminSubnav = isAdmin && adminSectionActive;
 
   return (
     <div className="app-shell">
@@ -36,18 +45,11 @@ function Shell() {
             </NavLink>
           ) : null}
           {isAdmin ? (
-            <NavLink to="/admin/inventory-management" className={navTabClass}>
-              Orders
-            </NavLink>
-          ) : null}
-          {isAdmin ? (
-            <NavLink to="/admin/expenses" className={navTabClass}>
-              Expenses
-            </NavLink>
-          ) : null}
-          {isAdmin ? (
-            <NavLink to="/admin/orders" className={navTabClass}>
-              Inventory Management
+            <NavLink
+              to="/admin/expenses"
+              className={() => `nav-tab${adminSectionActive ? " active" : ""}`}
+            >
+              Admin
             </NavLink>
           ) : null}
           {isAdmin ? (
@@ -71,11 +73,30 @@ function Shell() {
           </button>
         </div>
       </header>
+      {showAdminSubnav ? (
+        <div className="admin-subnav">
+          <nav className="admin-subnav-inner" aria-label="Admin sections">
+            <NavLink to="/admin/expenses" className={navSubTabClass}>
+              Supplies
+            </NavLink>
+            <NavLink to="/admin/inventory-management" className={navSubTabClass}>
+              Orders
+            </NavLink>
+            <NavLink to="/admin/orders" className={navSubTabClass}>
+              Inventory Management
+            </NavLink>
+          </nav>
+        </div>
+      ) : null}
       <div className="app-body">
         <main className="main-panel">
           <Routes>
             <Route path="/" element={<DashboardPage />} />
             <Route path="/streams" element={<StreamsPage />} />
+            <Route
+              path="/admin"
+              element={isAdmin ? <Navigate to="/admin/expenses" replace /> : <Navigate to="/" replace />}
+            />
             <Route path="/admin/orders" element={isAdmin ? <OrdersPage /> : <Navigate to="/" replace />} />
             <Route
               path="/admin/inventory-management"

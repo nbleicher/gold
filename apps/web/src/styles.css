@@ -302,9 +302,47 @@ body {
   color: var(--red);
 }
 
+/* ── ADMIN SUB-NAV (Supplies / Orders / Inventory Management) ── */
+.admin-subnav {
+  flex-shrink: 0;
+  background: linear-gradient(180deg, var(--obsidian) 0%, #0a0a0a 100%);
+  border-bottom: 1px solid var(--border-gold);
+}
+
+.admin-subnav-inner {
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: stretch;
+  gap: 0;
+  padding: 0 1.25rem;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior-x: contain;
+  scrollbar-width: thin;
+}
+
+.admin-subnav-inner::-webkit-scrollbar {
+  height: 3px;
+}
+
+.admin-subnav-inner::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 2px;
+}
+
+.nav-tab-sub {
+  font-size: 0.56rem;
+  letter-spacing: 0.12em;
+  padding: 0 1rem;
+  height: 40px;
+  flex-shrink: 0;
+  border-bottom-width: 2px;
+}
+
 /* ── LAYOUT ── */
 .app-body {
   flex: 1;
+  min-width: 0;
   overflow: hidden;
   display: flex;
 }
@@ -355,7 +393,11 @@ body {
 
 .main-panel {
   flex: 1;
+  min-width: 0;
+  overflow-x: auto;
   overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior-x: contain;
   padding: 2rem;
 }
 
@@ -718,8 +760,16 @@ body {
 /* ── TABLES ── */
 .tbl-wrap {
   overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior-x: contain;
+  max-width: 100%;
   border: 1px solid var(--border);
   border-radius: 3px;
+}
+
+.tbl-wrap .tbl {
+  width: max-content;
+  min-width: 100%;
 }
 
 .tbl {
@@ -1165,16 +1215,147 @@ body {
 }
 
 /* ── RESPONSIVE ── */
+@media (max-width: 900px) {
+  .app-header {
+    gap: 0.5rem;
+    padding: 0 0.75rem;
+  }
+
+  .app-logo {
+    flex-shrink: 0;
+    font-size: 1.05rem;
+  }
+
+  .header-center {
+    flex: 1;
+    min-width: 0;
+    flex-wrap: nowrap;
+    justify-content: flex-start;
+    overflow-x: auto;
+    overflow-y: hidden;
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior-x: contain;
+    scrollbar-width: thin;
+    -webkit-mask-image: linear-gradient(
+      to right,
+      transparent,
+      #000 10px,
+      #000 calc(100% - 10px),
+      transparent
+    );
+    mask-image: linear-gradient(
+      to right,
+      transparent,
+      #000 10px,
+      #000 calc(100% - 10px),
+      transparent
+    );
+  }
+
+  .header-center::-webkit-scrollbar {
+    height: 3px;
+  }
+
+  .header-center::-webkit-scrollbar-thumb {
+    background: var(--border);
+    border-radius: 2px;
+  }
+
+  .nav-tab {
+    flex-shrink: 0;
+    padding: 0 0.85rem;
+  }
+
+  .header-right {
+    flex-shrink: 0;
+    gap: 0.5rem;
+  }
+
+  .user-pill {
+    max-width: 100px;
+  }
+
+  .logout-btn {
+    padding: 0.35rem 0.5rem;
+    font-size: 0.52rem;
+  }
+}
+
 @media (max-width: 768px) {
   .sidebar {
     display: none;
   }
 
+  .main-panel {
+    padding: 1.25rem 1rem;
+  }
+
   .stats-row {
-    grid-template-columns: 1fr 1fr;
+    display: flex;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    overflow-y: hidden;
+    gap: 0.75rem;
+    padding-bottom: 0.35rem;
+    margin-bottom: 1.25rem;
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior-x: contain;
+    scrollbar-width: thin;
+  }
+
+  .stats-row .stat-box {
+    flex: 0 0 auto;
+    min-width: 9.5rem;
+  }
+
+  .spot-ticker {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior-x: contain;
+    padding-bottom: 0.35rem;
+    scrollbar-width: thin;
+  }
+
+  .spot-card {
+    flex: 0 0 auto;
+    min-width: 11rem;
+  }
+
+  .grid-form {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    overflow-y: hidden;
+    gap: 0.75rem;
+    padding-bottom: 0.35rem;
+    margin-bottom: 0.75rem;
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior-x: contain;
+    scrollbar-width: thin;
+  }
+
+  .grid-form > input:not([type="checkbox"]),
+  .grid-form > select,
+  .grid-form > button,
+  .grid-form > label {
+    flex-shrink: 0;
   }
 
   .form-row {
     flex-direction: column;
   }
+}
+
+/* Horizontal scroll strip for wide stream session rows (wrap .stream-item-row list) */
+.stream-items-scroll {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior-x: contain;
+  margin: 0 -0.35rem;
+  padding: 0 0.35rem 0.35rem;
+  scrollbar-width: thin;
+}
+
+.stream-items-scroll .stream-item-row {
+  min-width: 28rem;
 }

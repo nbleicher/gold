@@ -255,4 +255,40 @@ export async function registerAdminRoutes(app: FastifyInstance) {
       }))
     };
   });
+
+  app.delete("/v1/admin/streams/:id", adminPre, async (req) => {
+    const { id } = req.params as { id: string };
+    const stream = await one<{ id: string }>("select id from streams where id = ?", [id]);
+    if (!stream) throw new Error("Stream not found");
+
+    const items = await q<{
+      sale_type: string;
+      batch_id: string | null;
+      weight_grams: number;
+      sticker_code: string | null;
+    }>("select sale_type, batch_id, weight_grams, sticker_code from stream_items where stream_id = ?", [id]);
+
+    await q("begin");
+    try {
+      for (const it of items) {
+        if (it.sale_type === "raw" && it.batch_id) {
+          await q("update inventory_batches set remaining_grams = remaining_grams + ? where id = ?", [
+            it.weight_grams,
+            it.batch_id
+          ]);
+        }
+        if (it.sale_type === "sticker" && it.sticker_code) {
+          await q("update bag_orders set sold_at = null where upper(sticker_code) = ?", [
+            it.sticker_code.toUpperCase()
+          ]);
+        }
+      }
+      await q("delete from streams where id = ?", [id]);
+      await q("commit");
+    } catch (e) {
+      await q("rollback");
+      throw e;
+    }
+    return { ok: true };
+  });
 }
