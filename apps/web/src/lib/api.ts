@@ -10,10 +10,20 @@ export function getAuthToken() {
   return localStorage.getItem(TOKEN_KEY);
 }
 
+const METHODS_DEFAULT_JSON_BODY = new Set(["POST", "PUT", "PATCH", "DELETE"]);
+
 export async function api<T>(path: string, init?: RequestInit): Promise<T> {
   const token = getAuthToken();
+  const method = (init?.method ?? "GET").toUpperCase();
+  const body =
+    init?.body !== undefined
+      ? init.body
+      : METHODS_DEFAULT_JSON_BODY.has(method)
+        ? JSON.stringify({})
+        : undefined;
   const res = await fetch(`${API_BASE_URL}${path}`, {
     ...init,
+    body,
     headers: {
       "content-type": "application/json",
       ...(token ? { authorization: `Bearer ${token}` } : {}),

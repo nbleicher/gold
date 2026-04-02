@@ -1,4 +1,4 @@
-import Fastify from "fastify";
+import Fastify, { type FastifyError } from "fastify";
 import cors from "@fastify/cors";
 import sensible from "@fastify/sensible";
 import { env } from "./env.js";
@@ -37,6 +37,10 @@ app.setErrorHandler((error, _req, reply) => {
   if (message === "Forbidden") return reply.status(403).send({ error: message });
   if (message.includes("Invalid credentials")) return reply.status(401).send({ error: message });
   if (message === "Stream not found") return reply.status(404).send({ error: message });
+  const statusCode = (error as FastifyError).statusCode;
+  if (typeof statusCode === "number" && statusCode >= 400 && statusCode < 500) {
+    return reply.status(statusCode).send({ error: message });
+  }
   reply.status(500).send({ error: message });
 });
 
