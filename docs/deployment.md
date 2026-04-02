@@ -19,11 +19,31 @@
    - `TURSO_AUTH_TOKEN`
    - `JWT_SECRET`
    - `CORS_ORIGIN`
-   - `SPOT_PRIMARY_FEED_URL`
+   - `SPOT_PRIMARY_FEED_URL` (only if you use pull ingest below)
    - `SPOT_FALLBACK_FEED_URL`
-5. Add cron service/job:
-   - command: `npm --workspace @gold/api run job:spot`
-   - schedule: every 30 seconds or 1 minute.
+   - `SPOT_PUSH_SECRET` (recommended): long random string; enables **`POST /v1/spot/push`** for the VPS scraper.
+
+5. **Spot updates (choose one or both)**
+
+   **A. Push from VPS (recommended)**  
+   Set **`SPOT_PUSH_SECRET`** on Railway to a strong random value. On the VPS, cron [`spot_scraper.py`](../spot_scraper.py) with environment:
+
+   - **`GOLD_API_BASE_URL`** = your Railway API base URL (e.g. `https://your-service.up.railway.app`)
+   - **`SPOT_PUSH_SECRET`** = same value as Railway
+
+   The script POSTs the scraped payload to **`/v1/spot/push`** with `Authorization: Bearer <secret>`. The dashboard updates once the API inserts into Turso (and the web app refetches). Optional: keep **`--out /var/www/html/spot-feed.json`** if you still want a public file.
+
+   **B. Pull ingest (`job:spot`)**  
+   If you serve **`spot-feed.json`** at a **public HTTPS** URL, add a Railway Cron Job with the **same env as the API** running `npm --workspace @gold/api run job:spot` on your desired interval. Do **not** use `http://localhost/...` for **`SPOT_PRIMARY_FEED_URL`**; Railway cannot reach the VPS loopback.
+
+6. **Cache headers for public `spot-feed.json` (pull ingest only)**  
+   If you use **B**, avoid stale JSON behind a CDN:
+
+   ```nginx
+   location = /spot-feed.json {
+       add_header Cache-Control "no-store";
+   }
+   ```
 
 ## Cloudflare Workers (Web)
 

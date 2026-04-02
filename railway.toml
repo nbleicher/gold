@@ -1,3 +1,6 @@
+# Spot: set SPOT_PUSH_SECRET and run spot_scraper.py on the VPS with GOLD_API_BASE_URL (push),
+# or add a Cron Job: npm --workspace @gold/api run job:spot — see docs/deployment.md
+
 [build]
 builder = "NIXPACKS"
 

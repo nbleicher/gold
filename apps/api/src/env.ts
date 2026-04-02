@@ -15,5 +15,7 @@ export const env = {
   spotPrimaryFeedUrl: process.env.SPOT_PRIMARY_FEED_URL ?? "",
   spotFallbackFeedUrl:
     process.env.SPOT_FALLBACK_FEED_URL ??
-    "https://data-asg.goldprice.org/dbXRates/USD"
+    "https://data-asg.goldprice.org/dbXRates/USD",
+  /** When set, enables `POST /v1/spot/push` with `Authorization: Bearer <secret>`. */
+  spotPushSecret: process.env.SPOT_PUSH_SECRET ?? ""
 };

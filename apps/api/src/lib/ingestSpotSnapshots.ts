@@ -3,11 +3,37 @@ import { q } from "../db.js";
 
 const FETCH_TIMEOUT_MS = 15_000;
 
-type SpotPayload = {
-  gold: { price: number; sourceState: string };
-  silver: { price: number; sourceState: string };
-  updatedAt: string;
+export type SpotMetalPayload = { price: number; sourceState: string };
+
+/** Same shape as `spot-feed.json` / primary feed; `updatedAt` is informational only for DB inserts. */
+export type SpotPayload = {
+  gold: SpotMetalPayload;
+  silver: SpotMetalPayload;
+  updatedAt?: string;
 };
+
+/** Inserts two rows (gold, silver) into `spot_snapshots`. */
+export async function applySpotPayloadToDb(data: SpotPayload): Promise<void> {
+  const rows = [
+    {
+      metal: "gold" as const,
+      price: data.gold.price,
+      source_state: data.gold.sourceState ?? "primary"
+    },
+    {
+      metal: "silver" as const,
+      price: data.silver.price,
+      source_state: data.silver.sourceState ?? "primary"
+    }
+  ];
+  for (const row of rows) {
+    await q("insert into spot_snapshots (metal, price, source_state) values (?, ?, ?)", [
+      row.metal,
+      row.price,
+      row.source_state
+    ]);
+  }
+}
 
 async function fetchWithTimeout(url: string): Promise<Response> {
   const ctrl = new AbortController();
@@ -52,25 +78,7 @@ async function runIngestOnce(): Promise<void> {
     };
   }
 
-  const rows = [
-    {
-      metal: "gold",
-      price: data.gold.price,
-      source_state: data.gold.sourceState ?? "primary"
-    },
-    {
-      metal: "silver",
-      price: data.silver.price,
-      source_state: data.silver.sourceState ?? "primary"
-    }
-  ];
-  for (const row of rows) {
-    await q("insert into spot_snapshots (metal, price, source_state) values (?, ?, ?)", [
-      row.metal,
-      row.price,
-      row.source_state
-    ]);
-  }
+  await applySpotPayloadToDb(data);
 }
 
 let ingestInFlight: Promise<void> | null = null;

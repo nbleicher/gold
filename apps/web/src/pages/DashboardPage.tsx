@@ -91,7 +91,8 @@ export function DashboardPage() {
 
   const spot = useQuery({
     queryKey: ["spot-latest"],
-    queryFn: () => api<SpotLatestResponse>("/v1/spot/latest")
+    queryFn: () => api<SpotLatestResponse>("/v1/spot/latest"),
+    refetchInterval: 30_000
   });
 
   const last = home.data?.lastStream ?? null;

@@ -36,9 +36,14 @@ This repository migrates the legacy static `goldstream-app.html` app to:
 
 ## Spot prices (production)
 
-- `GET /v1/spot/latest` reads `spot_snapshots`. Rows are populated by **`npm --workspace @gold/api run job:spot`** ([`apps/api/src/jobs/spotIngest.ts`](apps/api/src/jobs/spotIngest.ts)).
-- Set **`SPOT_PRIMARY_FEED_URL`** and **`SPOT_FALLBACK_FEED_URL`** (see [`apps/api/src/env.ts`](apps/api/src/env.ts)) plus the same Turso env vars as the API.
-- On **Railway**, add a **Cron** or recurring service that runs `npm --workspace @gold/api run job:spot` on an interval (e.g. every 5–15 minutes). Without this, the Home dashboard shows “No data yet” for spot until snapshots exist.
+- `GET /v1/spot/latest` reads `spot_snapshots` in Turso.
+
+**Recommended (push, vc-dash style):** On the VPS, run [`spot_scraper.py`](spot_scraper.py) on a schedule with **`GOLD_API_BASE_URL`** (your Railway API origin) and **`SPOT_PUSH_SECRET`**. On Railway, set **`SPOT_PUSH_SECRET`** to the same value. Each run POSTs to **`POST /v1/spot/push`** and inserts rows; no public `spot-feed.json` required for the dashboard.
+
+**Fallback (pull ingest):** **`npm --workspace @gold/api run job:spot`** ([`apps/api/src/jobs/spotIngest.ts`](apps/api/src/jobs/spotIngest.ts)) fetches **`SPOT_PRIMARY_FEED_URL`** and inserts. Use if you still host a public JSON file (e.g. keep `--out` on the scraper for nginx).
+
+- Set **`SPOT_FALLBACK_FEED_URL`** (see [`apps/api/src/env.ts`](apps/api/src/env.ts)) for the ingest job when the primary URL fails.
+- Details: [docs/deployment.md](docs/deployment.md).
 
 ## Observability baseline
 
