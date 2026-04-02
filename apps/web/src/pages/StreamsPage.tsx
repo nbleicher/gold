@@ -11,6 +11,7 @@ export function StreamsPage() {
   const { user } = useAuth();
   const [activeStreamId, setActiveStreamId] = useState<string | null>(null);
   const [saleCount, setSaleCount] = useState(0);
+  const [isStartCardOpen, setIsStartCardOpen] = useState(false);
   const [goldBatchId, setGoldBatchId] = useState("");
   const [silverBatchId, setSilverBatchId] = useState("");
   const [stickerCode, setStickerCode] = useState("");
@@ -41,6 +42,9 @@ export function StreamsPage() {
     onSuccess: (stream) => {
       setActiveStreamId(stream.id);
       setSaleCount(0);
+      setIsStartCardOpen(false);
+      setGoldBatchId("");
+      setSilverBatchId("");
     }
   });
 
@@ -90,43 +94,72 @@ export function StreamsPage() {
     endMutation.mutate(streamId);
   };
 
+  const hasSelectedStartBatch = Boolean(goldBatchId || silverBatchId);
+
   return (
     <section className={`card${activeStreamId ? " stream-session-card" : ""}`}>
       <h2>Streams</h2>
 
       {!activeStreamId ? (
         <>
-          <div className="grid-form">
-            <select value={goldBatchId} onChange={(e) => setGoldBatchId(e.target.value)}>
-              <option value="">Gold raw batch</option>
-              {(batches.data ?? [])
-                .filter((b) => b.metal === "gold")
-                .map((b) => (
-                  <option key={b.id} value={b.id}>
-                    {b.batch_name} · {Number(b.remaining_grams).toFixed(4)}g
-                  </option>
-                ))}
-            </select>
-            <select value={silverBatchId} onChange={(e) => setSilverBatchId(e.target.value)}>
-              <option value="">Silver raw batch</option>
-              {(batches.data ?? [])
-                .filter((b) => b.metal === "silver")
-                .map((b) => (
-                  <option key={b.id} value={b.id}>
-                    {b.batch_name} · {Number(b.remaining_grams).toFixed(4)}g
-                  </option>
-                ))}
-            </select>
-          </div>
           <button
             type="button"
             className="btn btn-gold"
             style={{ marginTop: "0.75rem" }}
-            onClick={() => startMutation.mutate()}
+            onClick={() => setIsStartCardOpen(true)}
             disabled={!user || startMutation.isPending}
           >
             Start stream
           </button>
+          {isStartCardOpen ? (
+            <div style={{ marginTop: "0.75rem" }}>
+              <div className="grid-form">
+                <select value={goldBatchId} onChange={(e) => setGoldBatchId(e.target.value)}>
+                  <option value="">Gold raw batch</option>
+                  {(batches.data ?? [])
+                    .filter((b) => b.metal === "gold")
+                    .map((b) => (
+                      <option key={b.id} value={b.id}>
+                        {b.batch_name} · {Number(b.remaining_grams).toFixed(4)}g
+                      </option>
+                    ))}
+                </select>
+                <select value={silverBatchId} onChange={(e) => setSilverBatchId(e.target.value)}>
+                  <option value="">Silver raw batch</option>
+                  {(batches.data ?? [])
+                    .filter((b) => b.metal === "silver")
+                    .map((b) => (
+                      <option key={b.id} value={b.id}>
+                        {b.batch_name} · {Number(b.remaining_grams).toFixed(4)}g
+                      </option>
+                    ))}
+                </select>
+              </div>
+              {!hasSelectedStartBatch ? (
+                <p style={{ fontSize: "0.65rem", color: "var(--muted)", marginTop: "0.5rem", marginBottom: 0 }}>
+                  Select at least one metal batch to start stream.
+                </p>
+              ) : null}
+              <div style={{ display: "flex", gap: "0.5rem", marginTop: "0.75rem" }}>
+                <button
+                  type="button"
+                  className="btn btn-gold"
+                  onClick={() => startMutation.mutate()}
+                  disabled={!user || startMutation.isPending || !hasSelectedStartBatch}
+                >
+                  Confirm
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-outline"
+                  onClick={() => setIsStartCardOpen(false)}
+                  disabled={startMutation.isPending}
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          ) : null}
         </>
       ) : (
         <>

@@ -34,6 +34,9 @@ export async function registerStreamRoutes(app: FastifyInstance) {
       goldBatchId?: string | null;
       silverBatchId?: string | null;
     };
+    if (!body.goldBatchId && !body.silverBatchId) {
+      return req.server.httpErrors.badRequest("Select at least one metal batch before starting stream");
+    }
     await q(
       "insert into streams (user_id, gold_batch_id, silver_batch_id) values (?, ?, ?)",
       [body.userId, body.goldBatchId ?? null, body.silverBatchId ?? null]
