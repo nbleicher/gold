@@ -1,22 +1,34 @@
 import { env } from "../env.js";
 import { q } from "../db.js";
 
+const FETCH_TIMEOUT_MS = 15_000;
+
 type SpotPayload = {
   gold: { price: number; sourceState: string };
   silver: { price: number; sourceState: string };
   updatedAt: string;
 };
 
+async function fetchWithTimeout(url: string): Promise<Response> {
+  const ctrl = new AbortController();
+  const id = setTimeout(() => ctrl.abort(), FETCH_TIMEOUT_MS);
+  try {
+    return await fetch(url, { cache: "no-store", signal: ctrl.signal });
+  } finally {
+    clearTimeout(id);
+  }
+}
+
 async function fetchPrimary(): Promise<SpotPayload> {
   const url = env.spotPrimaryFeedUrl?.trim();
   if (!url) throw new Error("No primary spot feed URL");
-  const res = await fetch(url, { cache: "no-store" });
+  const res = await fetchWithTimeout(url);
   if (!res.ok) throw new Error("Primary spot feed unavailable");
   return (await res.json()) as SpotPayload;
 }
 
 async function fetchFallback() {
-  const res = await fetch(env.spotFallbackFeedUrl, { cache: "no-store" });
+  const res = await fetchWithTimeout(env.spotFallbackFeedUrl);
   if (!res.ok) throw new Error("Fallback spot feed unavailable");
   const json = await res.json();
   const item = json?.items?.[0];

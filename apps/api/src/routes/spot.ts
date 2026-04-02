@@ -24,12 +24,20 @@ export async function registerSpotRoutes(app: FastifyInstance) {
     const stale =
       maxAge > 0 && (!both || latest === 0 || Date.now() - latest > maxAge);
 
-    if (stale) {
-      try {
-        await ingestSpotSnapshots();
-        ({ gold, silver } = await loadLatestSpot());
-      } catch (err) {
-        app.log.warn({ err }, "on-demand spot ingest failed");
+    const missingEither = !gold || !silver;
+
+    if (stale && maxAge > 0) {
+      if (missingEither) {
+        try {
+          await ingestSpotSnapshots();
+          ({ gold, silver } = await loadLatestSpot());
+        } catch (err) {
+          app.log.warn({ err }, "spot ingest failed (initial/partial)");
+        }
+      } else {
+        void ingestSpotSnapshots().catch((err) => {
+          app.log.warn({ err }, "background spot ingest failed");
+        });
       }
     }
 

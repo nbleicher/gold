@@ -38,7 +38,7 @@ function fmtMoney(n: number) {
 }
 
 function spotStatusClass(state: string) {
-  if (state === "primary") return "spot-status primary";
+  if (state === "primary" || state === "kitco") return "spot-status primary";
   if (state === "fallback") return "spot-status fallback";
   return "spot-status offline";
 }
@@ -92,8 +92,9 @@ export function DashboardPage() {
   const spot = useQuery({
     queryKey: ["spot-latest"],
     queryFn: () => api<SpotLatestResponse>("/v1/spot/latest"),
-    refetchInterval: 60_000,
-    refetchIntervalInBackground: true
+    refetchInterval: 30_000,
+    refetchIntervalInBackground: false,
+    retry: 1
   });
 
   const last = home.data?.lastStream ?? null;
@@ -115,7 +116,7 @@ export function DashboardPage() {
             <SpotMetalCard label="Silver" row={spot.data.silver} />
           </div>
           <p style={{ fontSize: "0.55rem", color: "var(--muted)", marginTop: "0.5rem", marginBottom: 0 }}>
-            Refreshes every 60s from the server snapshot.
+            Checks every 30s; prices update after the API refreshes its snapshot (Kitco feed + cron, or fallback).
           </p>
         </>
       ) : spot.isError ? (
