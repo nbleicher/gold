@@ -1,6 +1,6 @@
 import type { FastifyInstance } from "fastify";
 import { createBagOrderSchema } from "@gold/shared";
-import { one, q } from "../db.js";
+import { one, q, txOne, txQ, withWriteTx } from "../db.js";
 import { getTierIndex, seqFromIndex } from "../domain/tiers.js";
 import { requireAuth, requireRole } from "./auth.js";
 
@@ -49,25 +49,28 @@ export async function registerBagOrderRoutes(app: FastifyInstance) {
     const stickerCode =
       `${primary.sticker_batch_letter}${tierIndex}${seqFromIndex(countRow?.count ?? 0)}`.toUpperCase();
 
-    await q("begin");
-    try {
-      await q(
+    return withWriteTx(async (tx) => {
+      await txQ(
+        tx,
         "insert into bag_orders (primary_batch_id, metal, actual_weight_grams, tier_index, sticker_code) values (?, ?, ?, ?, ?)",
         [body.primaryBatchId, body.secondWeightGrams ? "mixed" : body.primaryMetal, totalWeight, tierIndex, stickerCode]
       );
-      const order = await one<{ id: string }>(
+      const order = await txOne<{ id: string }>(
+        tx,
         "select id from bag_orders where sticker_code = ?",
         [stickerCode]
       );
       if (!order) throw new Error("Failed to create bag order");
 
-      await q(
+      await txQ(
+        tx,
         "insert into bag_order_components (bag_order_id, batch_id, metal, weight_grams) values (?, ?, ?, ?)",
         [order.id, body.primaryBatchId, body.primaryMetal, body.primaryWeightGrams]
       );
 
       if (body.secondBatchId && body.secondMetal && body.secondWeightGrams) {
-        const second = await one<{ id: string; remaining_grams: number }>(
+        const second = await txOne<{ id: string; remaining_grams: number }>(
+          tx,
           "select id, remaining_grams from inventory_batches where id = ?",
           [body.secondBatchId]
         );
@@ -75,26 +78,23 @@ export async function registerBagOrderRoutes(app: FastifyInstance) {
         if (Number(second.remaining_grams) < body.secondWeightGrams) {
           throw new Error("Insufficient second batch grams");
         }
-        await q(
+        await txQ(
+          tx,
           "insert into bag_order_components (bag_order_id, batch_id, metal, weight_grams) values (?, ?, ?, ?)",
           [order.id, body.secondBatchId, body.secondMetal, body.secondWeightGrams]
         );
-        await q("update inventory_batches set remaining_grams = remaining_grams - ? where id = ?", [
+        await txQ(tx, "update inventory_batches set remaining_grams = remaining_grams - ? where id = ?", [
           body.secondWeightGrams,
           body.secondBatchId
         ]);
       }
 
-      await q("update inventory_batches set remaining_grams = remaining_grams - ? where id = ?", [
+      await txQ(tx, "update inventory_batches set remaining_grams = remaining_grams - ? where id = ?", [
         body.primaryWeightGrams,
         body.primaryBatchId
       ]);
-      await q("commit");
-      return one("select * from bag_orders where sticker_code = ?", [stickerCode]);
-    } catch (e) {
-      await q("rollback");
-      throw e;
-    }
+      return txOne(tx, "select * from bag_orders where sticker_code = ?", [stickerCode]);
+    });
   });
 
   app.patch("/v1/bag-orders/:id/mark-sold", { preHandler: requireRole("admin") }, async (req) => {

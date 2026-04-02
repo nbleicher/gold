@@ -1,6 +1,6 @@
 import type { FastifyInstance } from "fastify";
 import { createRawSaleSchema, createStickerSaleSchema } from "@gold/shared";
-import { one, q } from "../db.js";
+import { one, q, txQ, txOne, withWriteTx } from "../db.js";
 import { requireAuth } from "./auth.js";
 
 const OZT_TO_GRAMS = 31.1034768;
@@ -90,9 +90,9 @@ export async function registerStreamRoutes(app: FastifyInstance) {
     const spotPrice = totalWeight ? (totalSpotValue / totalWeight) * OZT_TO_GRAMS : 0;
     const codeUpper = body.stickerCode.toUpperCase();
 
-    await q("begin");
-    try {
-      await q(
+    return withWriteTx(async (tx) => {
+      await txQ(
+        tx,
         "insert into stream_items (stream_id, sale_type, name, metal, weight_grams, spot_value, spot_price, sticker_code, batch_id) values (?, 'sticker', ?, ?, ?, ?, ?, ?, ?)",
         [
           body.streamId,
@@ -105,19 +105,17 @@ export async function registerStreamRoutes(app: FastifyInstance) {
           order.primary_batch_id
         ]
       );
-      await q(
+      await txQ(
+        tx,
         "update bag_orders set sold_at = coalesce(sold_at, datetime('now')) where upper(sticker_code) = ?",
         [codeUpper]
       );
-      await q("commit");
-      return one(
+      return txOne(
+        tx,
         "select * from stream_items where stream_id = ? order by created_at desc limit 1",
         [body.streamId]
       );
-    } catch (e) {
-      await q("rollback");
-      throw e;
-    }
+    });
   });
 
   app.post("/v1/streams/raw-sale", { preHandler: requireAuth }, async (req) => {
@@ -142,9 +140,9 @@ export async function registerStreamRoutes(app: FastifyInstance) {
 
     const spot = await getLatestSpot(body.metal);
     const spotValue = body.weightGrams * (spot / OZT_TO_GRAMS);
-    await q("begin");
-    try {
-      await q(
+    return withWriteTx(async (tx) => {
+      await txQ(
+        tx,
         "insert into stream_items (stream_id, sale_type, name, metal, weight_grams, spot_value, spot_price, batch_id) values (?, 'raw', ?, ?, ?, ?, ?, ?)",
         [
           body.streamId,
@@ -156,16 +154,12 @@ export async function registerStreamRoutes(app: FastifyInstance) {
           batchId
         ]
       );
-      await q("update inventory_batches set remaining_grams = remaining_grams - ? where id = ?", [
+      await txQ(tx, "update inventory_batches set remaining_grams = remaining_grams - ? where id = ?", [
         body.weightGrams,
         batchId
       ]);
-      await q("commit");
-      return one("select * from stream_items order by rowid desc limit 1");
-    } catch (e) {
-      await q("rollback");
-      throw e;
-    }
+      return txOne(tx, "select * from stream_items order by rowid desc limit 1");
+    });
   });
 
   app.delete("/v1/streams/items/:id", { preHandler: requireAuth }, async (req) => {

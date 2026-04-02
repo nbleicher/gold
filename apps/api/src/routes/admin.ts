@@ -1,6 +1,6 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
-import { one, q } from "../db.js";
+import { one, q, txQ, withWriteTx } from "../db.js";
 import { requireRole } from "./auth.js";
 
 const adminPre = { preHandler: requireRole("admin") };
@@ -268,25 +268,24 @@ export async function registerAdminRoutes(app: FastifyInstance) {
       sticker_code: string | null;
     }>("select sale_type, batch_id, weight_grams, sticker_code from stream_items where stream_id = ?", [id]);
 
-    await q("begin");
     try {
-      for (const it of items) {
-        if (it.sale_type === "raw" && it.batch_id) {
-          await q("update inventory_batches set remaining_grams = remaining_grams + ? where id = ?", [
-            it.weight_grams,
-            it.batch_id
-          ]);
+      await withWriteTx(async (tx) => {
+        for (const it of items) {
+          if (it.sale_type === "raw" && it.batch_id) {
+            await txQ(tx, "update inventory_batches set remaining_grams = remaining_grams + ? where id = ?", [
+              it.weight_grams,
+              it.batch_id
+            ]);
+          }
+          if (it.sale_type === "sticker" && it.sticker_code) {
+            await txQ(tx, "update bag_orders set sold_at = null where upper(sticker_code) = ?", [
+              it.sticker_code.toUpperCase()
+            ]);
+          }
         }
-        if (it.sale_type === "sticker" && it.sticker_code) {
-          await q("update bag_orders set sold_at = null where upper(sticker_code) = ?", [
-            it.sticker_code.toUpperCase()
-          ]);
-        }
-      }
-      await q("delete from streams where id = ?", [id]);
-      await q("commit");
+        await txQ(tx, "delete from streams where id = ?", [id]);
+      });
     } catch (e) {
-      await q("rollback");
       const msg = e instanceof Error ? e.message : String(e);
       req.log.error({ err: e, streamId: id }, `admin delete stream failed: ${msg}`);
       throw e;

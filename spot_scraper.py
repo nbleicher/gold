@@ -1,10 +1,19 @@
 #!/usr/bin/env python3
 """
-Scrape Gold/Silver spot pages and write a JSON feed.
+Fetch Kitco live chart pages and write a JSON feed for SPOT_PRIMARY_FEED_URL.
 
-Use with cron (every 30s while streaming), for example:
-* * * * * /usr/bin/python3 /path/to/spot_scraper.py --out /var/www/html/spot-feed.json
-* * * * * sleep 30; /usr/bin/python3 /path/to/spot_scraper.py --out /var/www/html/spot-feed.json
+Sources (HTML includes Next.js __NEXT_DATA__ with GetMetalQuoteV3 bid prices):
+  - https://www.kitco.com/charts/gold
+  - https://www.kitco.com/charts/silver
+
+If Kitco changes their Next.js payload shape, parsing will fail; use stale-file
+fallback per metal when configured.
+
+Automated scraping may conflict with Kitco's Terms of Use; operators are
+responsible for compliance. Prefer licensed APIs when available.
+
+Cron example:
+  * * * * * /usr/bin/python3 /path/to/spot_scraper.py --out /var/www/html/spot-feed.json
 """
 
 from __future__ import annotations
@@ -14,20 +23,19 @@ import json
 import re
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Any
 from urllib.request import Request, urlopen
 
-GOLD_URL = "https://www.google.com/finance/beta/quote/GCW00:COMEX?sa=X&ved=2ahUKEwje8OWo78eTAxXNRDABHTwmLXYQ3ecFegQIIhAP"
-SILVER_URL = "https://www.google.com/finance/beta/quote/SIW00:COMEX?sa=X&ved=2ahUKEwjM-sq578eTAxXaRzABHZ84Gf4Q3ecFegQIJRAP"
+GOLD_URL = "https://www.kitco.com/charts/gold"
+SILVER_URL = "https://www.kitco.com/charts/silver"
 
-PRICE_PATTERNS = (
-    re.compile(r'data-last-price="([0-9.,]+)"', re.I),
-    re.compile(r'"lastPrice"\s*:\s*"([0-9.,]+)"', re.I),
-    re.compile(r'"price"\s*:\s*"([0-9.,]+)"', re.I),
-    re.compile(r"\$([0-9]{1,3}(?:,[0-9]{3})*(?:\.[0-9]+)?)", re.I),
+_NEXT_DATA_RE = re.compile(
+    r'<script id="__NEXT_DATA__" type="application/json">(.+?)</script>',
+    re.DOTALL,
 )
 
 
-def fetch_html(url: str, timeout: int = 10) -> str:
+def fetch_html(url: str, timeout: int = 15) -> str:
     req = Request(
         url,
         headers={
@@ -39,22 +47,42 @@ def fetch_html(url: str, timeout: int = 10) -> str:
         return res.read().decode("utf-8", errors="ignore")
 
 
-def parse_price(html: str) -> float:
-    for pattern in PRICE_PATTERNS:
-        m = pattern.search(html)
-        if m and m.group(1):
-            raw = m.group(1).replace(",", "")
-            try:
-                val = float(raw)
-            except ValueError:
-                continue
-            if val > 0:
-                return val
-    raise ValueError("Unable to parse price")
+def parse_kitco_bid(html: str) -> float:
+    m = _NEXT_DATA_RE.search(html)
+    if not m:
+        raise ValueError("Kitco: missing __NEXT_DATA__")
+    data: dict[str, Any] = json.loads(m.group(1))
+    try:
+        queries = data["props"]["pageProps"]["dehydratedState"]["queries"]
+    except (KeyError, TypeError) as e:
+        raise ValueError("Kitco: unexpected JSON shape") from e
+
+    for q in queries:
+        state = (q or {}).get("state") or {}
+        payload = state.get("data")
+        if not isinstance(payload, dict):
+            continue
+        gmq = payload.get("GetMetalQuoteV3")
+        if not isinstance(gmq, dict):
+            continue
+        results = gmq.get("results")
+        if not results:
+            continue
+        first = results[0]
+        if not isinstance(first, dict):
+            continue
+        bid = first.get("bid")
+        if bid is None:
+            continue
+        val = float(bid)
+        if val > 0:
+            return val
+
+    raise ValueError("Kitco: no GetMetalQuoteV3 bid in __NEXT_DATA__")
 
 
-def scrape_price(url: str) -> float:
-    return parse_price(fetch_html(url))
+def scrape_kitco_bid(url: str) -> float:
+    return parse_kitco_bid(fetch_html(url))
 
 
 def read_existing(path: Path) -> dict:
@@ -67,7 +95,7 @@ def read_existing(path: Path) -> dict:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Write VPS spot feed JSON")
+    parser = argparse.ArgumentParser(description="Write VPS spot feed JSON (Kitco)")
     parser.add_argument("--out", default="spot-feed.json", help="Output JSON path")
     args = parser.parse_args()
 
@@ -81,11 +109,11 @@ def main() -> int:
 
     for metal, url in (("gold", GOLD_URL), ("silver", SILVER_URL)):
         try:
-            price = scrape_price(url)
+            price = scrape_kitco_bid(url)
             payload[metal]["price"] = price
-            payload[metal]["sourceState"] = "primary"
+            payload[metal]["sourceState"] = "kitco"
         except Exception:
-            prev = (existing.get(metal) or {})
+            prev = existing.get(metal) or {}
             prev_price = prev.get("price")
             if isinstance(prev_price, (int, float)) and prev_price > 0:
                 payload[metal]["price"] = prev_price
