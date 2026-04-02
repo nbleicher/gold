@@ -1,8 +1,152 @@
+import { useQuery } from "@tanstack/react-query";
+import { api } from "../lib/api";
+
+type HomeLastStream = {
+  id: string;
+  startedAt: string;
+  endedAt: string | null;
+  itemCount: number;
+  totalSpotValue: number;
+  estimatedProfit: number;
+  durationMinutes: number;
+  profitPerMinute: number;
+};
+
+type HomeResponse = {
+  streamsToday: number;
+  lastStream: HomeLastStream | null;
+};
+
+type SpotSnapshot = {
+  id: string;
+  metal: string;
+  price: number;
+  source_state: string;
+  created_at: string;
+};
+
+type SpotLatestResponse = {
+  gold: SpotSnapshot;
+  silver: SpotSnapshot;
+  updatedAt: string;
+};
+
+function fmtMoney(n: number) {
+  return `$${n.toFixed(2)}`;
+}
+
+function spotStatusClass(state: string) {
+  if (state === "primary") return "spot-status primary";
+  if (state === "fallback") return "spot-status fallback";
+  return "spot-status offline";
+}
+
 export function DashboardPage() {
+  const home = useQuery({
+    queryKey: ["dashboard-home"],
+    queryFn: () => api<HomeResponse>("/v1/dashboard/home")
+  });
+
+  const spot = useQuery({
+    queryKey: ["spot-latest"],
+    queryFn: () => api<SpotLatestResponse>("/v1/spot/latest")
+  });
+
+  const last = home.data?.lastStream ?? null;
+
   return (
     <section className="card">
-      <h2>Dashboard</h2>
-      <p>React migration baseline is live. Use navigation to open migrated workflows.</p>
+      <h2 className="pg-title">Home</h2>
+      <p className="pg-sub">Streams, last session margin, live spot</p>
+
+      {spot.isSuccess ? (
+        <div className="spot-ticker">
+          <div className="spot-card active">
+            <div className="spot-label">Gold</div>
+            <div className="spot-price">
+              {fmtMoney(Number(spot.data.gold.price))}
+              <span className="spot-unit">/oz</span>
+            </div>
+            <div className="spot-live-text" style={{ marginTop: "0.35rem" }}>
+              <span className={spotStatusClass(spot.data.gold.source_state)}>
+                {spot.data.gold.source_state}
+              </span>
+              <span style={{ marginLeft: "0.5rem", color: "var(--muted)" }}>
+                {new Date(spot.data.gold.created_at).toLocaleString()}
+              </span>
+            </div>
+          </div>
+          <div className="spot-card">
+            <div className="spot-label">Silver</div>
+            <div className="spot-price">
+              {fmtMoney(Number(spot.data.silver.price))}
+              <span className="spot-unit">/oz</span>
+            </div>
+            <div className="spot-live-text" style={{ marginTop: "0.35rem" }}>
+              <span className={spotStatusClass(spot.data.silver.source_state)}>
+                {spot.data.silver.source_state}
+              </span>
+              <span style={{ marginLeft: "0.5rem", color: "var(--muted)" }}>
+                {new Date(spot.data.silver.created_at).toLocaleString()}
+              </span>
+            </div>
+          </div>
+        </div>
+      ) : spot.isError ? (
+        <p className="error" style={{ marginBottom: "1rem" }}>
+          {(spot.error as Error).message}
+        </p>
+      ) : spot.isLoading ? (
+        <p style={{ fontSize: "0.65rem", color: "var(--muted)", marginBottom: "1rem" }}>Loading spot…</p>
+      ) : null}
+
+      {home.error ? <p className="error">{(home.error as Error).message}</p> : null}
+
+      <div className="stats-row" style={{ gridTemplateColumns: "repeat(3, 1fr)", marginBottom: "0.5rem" }}>
+        <div className="stat-box">
+          <div className="stat-lbl">Streams today (UTC)</div>
+          <div className="stat-val">{home.isLoading ? "—" : (home.data?.streamsToday ?? 0)}</div>
+        </div>
+        <div className="stat-box">
+          <div className="stat-lbl">Last stream · est. profit</div>
+          <div className="stat-val" style={{ fontSize: "1.35rem" }}>
+            {home.isLoading ? "—" : last ? fmtMoney(last.estimatedProfit) : "—"}
+          </div>
+        </div>
+        <div className="stat-box">
+          <div className="stat-lbl">Last stream · profit / min</div>
+          <div className="stat-val" style={{ fontSize: "1.35rem" }}>
+            {home.isLoading ? "—" : last ? fmtMoney(last.profitPerMinute) : "—"}
+          </div>
+        </div>
+      </div>
+
+      <p style={{ fontSize: "0.58rem", color: "var(--muted)", marginBottom: "1rem", lineHeight: 1.5 }}>
+        Estimated profit uses batch cost (total cost ÷ original grams × sold grams). Sticker sales use the
+        linked batch only; mixed bags can skew margin. &quot;Today&quot; uses the database calendar day (UTC).
+      </p>
+
+      {last ? (
+        <div
+          style={{
+            fontSize: "0.65rem",
+            color: "var(--text-dim)",
+            borderTop: "1px solid var(--border)",
+            paddingTop: "1rem"
+          }}
+        >
+          <div>
+            <strong>Last stream</strong> · {new Date(last.startedAt).toLocaleString()}
+            {last.endedAt ? ` → ${new Date(last.endedAt).toLocaleString()}` : " · live"}
+          </div>
+          <div style={{ marginTop: "0.35rem" }}>
+            {last.itemCount} sale{last.itemCount === 1 ? "" : "s"} · spot value {fmtMoney(last.totalSpotValue)}{" "}
+            · ~{last.durationMinutes.toFixed(1)} min
+          </div>
+        </div>
+      ) : !home.isLoading && home.data ? (
+        <p style={{ fontSize: "0.65rem", color: "var(--muted)" }}>No streams yet for this account.</p>
+      ) : null}
     </section>
   );
 }

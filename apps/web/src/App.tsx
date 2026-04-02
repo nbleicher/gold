@@ -11,7 +11,12 @@ import { ExpensesPage } from "./pages/ExpensesPage";
 import { PayrollPage } from "./pages/PayrollPage";
 import { StreamLogPage } from "./pages/StreamLogPage";
 
-const ADMIN_SECTION_PATHS = ["/admin/expenses", "/admin/inventory-management", "/admin/orders"] as const;
+const ADMIN_SECTION_PATHS = [
+  "/admin/expenses",
+  "/admin/inventory-management",
+  "/admin/orders",
+  "/admin/payroll"
+] as const;
 
 const STREAMS_LOG_PATH = "/streams/log";
 
@@ -39,12 +44,6 @@ function Shell() {
       <header className="app-header">
         <div className="app-logo">⬡ GoldStream Live</div>
         <nav className="header-center">
-          <NavLink to="/" end className={navTabClass}>
-            Home
-          </NavLink>
-          <NavLink to="/streams" className={() => `nav-tab${streamsSectionActive ? " active" : ""}`}>
-            Streams
-          </NavLink>
           {isAdmin ? (
             <NavLink
               to="/admin/expenses"
@@ -53,14 +52,15 @@ function Shell() {
               Admin
             </NavLink>
           ) : null}
+          <NavLink to="/" end className={navTabClass}>
+            Home
+          </NavLink>
+          <NavLink to="/streams" className={() => `nav-tab${streamsSectionActive ? " active" : ""}`}>
+            Streams
+          </NavLink>
           {isAdmin ? (
             <NavLink to="/admin/schedule" className={navTabClass}>
               Schedule
-            </NavLink>
-          ) : null}
-          {isAdmin ? (
-            <NavLink to="/admin/payroll" className={navTabClass}>
-              Payroll
             </NavLink>
           ) : null}
         </nav>
@@ -97,6 +97,9 @@ function Shell() {
             </NavLink>
             <NavLink to="/admin/orders" className={navSubTabClass}>
               Inventory Management
+            </NavLink>
+            <NavLink to="/admin/payroll" className={navSubTabClass}>
+              Payroll
             </NavLink>
           </nav>
         </div>

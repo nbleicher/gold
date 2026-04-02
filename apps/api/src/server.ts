@@ -9,6 +9,7 @@ import { registerSpotRoutes } from "./routes/spot.js";
 import { registerAuthRoutes } from "./routes/auth.js";
 import { registerOpsRoutes } from "./routes/ops.js";
 import { registerAdminRoutes } from "./routes/admin.js";
+import { registerDashboardRoutes } from "./routes/dashboard.js";
 
 const app = Fastify({ logger: true });
 
@@ -29,6 +30,7 @@ await registerSpotRoutes(app);
 await registerAuthRoutes(app);
 await registerOpsRoutes(app);
 await registerAdminRoutes(app);
+await registerDashboardRoutes(app);
 
 app.setErrorHandler((error, _req, reply) => {
   app.log.error(error);
