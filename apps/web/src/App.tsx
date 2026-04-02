@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import { NavLink, Navigate, Route, Routes, useLocation } from "react-router-dom";
 import { useAuth } from "./state/auth";
 import { LoginPage } from "./pages/LoginPage";
@@ -27,6 +28,7 @@ const navSubTabClass = ({ isActive }: { isActive: boolean }) => `nav-tab nav-tab
 function Shell() {
   const location = useLocation();
   const { profile, signOut } = useAuth();
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const isAdmin = profile?.role === "admin";
   const userLabel = profile?.displayName?.trim() || profile?.email || "—";
   const adminSectionActive = ADMIN_SECTION_PATHS.includes(
@@ -38,11 +40,41 @@ function Shell() {
     : location.pathname === "/streams";
   const showStreamsSubnav = isAdmin && (location.pathname === "/streams" || location.pathname === STREAMS_LOG_PATH);
 
+  useEffect(() => {
+    setMobileNavOpen(false);
+  }, [location.pathname]);
+
+  useEffect(() => {
+    if (!mobileNavOpen) return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setMobileNavOpen(false);
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [mobileNavOpen]);
+
+  useEffect(() => {
+    document.body.style.overflow = mobileNavOpen ? "hidden" : "";
+    return () => {
+      document.body.style.overflow = "";
+    };
+  }, [mobileNavOpen]);
+
   return (
     <div className="app-shell">
       <div className="shimmer-bar" aria-hidden />
       <header className="app-header">
         <div className="app-logo">⬡ GoldStream Live</div>
+        <button
+          type="button"
+          className="hamburger-btn"
+          aria-label={mobileNavOpen ? "Close menu" : "Open menu"}
+          aria-expanded={mobileNavOpen}
+          aria-controls="mobile-nav-panel"
+          onClick={() => setMobileNavOpen((v) => !v)}
+        >
+          ☰
+        </button>
         <nav className="header-center">
           {isAdmin ? (
             <NavLink
@@ -74,6 +106,59 @@ function Shell() {
           </button>
         </div>
       </header>
+      {mobileNavOpen ? (
+        <div className="mobile-nav-overlay" onClick={() => setMobileNavOpen(false)}>
+          <nav
+            id="mobile-nav-panel"
+            className="mobile-nav-panel"
+            aria-label="Main navigation"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {isAdmin ? (
+              <>
+                <div className="mobile-nav-section-label">Admin</div>
+                <NavLink to="/admin/expenses" className={navTabClass} onClick={() => setMobileNavOpen(false)}>
+                  Admin Home
+                </NavLink>
+                <NavLink to="/admin/expenses" className={navTabClass} onClick={() => setMobileNavOpen(false)}>
+                  Supplies
+                </NavLink>
+                <NavLink
+                  to="/admin/inventory-management"
+                  className={navTabClass}
+                  onClick={() => setMobileNavOpen(false)}
+                >
+              Batch Management
+                </NavLink>
+                <NavLink to="/admin/orders" className={navTabClass} onClick={() => setMobileNavOpen(false)}>
+                  Inventory Management
+                </NavLink>
+                <NavLink to="/admin/payroll" className={navTabClass} onClick={() => setMobileNavOpen(false)}>
+                  Payroll
+                </NavLink>
+                <NavLink to="/admin/schedule" className={navTabClass} onClick={() => setMobileNavOpen(false)}>
+                  Schedule
+                </NavLink>
+              </>
+            ) : null}
+            <div className="mobile-nav-section-label">Main</div>
+            <NavLink to="/" end className={navTabClass} onClick={() => setMobileNavOpen(false)}>
+              Home
+            </NavLink>
+            <NavLink to="/streams" className={navTabClass} onClick={() => setMobileNavOpen(false)}>
+              Streams
+            </NavLink>
+            {isAdmin ? (
+              <NavLink to={STREAMS_LOG_PATH} className={navTabClass} onClick={() => setMobileNavOpen(false)}>
+                Stream Log
+              </NavLink>
+            ) : null}
+            <button type="button" className="logout-btn mobile-nav-logout" onClick={() => void signOut()}>
+              Sign out
+            </button>
+          </nav>
+        </div>
+      ) : null}
       {showStreamsSubnav ? (
         <div className="admin-subnav">
           <nav className="admin-subnav-inner" aria-label="Streams sections">
@@ -93,7 +178,7 @@ function Shell() {
               Supplies
             </NavLink>
             <NavLink to="/admin/inventory-management" className={navSubTabClass}>
-              Orders
+              Batch Management
             </NavLink>
             <NavLink to="/admin/orders" className={navSubTabClass}>
               Inventory Management
