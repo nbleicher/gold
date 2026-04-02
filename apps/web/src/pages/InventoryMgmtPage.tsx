@@ -104,7 +104,7 @@ export function InventoryMgmtPage() {
 
   return (
     <section className="card">
-      <h2>Orders</h2>
+      <h2>Batch Management</h2>
       <p
         className="pg-sub"
         style={{
@@ -256,7 +256,7 @@ export function InventoryMgmtPage() {
           <button type="button" className="modal-close" onClick={() => setModalOpen(false)} aria-label="Close">
             ✕
           </button>
-          <div className="modal-title">Add batch — Orders</div>
+          <div className="modal-title">Add batch — Batch Management</div>
           <form onSubmit={onSubmitModal}>
             <div className="form-group">
               <label className="form-label" htmlFor="bm-date">

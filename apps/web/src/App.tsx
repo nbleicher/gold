@@ -11,8 +11,10 @@ import { SchedulePage } from "./pages/SchedulePage";
 import { ExpensesPage } from "./pages/ExpensesPage";
 import { PayrollPage } from "./pages/PayrollPage";
 import { StreamLogPage } from "./pages/StreamLogPage";
+import { AdminDashboardPage } from "./pages/AdminDashboardPage";
 
 const ADMIN_SECTION_PATHS = [
+  "/admin/dashboard",
   "/admin/expenses",
   "/admin/inventory-management",
   "/admin/orders",
@@ -117,8 +119,11 @@ function Shell() {
             {isAdmin ? (
               <>
                 <div className="mobile-nav-section-label">Admin</div>
-                <NavLink to="/admin/expenses" className={navTabClass} onClick={() => setMobileNavOpen(false)}>
+                <NavLink to="/admin/dashboard" className={navTabClass} onClick={() => setMobileNavOpen(false)}>
                   Admin Home
+                </NavLink>
+                <NavLink to="/admin/dashboard" className={navTabClass} onClick={() => setMobileNavOpen(false)}>
+                  Admin Dashboard
                 </NavLink>
                 <NavLink to="/admin/expenses" className={navTabClass} onClick={() => setMobileNavOpen(false)}>
                   Supplies
@@ -174,6 +179,9 @@ function Shell() {
       {showAdminSubnav ? (
         <div className="admin-subnav">
           <nav className="admin-subnav-inner" aria-label="Admin sections">
+            <NavLink to="/admin/dashboard" className={navSubTabClass}>
+              Admin Dashboard
+            </NavLink>
             <NavLink to="/admin/expenses" className={navSubTabClass}>
               Supplies
             </NavLink>
@@ -204,7 +212,11 @@ function Shell() {
             />
             <Route
               path="/admin"
-              element={isAdmin ? <Navigate to="/admin/expenses" replace /> : <Navigate to="/" replace />}
+              element={isAdmin ? <Navigate to="/admin/dashboard" replace /> : <Navigate to="/" replace />}
+            />
+            <Route
+              path="/admin/dashboard"
+              element={isAdmin ? <AdminDashboardPage /> : <Navigate to="/" replace />}
             />
             <Route path="/admin/orders" element={isAdmin ? <OrdersPage /> : <Navigate to="/" replace />} />
             <Route
