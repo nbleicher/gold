@@ -43,6 +43,7 @@ export function OrdersPage() {
   const [mixed, setMixed] = useState(false);
   const [secondBatchId, setSecondBatchId] = useState("");
   const [secondWeight, setSecondWeight] = useState("0.0000");
+  const [formError, setFormError] = useState<string | null>(null);
 
   const batches = useQuery({
     queryKey: ["batches"],
@@ -82,7 +83,8 @@ export function OrdersPage() {
     mutationFn: () => {
       const primary = (batches.data ?? []).find((b) => b.id === primaryBatchId);
       if (!primary) throw new Error("Select primary batch");
-      const secondary = (batches.data ?? []).find((b) => b.id === secondBatchId);
+      const secondary = mixed ? (batches.data ?? []).find((b) => b.id === secondBatchId) : undefined;
+      if (mixed && !secondary) throw new Error("Select second metal batch");
       return api<BagOrder>("/v1/bag-orders", {
         method: "POST",
         body: JSON.stringify({
@@ -100,6 +102,7 @@ export function OrdersPage() {
       qc.invalidateQueries({ queryKey: ["bag-orders"] });
       setPrimaryWeight("0.0000");
       setSecondWeight("0.0000");
+      setFormError(null);
     }
   });
 
@@ -110,6 +113,15 @@ export function OrdersPage() {
 
   const onSubmit = (e: FormEvent) => {
     e.preventDefault();
+    const primaryWeightNumber = Number(primaryWeight);
+    const secondWeightNumber = Number(secondWeight);
+    if (!primaryBatchId) return setFormError("Select a primary batch.");
+    if (!(primaryWeightNumber > 0)) return setFormError("Enter a primary weight greater than 0.");
+    if (mixed) {
+      if (!secondBatchId) return setFormError("Select a second metal batch.");
+      if (!(secondWeightNumber > 0)) return setFormError("Enter a second metal weight greater than 0.");
+    }
+    setFormError(null);
     createBag.mutate();
   };
 
@@ -196,7 +208,14 @@ export function OrdersPage() {
               marginTop: "0.75rem"
             }}
           >
-            <input type="checkbox" checked={mixed} onChange={(e) => setMixed(e.target.checked)} />
+            <input
+              type="checkbox"
+              checked={mixed}
+              onChange={(e) => {
+                setMixed(e.target.checked);
+                setFormError(null);
+              }}
+            />
             Add second metal to same bag (gold + silver)
           </label>
           {mixed ? (
@@ -227,6 +246,7 @@ export function OrdersPage() {
             </div>
           ) : null}
           <p style={{ fontSize: "0.7rem", color: "var(--muted)", marginTop: "0.55rem" }}>{tierPreview}</p>
+          {formError ? <p className="error">{formError}</p> : null}
           {createBag.error ? <p className="error">{(createBag.error as Error).message}</p> : null}
         </form>
       </div>

@@ -27,8 +27,19 @@ export async function registerBagOrderRoutes(app: FastifyInstance) {
     });
   });
 
-  app.post("/v1/bag-orders", { preHandler: requireRole("admin") }, async (req) => {
-    const body = createBagOrderSchema.parse(req.body);
+  app.post("/v1/bag-orders", { preHandler: requireRole("admin") }, async (req, reply) => {
+    const parsed = createBagOrderSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return reply.status(400).send({
+        error: "Invalid bag order payload",
+        details: parsed.error.issues.map((issue) => ({
+          path: issue.path.join("."),
+          message: issue.message,
+          code: issue.code
+        }))
+      });
+    }
+    const body = parsed.data;
     const primary = await one<{ id: string; remaining_grams: number; sticker_batch_letter: string }>(
       "select id, remaining_grams, sticker_batch_letter from inventory_batches where id = ?",
       [body.primaryBatchId]
