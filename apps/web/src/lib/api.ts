@@ -23,6 +23,7 @@ export async function api<T>(path: string, init?: RequestInit): Promise<T> {
         : undefined;
   const res = await fetch(`${API_BASE_URL}${path}`, {
     ...init,
+    cache: path === "/v1/spot/latest" ? "no-store" : init?.cache,
     body,
     headers: {
       "content-type": "application/json",

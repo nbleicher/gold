@@ -7,7 +7,7 @@ import { applySpotPayloadToDb } from "../lib/ingestSpotSnapshots.js";
 import { requireAuth } from "./auth.js";
 
 const spotMetalSchema = z.object({
-  price: z.number().nonnegative(),
+  price: z.number().positive(),
   sourceState: z.string().min(1)
 });
 
@@ -33,6 +33,13 @@ export async function registerSpotRoutes(app: FastifyInstance) {
       return reply.code(404).send({ error: "Not found" });
     }
     if (!spotPushBearerOk(req.headers.authorization, secret)) {
+      req.log.warn(
+        {
+          hasAuthHeader: Boolean(req.headers.authorization),
+          authScheme: req.headers.authorization?.split(" ")[0] ?? null
+        },
+        "spot push unauthorized"
+      );
       return reply.code(401).send({ error: "Unauthorized" });
     }
     const parsed = spotPushBodySchema.safeParse(req.body);
@@ -43,7 +50,10 @@ export async function registerSpotRoutes(app: FastifyInstance) {
     return { ok: true };
   });
 
-  app.get("/v1/spot/latest", { preHandler: requireAuth }, async () => {
+  app.get("/v1/spot/latest", { preHandler: requireAuth }, async (_req, reply) => {
+    reply.header("Cache-Control", "no-store, no-cache, must-revalidate");
+    reply.header("Pragma", "no-cache");
+    reply.header("Expires", "0");
     const [gold, silver] = await Promise.all([
       one("select * from spot_snapshots where metal = 'gold' order by created_at desc limit 1"),
       one("select * from spot_snapshots where metal = 'silver' order by created_at desc limit 1")

@@ -1,5 +1,5 @@
 import { env } from "../env.js";
-import { q } from "../db.js";
+import { txQ, withWriteTx } from "../db.js";
 
 const FETCH_TIMEOUT_MS = 15_000;
 
@@ -26,12 +26,23 @@ export async function applySpotPayloadToDb(data: SpotPayload): Promise<void> {
       source_state: data.silver.sourceState ?? "primary"
     }
   ];
-  for (const row of rows) {
-    await q("insert into spot_snapshots (metal, price, source_state) values (?, ?, ?)", [
-      row.metal,
-      row.price,
-      row.source_state
-    ]);
+  try {
+    await withWriteTx(async (tx) => {
+      for (const row of rows) {
+        await txQ(tx, "insert into spot_snapshots (metal, price, source_state) values (?, ?, ?)", [
+          row.metal,
+          row.price,
+          row.source_state
+        ]);
+      }
+    });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    const context = {
+      gold: { price: data.gold.price, sourceState: data.gold.sourceState },
+      silver: { price: data.silver.price, sourceState: data.silver.sourceState }
+    };
+    throw new Error(`Spot snapshot ingest failed: ${msg}; context=${JSON.stringify(context)}`);
   }
 }
 

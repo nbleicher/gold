@@ -92,8 +92,15 @@ export function DashboardPage() {
   const spot = useQuery({
     queryKey: ["spot-latest"],
     queryFn: () => api<SpotLatestResponse>("/v1/spot/latest"),
-    refetchInterval: 30_000
+    refetchInterval: 30_000,
+    refetchIntervalInBackground: true
   });
+  const newestSpotMs = Math.max(
+    spot.data?.gold?.created_at ? new Date(spot.data.gold.created_at).getTime() : 0,
+    spot.data?.silver?.created_at ? new Date(spot.data.silver.created_at).getTime() : 0
+  );
+  const staleMs = newestSpotMs > 0 ? Date.now() - newestSpotMs : 0;
+  const isSpotStale = staleMs > 2 * 60 * 1000;
 
   const last = home.data?.lastStream ?? null;
 
@@ -104,6 +111,11 @@ export function DashboardPage() {
 
       {spot.isSuccess ? (
         <>
+          {isSpotStale ? (
+            <p style={{ fontSize: "0.6rem", color: "var(--gold)", marginBottom: "0.75rem" }}>
+              Spot feed appears stale (last update over 2 minutes ago). Check VPS push job and API push secret config.
+            </p>
+          ) : null}
           {spot.data.partial ? (
             <p style={{ fontSize: "0.6rem", color: "var(--gold)", marginBottom: "0.75rem" }}>
               Spot feed is partial (only one metal has snapshots). Run spot ingest for both metals.
