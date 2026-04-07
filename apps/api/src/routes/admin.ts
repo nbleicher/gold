@@ -31,9 +31,53 @@ const patchScheduleSchema = z.object({
 
 export async function registerAdminRoutes(app: FastifyInstance) {
   app.get("/v1/admin/users", adminPre, async () => {
-    return q<{ id: string; email: string; display_name: string | null; role: string }>(
-      "select id, email, display_name, role from users order by email asc"
+    return q<{
+      id: string;
+      email: string;
+      display_name: string | null;
+      role: string;
+      is_active: number;
+      deactivated_at: string | null;
+      deactivated_by: string | null;
+    }>(
+      "select id, email, display_name, role, is_active, deactivated_at, deactivated_by from users order by email asc"
     );
+  });
+
+  app.delete("/v1/admin/users/:id", adminPre, async (req) => {
+    const { id } = req.params as { id: string };
+    const actorId = req.authUser?.sub;
+    if (!actorId) throw new Error("Unauthorized");
+    if (id === actorId) {
+      return req.server.httpErrors.conflict("You cannot deactivate your own account");
+    }
+
+    const target = await one<{ id: string; role: "admin" | "user"; is_active: number }>(
+      "select id, role, is_active from users where id = ?",
+      [id]
+    );
+    if (!target) {
+      return req.server.httpErrors.notFound("User not found");
+    }
+    if (!target.is_active) {
+      return { ok: true, id, idempotent: true };
+    }
+
+    if (target.role === "admin") {
+      const activeAdminCount = await one<{ count: number }>(
+        "select count(*) as count from users where role = 'admin' and is_active = 1"
+      );
+      const n = Number(activeAdminCount?.count ?? 0);
+      if (n <= 1) {
+        return req.server.httpErrors.conflict("Cannot deactivate the last active admin");
+      }
+    }
+
+    await q(
+      "update users set is_active = 0, deactivated_at = datetime('now'), deactivated_by = ? where id = ?",
+      [actorId, id]
+    );
+    return { ok: true, id };
   });
 
   app.get("/v1/admin/expenses", adminPre, async () => {

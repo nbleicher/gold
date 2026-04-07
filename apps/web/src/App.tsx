@@ -18,7 +18,8 @@ const ADMIN_SECTION_PATHS = [
   "/admin/expenses",
   "/admin/inventory-management",
   "/admin/orders",
-  "/admin/payroll"
+  "/admin/payroll",
+  "/admin/users"
 ] as const;
 
 const STREAMS_LOG_PATH = "/streams/log";
@@ -141,6 +142,9 @@ function Shell() {
                 <NavLink to="/admin/payroll" className={navTabClass} onClick={() => setMobileNavOpen(false)}>
                   Payroll
                 </NavLink>
+                <NavLink to="/admin/users" className={navTabClass} onClick={() => setMobileNavOpen(false)}>
+                  Users
+                </NavLink>
                 <NavLink to="/admin/schedule" className={navTabClass} onClick={() => setMobileNavOpen(false)}>
                   Schedule
                 </NavLink>
@@ -193,6 +197,9 @@ function Shell() {
             </NavLink>
             <NavLink to="/admin/payroll" className={navSubTabClass}>
               Payroll
+            </NavLink>
+            <NavLink to="/admin/users" className={navSubTabClass}>
+              Users
             </NavLink>
           </nav>
         </div>

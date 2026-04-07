@@ -67,8 +67,10 @@ export async function registerAuthRoutes(app: FastifyInstance) {
       password_hash: string;
       role: "admin" | "user";
       display_name: string | null;
-    }>("select id, email, password_hash, role, display_name from users where email = ?", [email]);
+      is_active: number;
+    }>("select id, email, password_hash, role, display_name, is_active from users where email = ?", [email]);
     if (!user) throw new Error("Invalid credentials");
+    if (!user.is_active) throw new Error("Account deactivated");
     const ok = await bcrypt.compare(body.password, user.password_hash);
     if (!ok) throw new Error("Invalid credentials");
     const token = jwt.sign(
@@ -90,11 +92,18 @@ export async function registerAuthRoutes(app: FastifyInstance) {
   app.get("/v1/auth/me", { preHandler: requireAuth }, async (req) => {
     const userId = req.authUser?.sub;
     if (!userId) throw new Error("Unauthorized");
-    const data = await one<{ id: string; email: string; role: "admin" | "user"; display_name: string | null }>(
-      "select id, email, role, display_name from users where id = ?",
+    const data = await one<{
+      id: string;
+      email: string;
+      role: "admin" | "user";
+      display_name: string | null;
+      is_active: number;
+    }>(
+      "select id, email, role, display_name, is_active from users where id = ?",
       [userId]
     );
     if (!data) throw new Error("Profile not found");
+    if (!data.is_active) throw new Error("Unauthorized");
     return {
       id: data.id,
       email: data.email,
