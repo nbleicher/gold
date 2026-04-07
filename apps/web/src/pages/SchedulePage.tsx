@@ -1,6 +1,7 @@
 import { FormEvent, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "../lib/api";
+import { useAuth } from "../state/auth";
 
 type AdminUser = { id: string; email: string; display_name: string | null; role: string };
 type ScheduleSlot = {
@@ -9,6 +10,9 @@ type ScheduleSlot = {
   start_time: string;
   streamer_id: string;
   created_at: string;
+  status: "pending" | "approved" | "rejected";
+  pending_submitted_at: string | null;
+  review_note: string | null;
   streamer_email: string;
   streamer_display_name: string | null;
 };
@@ -35,6 +39,8 @@ function getWeekDates(weekOffset: number): Date[] {
 const DAY_LABELS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 
 export function SchedulePage() {
+  const { profile } = useAuth();
+  const isAdmin = profile?.role === "admin";
   const qc = useQueryClient();
   const [weekOffset, setWeekOffset] = useState(0);
   const [modalOpen, setModalOpen] = useState(false);
@@ -42,6 +48,7 @@ export function SchedulePage() {
   const [formDate, setFormDate] = useState("");
   const [formTime, setFormTime] = useState("09:00");
   const [formStreamer, setFormStreamer] = useState("");
+  const [statusFilter, setStatusFilter] = useState<"all" | "pending" | "approved" | "rejected">("all");
 
   const weekDates = useMemo(() => getWeekDates(weekOffset), [weekOffset]);
   const from = localYmd(weekDates[0]);
@@ -51,53 +58,81 @@ export function SchedulePage() {
   const users = useQuery({
     queryKey: ["admin-users"],
     queryFn: () => api<AdminUser[]>("/v1/admin/users")
+    ,
+    enabled: isAdmin
   });
 
   const schedules = useQuery({
-    queryKey: ["admin-schedules", from, to],
+    queryKey: [isAdmin ? "admin-schedules" : "my-schedules", from, to, statusFilter],
     queryFn: () =>
-      api<ScheduleSlot[]>(`/v1/admin/schedules?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`)
+      isAdmin
+        ? api<ScheduleSlot[]>(
+            `/v1/admin/schedules?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}${
+              statusFilter === "all" ? "" : `&status=${statusFilter}`
+            }`
+          )
+        : api<ScheduleSlot[]>(`/v1/schedules/mine?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`)
   });
 
   const byDate = useMemo(() => {
     const m = new Map<string, ScheduleSlot[]>();
-    for (const s of schedules.data ?? []) {
+    for (const s of (schedules.data ?? []) as ScheduleSlot[]) {
       const list = m.get(s.date) ?? [];
       list.push(s);
       m.set(s.date, list);
     }
     for (const [, list] of m) {
-      list.sort((a, b) => a.start_time.localeCompare(b.start_time));
+      list.sort((a, b) => {
+        const byTime = a.start_time.localeCompare(b.start_time);
+        if (byTime !== 0) return byTime;
+        const at = a.pending_submitted_at ?? a.created_at;
+        const bt = b.pending_submitted_at ?? b.created_at;
+        return bt.localeCompare(at);
+      });
     }
     return m;
   }, [schedules.data]);
 
   const createMut = useMutation({
     mutationFn: () =>
-      api<ScheduleSlot>("/v1/admin/schedules", {
+      api<ScheduleSlot>(isAdmin ? "/v1/admin/schedules" : "/v1/schedules/mine", {
         method: "POST",
-        body: JSON.stringify({ date: formDate, startTime: formTime, streamerId: formStreamer })
+        body: JSON.stringify(
+          isAdmin ? { date: formDate, startTime: formTime, streamerId: formStreamer } : { date: formDate, startTime: formTime }
+        )
       }),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["admin-schedules"] });
+      qc.invalidateQueries({ queryKey: [isAdmin ? "admin-schedules" : "my-schedules"] });
       closeModal();
     }
   });
 
   const patchMut = useMutation({
     mutationFn: () =>
-      api<ScheduleSlot>(`/v1/admin/schedules/${editingId}`, {
+      api<ScheduleSlot>(isAdmin ? `/v1/admin/schedules/${editingId}` : `/v1/schedules/mine/${editingId}`, {
         method: "PATCH",
-        body: JSON.stringify({ date: formDate, startTime: formTime, streamerId: formStreamer })
+        body: JSON.stringify(
+          isAdmin ? { date: formDate, startTime: formTime, streamerId: formStreamer } : { date: formDate, startTime: formTime }
+        )
       }),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["admin-schedules"] });
+      qc.invalidateQueries({ queryKey: [isAdmin ? "admin-schedules" : "my-schedules"] });
       closeModal();
     }
   });
 
   const deleteMut = useMutation({
-    mutationFn: (id: string) => api<{ ok: boolean }>(`/v1/admin/schedules/${id}`, { method: "DELETE" }),
+    mutationFn: (id: string) =>
+      api<{ ok: boolean }>(isAdmin ? `/v1/admin/schedules/${id}` : `/v1/schedules/mine/${id}`, { method: "DELETE" }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: [isAdmin ? "admin-schedules" : "my-schedules"] })
+  });
+
+  const reviewMut = useMutation({
+    mutationFn: ({ id, action }: { id: string; action: "approve" | "reject" }) =>
+      api<{ ok: boolean }>(`/v1/admin/schedules/${id}/review`, {
+        method: "PATCH",
+        body: JSON.stringify({ action })
+      }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["admin-schedules"] })
   });
 
@@ -107,15 +142,19 @@ export function SchedulePage() {
   };
 
   const openAdd = (dateKey: string) => {
-    const u = users.data ?? [];
-    if (!u.length) {
-      alert("Add users first.");
-      return;
-    }
     setEditingId(null);
     setFormDate(dateKey);
     setFormTime("09:00");
-    setFormStreamer(u[0].id);
+    if (isAdmin) {
+      const u = users.data ?? [];
+      if (!u.length) {
+        alert("Add users first.");
+        return;
+      }
+      setFormStreamer(u[0].id);
+    } else {
+      setFormStreamer(profile?.id ?? "");
+    }
     setModalOpen(true);
   };
 
@@ -129,13 +168,19 @@ export function SchedulePage() {
 
   const onSubmit = (e: FormEvent) => {
     e.preventDefault();
-    if (!formDate || !formTime || !formStreamer) return;
+    if (!formDate || !formTime || (isAdmin && !formStreamer)) return;
     if (editingId) patchMut.mutate();
     else createMut.mutate();
   };
 
   const userLabel = (u: AdminUser) => u.display_name?.trim() || u.email;
   const slotHost = (s: ScheduleSlot) => s.streamer_display_name?.trim() || s.streamer_email;
+  const statusBadge = (status: ScheduleSlot["status"]) =>
+    status === "approved"
+      ? "badge badge-morning"
+      : status === "pending"
+        ? "badge badge-evening"
+        : "badge";
 
   const weekLabel = `${weekDates[0].toLocaleDateString("en-US", { month: "short", day: "numeric" })} — ${weekDates[6].toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}`;
 
@@ -149,8 +194,23 @@ export function SchedulePage() {
         Weekly stream schedule
       </p>
 
-      {users.error || schedules.error ? (
+      {(isAdmin && users.error) || schedules.error ? (
         <p className="error">{String((users.error ?? schedules.error) as Error)}</p>
+      ) : null}
+
+      {isAdmin ? (
+        <div style={{ display: "flex", gap: "0.5rem", marginBottom: "1rem" }}>
+          {(["all", "pending", "approved", "rejected"] as const).map((s) => (
+            <button
+              key={s}
+              type="button"
+              className={`btn ${statusFilter === s ? "btn-gold" : "btn-outline"} btn-sm`}
+              onClick={() => setStatusFilter(s)}
+            >
+              {s[0].toUpperCase() + s.slice(1)}
+            </button>
+          ))}
+        </div>
       ) : null}
 
       <div style={{ display: "flex", alignItems: "center", gap: "1rem", marginBottom: "1.5rem" }}>
@@ -248,25 +308,60 @@ export function SchedulePage() {
                         {s.start_time}
                       </div>
                       <div style={{ fontSize: "0.62rem", color: "var(--text-dim)" }}>Host: {slotHost(s)}</div>
-                      <div style={{ display: "flex", gap: "0.35rem", marginTop: "0.45rem" }}>
-                        <button type="button" className="btn btn-outline btn-sm" onClick={() => openEdit(s)}>
-                          Edit
-                        </button>
-                        <button
-                          type="button"
-                          className="btn btn-danger btn-sm"
-                          onClick={() => {
-                            if (confirm("Delete this stream card?")) deleteMut.mutate(s.id);
-                          }}
-                        >
-                          ✕
-                        </button>
+                      <div style={{ marginTop: "0.25rem" }}>
+                        <span className={statusBadge(s.status)}>{s.status}</span>
+                      </div>
+                      {s.status === "pending" && s.pending_submitted_at ? (
+                        <div style={{ fontSize: "0.58rem", color: "var(--muted)", marginTop: "0.2rem" }}>
+                          Submitted: {new Date(s.pending_submitted_at).toLocaleString()}
+                        </div>
+                      ) : null}
+                      {s.status === "rejected" && s.review_note ? (
+                        <div style={{ fontSize: "0.58rem", color: "var(--muted)", marginTop: "0.2rem" }}>
+                          Note: {s.review_note}
+                        </div>
+                      ) : null}
+                      <div style={{ display: "flex", gap: "0.35rem", marginTop: "0.45rem", flexWrap: "wrap" }}>
+                        {(isAdmin || s.status === "pending") ? (
+                          <button type="button" className="btn btn-outline btn-sm" onClick={() => openEdit(s)}>
+                            Edit
+                          </button>
+                        ) : null}
+                        {(isAdmin || s.status === "pending") ? (
+                          <button
+                            type="button"
+                            className="btn btn-danger btn-sm"
+                            onClick={() => {
+                              if (confirm("Delete this stream card?")) deleteMut.mutate(s.id);
+                            }}
+                          >
+                            ✕
+                          </button>
+                        ) : null}
+                        {isAdmin && s.status === "pending" ? (
+                          <>
+                            <button
+                              type="button"
+                              className="btn btn-gold btn-sm"
+                              onClick={() => reviewMut.mutate({ id: s.id, action: "approve" })}
+                            >
+                              Approve
+                            </button>
+                            <button
+                              type="button"
+                              className="btn btn-outline btn-sm"
+                              onClick={() => reviewMut.mutate({ id: s.id, action: "reject" })}
+                            >
+                              Reject
+                            </button>
+                          </>
+                        ) : null}
                       </div>
                     </div>
                   ))
                 )}
                 <button type="button" className="btn btn-outline btn-sm" style={{ width: "100%" }} onClick={() => openAdd(key)}>
-                  + Add stream
+                  {isAdmin ? "+ Add stream" : "+ Request stream"}
                 </button>
               </div>
             </div>
@@ -283,7 +378,9 @@ export function SchedulePage() {
           <button type="button" className="modal-close" onClick={closeModal} aria-label="Close">
             ✕
           </button>
-          <div className="modal-title">{editingId ? "Edit scheduled stream" : "Add scheduled stream"}</div>
+          <div className="modal-title">
+            {editingId ? "Edit scheduled stream" : isAdmin ? "Add scheduled stream" : "Request scheduled stream"}
+          </div>
           <form onSubmit={onSubmit}>
             <div className="form-group">
               <label className="form-label" htmlFor="sc-date">
@@ -309,30 +406,33 @@ export function SchedulePage() {
                 onChange={(e) => setFormTime(e.target.value)}
               />
             </div>
-            <div className="form-group">
-              <label className="form-label" htmlFor="sc-streamer">
-                Streamer
-              </label>
-              <select
-                id="sc-streamer"
-                className="form-input"
-                value={formStreamer}
-                onChange={(e) => setFormStreamer(e.target.value)}
-              >
-                {(users.data ?? []).map((u) => (
-                  <option key={u.id} value={u.id}>
-                    {userLabel(u)}
-                  </option>
-                ))}
-              </select>
-            </div>
+            {isAdmin ? (
+              <div className="form-group">
+                <label className="form-label" htmlFor="sc-streamer">
+                  Streamer
+                </label>
+                <select
+                  id="sc-streamer"
+                  className="form-input"
+                  value={formStreamer}
+                  onChange={(e) => setFormStreamer(e.target.value)}
+                >
+                  {(users.data ?? []).map((u) => (
+                    <option key={u.id} value={u.id}>
+                      {userLabel(u)}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            ) : null}
             {mutError ? <p className="error">{(mutError as Error).message}</p> : null}
+            {reviewMut.error ? <p className="error">{(reviewMut.error as Error).message}</p> : null}
             <div className="modal-actions">
               <button type="button" className="btn btn-outline" onClick={closeModal}>
                 Cancel
               </button>
               <button type="submit" className="btn btn-gold" disabled={pending}>
-                Save
+                {isAdmin ? "Save" : "Submit"}
               </button>
             </div>
           </form>

@@ -93,11 +93,9 @@ function Shell() {
           <NavLink to="/streams" className={() => `nav-tab${streamsSectionActive ? " active" : ""}`}>
             Streams
           </NavLink>
-          {isAdmin ? (
-            <NavLink to="/admin/schedule" className={navTabClass}>
-              Schedule
-            </NavLink>
-          ) : null}
+          <NavLink to="/schedule" className={navTabClass}>
+            Schedule
+          </NavLink>
         </nav>
         <div className="header-right">
           {isAdmin ? <span className="admin-badge">Admin</span> : null}
@@ -156,6 +154,9 @@ function Shell() {
             </NavLink>
             <NavLink to="/streams" className={navTabClass} onClick={() => setMobileNavOpen(false)}>
               Streams
+            </NavLink>
+            <NavLink to="/schedule" className={navTabClass} onClick={() => setMobileNavOpen(false)}>
+              Schedule
             </NavLink>
             {isAdmin ? (
               <NavLink to={STREAMS_LOG_PATH} className={navTabClass} onClick={() => setMobileNavOpen(false)}>
@@ -233,7 +234,11 @@ function Shell() {
             <Route path="/admin/users" element={isAdmin ? <AdminUsersPage /> : <Navigate to="/" replace />} />
             <Route path="/admin/expenses" element={isAdmin ? <ExpensesPage /> : <Navigate to="/" replace />} />
             <Route path="/admin/payroll" element={isAdmin ? <PayrollPage /> : <Navigate to="/" replace />} />
-            <Route path="/admin/schedule" element={isAdmin ? <SchedulePage /> : <Navigate to="/" replace />} />
+            <Route path="/schedule" element={<SchedulePage />} />
+            <Route
+              path="/admin/schedule"
+              element={isAdmin ? <Navigate to="/schedule" replace /> : <Navigate to="/" replace />}
+            />
           </Routes>
         </main>
       </div>

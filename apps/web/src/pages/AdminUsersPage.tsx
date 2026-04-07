@@ -50,6 +50,10 @@ export function AdminUsersPage() {
     mutationFn: (id: string) => api<{ ok: boolean }>(`/v1/admin/users/${id}`, { method: "DELETE" }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["admin-users"] })
   });
+  const reactivateUser = useMutation({
+    mutationFn: (id: string) => api<{ ok: boolean }>(`/v1/admin/users/${id}/reactivate`, { method: "PATCH" }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["admin-users"] })
+  });
 
   const onSubmit = (e: FormEvent) => {
     e.preventDefault();
@@ -180,7 +184,7 @@ export function AdminUsersPage() {
                         <button
                           type="button"
                           className="btn btn-danger btn-sm"
-                          disabled={deactivateUser.isPending || isSelf}
+                          disabled={deactivateUser.isPending || reactivateUser.isPending || isSelf}
                           title={isSelf ? "You cannot deactivate your own account" : undefined}
                           onClick={() => {
                             if (!confirm(`Deactivate ${u.email}?`)) return;
@@ -189,7 +193,16 @@ export function AdminUsersPage() {
                         >
                           Deactivate
                         </button>
-                      ) : null}
+                      ) : (
+                        <button
+                          type="button"
+                          className="btn btn-outline btn-sm"
+                          disabled={reactivateUser.isPending || deactivateUser.isPending}
+                          onClick={() => reactivateUser.mutate(u.id)}
+                        >
+                          Reactivate
+                        </button>
+                      )}
                     </td>
                   </tr>
                 );
@@ -199,6 +212,7 @@ export function AdminUsersPage() {
         </table>
       </div>
       {deactivateUser.error ? <p className="error">{(deactivateUser.error as Error).message}</p> : null}
+      {reactivateUser.error ? <p className="error">{(reactivateUser.error as Error).message}</p> : null}
     </section>
   );
 }

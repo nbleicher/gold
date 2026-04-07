@@ -1,7 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { one, q, txQ, withWriteTx } from "../db.js";
-import { requireRole } from "./auth.js";
+import { requireAuth, requireRole } from "./auth.js";
 
 const adminPre = { preHandler: requireRole("admin") };
 
@@ -27,6 +27,11 @@ const patchScheduleSchema = z.object({
   date: z.string().min(10).optional(),
   startTime: z.string().min(1).optional(),
   streamerId: z.string().min(1).optional()
+});
+
+const reviewScheduleSchema = z.object({
+  action: z.enum(["approve", "reject"]),
+  reviewNote: z.string().trim().max(500).optional()
 });
 
 export async function registerAdminRoutes(app: FastifyInstance) {
@@ -76,6 +81,22 @@ export async function registerAdminRoutes(app: FastifyInstance) {
     await q(
       "update users set is_active = 0, deactivated_at = datetime('now'), deactivated_by = ? where id = ?",
       [actorId, id]
+    );
+    return { ok: true, id };
+  });
+
+  app.patch("/v1/admin/users/:id/reactivate", adminPre, async (req) => {
+    const { id } = req.params as { id: string };
+    const target = await one<{ id: string; is_active: number }>("select id, is_active from users where id = ?", [id]);
+    if (!target) {
+      return req.server.httpErrors.notFound("User not found");
+    }
+    if (target.is_active) {
+      return { ok: true, id, idempotent: true };
+    }
+    await q(
+      "update users set is_active = 1, deactivated_at = null, deactivated_by = null where id = ?",
+      [id]
     );
     return { ok: true, id };
   });
@@ -149,23 +170,44 @@ export async function registerAdminRoutes(app: FastifyInstance) {
   });
 
   app.get("/v1/admin/schedules", adminPre, async (req) => {
-    const { from, to } = req.query as { from?: string; to?: string };
+    const { from, to, status } = req.query as { from?: string; to?: string; status?: string };
     if (!from || !to) throw new Error("from and to query params required (YYYY-MM-DD)");
+    const statusFilter = status && ["pending", "approved", "rejected"].includes(status) ? status : null;
     return q<{
       id: string;
       date: string;
       start_time: string;
       streamer_id: string;
       created_at: string;
+      status: "pending" | "approved" | "rejected";
+      submitted_by: string | null;
+      pending_submitted_at: string | null;
+      reviewed_at: string | null;
+      reviewed_by: string | null;
+      review_note: string | null;
       streamer_email: string;
       streamer_display_name: string | null;
+      submitted_by_email: string | null;
+      submitted_by_display_name: string | null;
+      reviewed_by_email: string | null;
+      reviewed_by_display_name: string | null;
     }>(
-      `select s.id, s.date, s.start_time, s.streamer_id, s.created_at, u.email as streamer_email, u.display_name as streamer_display_name
+      `select s.id, s.date, s.start_time, s.streamer_id, s.created_at, s.status, s.submitted_by, s.pending_submitted_at,
+              s.reviewed_at, s.reviewed_by, s.review_note,
+              u.email as streamer_email, u.display_name as streamer_display_name,
+              su.email as submitted_by_email, su.display_name as submitted_by_display_name,
+              ru.email as reviewed_by_email, ru.display_name as reviewed_by_display_name
        from schedules s
        join users u on u.id = s.streamer_id
+       left join users su on su.id = s.submitted_by
+       left join users ru on ru.id = s.reviewed_by
        where s.date >= ? and s.date <= ?
-       order by s.date asc, s.start_time asc`,
-      [from, to]
+       ${statusFilter ? "and s.status = ?" : ""}
+       order by s.date asc,
+                s.start_time asc,
+                case when s.status = 'pending' then 0 else 1 end asc,
+                coalesce(s.pending_submitted_at, s.created_at) desc`,
+      statusFilter ? [from, to, statusFilter] : [from, to]
     );
   });
 
@@ -174,12 +216,16 @@ export async function registerAdminRoutes(app: FastifyInstance) {
     const user = await one<{ id: string }>("select id from users where id = ?", [body.streamerId]);
     if (!user) throw new Error("Streamer not found");
     const ins = await one<{ id: string }>(
-      "insert into schedules (date, start_time, streamer_id) values (?, ?, ?) returning id",
-      [body.date, body.startTime, body.streamerId]
+      `insert into schedules (date, start_time, streamer_id, status, submitted_by, pending_submitted_at, reviewed_at, reviewed_by)
+       values (?, ?, ?, 'approved', ?, datetime('now'), datetime('now'), ?)
+       returning id`,
+      [body.date, body.startTime, body.streamerId, req.authUser?.sub ?? null, req.authUser?.sub ?? null]
     );
     if (!ins) throw new Error("Schedule insert failed");
     return one(
-      `select s.id, s.date, s.start_time, s.streamer_id, s.created_at, u.email as streamer_email, u.display_name as streamer_display_name
+      `select s.id, s.date, s.start_time, s.streamer_id, s.created_at, s.status, s.submitted_by, s.pending_submitted_at,
+              s.reviewed_at, s.reviewed_by, s.review_note,
+              u.email as streamer_email, u.display_name as streamer_display_name
        from schedules s
        join users u on u.id = s.streamer_id
        where s.id = ?`,
@@ -212,12 +258,117 @@ export async function registerAdminRoutes(app: FastifyInstance) {
       id
     ]);
     return one(
-      `select s.id, s.date, s.start_time, s.streamer_id, s.created_at, u.email as streamer_email, u.display_name as streamer_display_name
+      `select s.id, s.date, s.start_time, s.streamer_id, s.created_at, s.status, s.submitted_by, s.pending_submitted_at,
+              s.reviewed_at, s.reviewed_by, s.review_note,
+              u.email as streamer_email, u.display_name as streamer_display_name
        from schedules s
        join users u on u.id = s.streamer_id
        where s.id = ?`,
       [id]
     );
+  });
+
+  app.patch("/v1/admin/schedules/:id/review", adminPre, async (req) => {
+    const { id } = req.params as { id: string };
+    const body = reviewScheduleSchema.parse(req.body);
+    const existing = await one<{ id: string; status: string }>("select id, status from schedules where id = ?", [id]);
+    if (!existing) {
+      return req.server.httpErrors.notFound("Schedule slot not found");
+    }
+    if (existing.status !== "pending") {
+      return req.server.httpErrors.conflict("Only pending schedules can be reviewed");
+    }
+    const nextStatus = body.action === "approve" ? "approved" : "rejected";
+    await q(
+      "update schedules set status = ?, reviewed_at = datetime('now'), reviewed_by = ?, review_note = ? where id = ?",
+      [nextStatus, req.authUser?.sub ?? null, body.reviewNote ?? null, id]
+    );
+    return { ok: true, id, status: nextStatus };
+  });
+
+  app.get("/v1/schedules/mine", { preHandler: requireAuth }, async (req) => {
+    const userId = req.authUser?.sub;
+    if (!userId) throw new Error("Unauthorized");
+    const { from, to } = req.query as { from?: string; to?: string };
+    const where = from && to ? "where s.date >= ? and s.date <= ? and s.submitted_by = ?" : "where s.submitted_by = ?";
+    const args = from && to ? [from, to, userId] : [userId];
+    return q<{
+      id: string;
+      date: string;
+      start_time: string;
+      streamer_id: string;
+      created_at: string;
+      status: "pending" | "approved" | "rejected";
+      submitted_by: string | null;
+      pending_submitted_at: string | null;
+      reviewed_at: string | null;
+      reviewed_by: string | null;
+      review_note: string | null;
+      streamer_email: string;
+      streamer_display_name: string | null;
+    }>(
+      `select s.id, s.date, s.start_time, s.streamer_id, s.created_at, s.status, s.submitted_by, s.pending_submitted_at,
+              s.reviewed_at, s.reviewed_by, s.review_note, u.email as streamer_email, u.display_name as streamer_display_name
+       from schedules s
+       join users u on u.id = s.streamer_id
+       ${where}
+       order by s.date asc, s.start_time asc, coalesce(s.pending_submitted_at, s.created_at) desc`,
+      args
+    );
+  });
+
+  app.post("/v1/schedules/mine", { preHandler: requireAuth }, async (req) => {
+    const userId = req.authUser?.sub;
+    if (!userId) throw new Error("Unauthorized");
+    const body = z.object({ date: z.string().min(10), startTime: z.string().min(1) }).parse(req.body);
+    const ins = await one<{ id: string }>(
+      `insert into schedules (date, start_time, streamer_id, status, submitted_by, pending_submitted_at)
+       values (?, ?, ?, 'pending', ?, datetime('now'))
+       returning id`,
+      [body.date, body.startTime, userId, userId]
+    );
+    if (!ins) throw new Error("Schedule insert failed");
+    return one(
+      `select s.id, s.date, s.start_time, s.streamer_id, s.created_at, s.status, s.submitted_by, s.pending_submitted_at,
+              s.reviewed_at, s.reviewed_by, s.review_note, u.email as streamer_email, u.display_name as streamer_display_name
+       from schedules s
+       join users u on u.id = s.streamer_id
+       where s.id = ?`,
+      [ins.id]
+    );
+  });
+
+  app.patch("/v1/schedules/mine/:id", { preHandler: requireAuth }, async (req) => {
+    const userId = req.authUser?.sub;
+    if (!userId) throw new Error("Unauthorized");
+    const { id } = req.params as { id: string };
+    const body = z.object({ date: z.string().min(10).optional(), startTime: z.string().min(1).optional() }).parse(req.body);
+    const existing = await one<{ id: string; submitted_by: string | null; status: string; date: string; start_time: string }>(
+      "select id, submitted_by, status, date, start_time from schedules where id = ?",
+      [id]
+    );
+    if (!existing || existing.submitted_by !== userId) return req.server.httpErrors.notFound("Schedule slot not found");
+    if (existing.status !== "pending") return req.server.httpErrors.conflict("Only pending schedules can be edited");
+    await q("update schedules set date = ?, start_time = ?, pending_submitted_at = datetime('now') where id = ?", [
+      body.date ?? existing.date,
+      body.startTime ?? existing.start_time,
+      id
+    ]);
+    return { ok: true, id };
+  });
+
+  app.delete("/v1/schedules/mine/:id", { preHandler: requireAuth }, async (req) => {
+    const userId = req.authUser?.sub;
+    if (!userId) throw new Error("Unauthorized");
+    const { id } = req.params as { id: string };
+    const existing = await one<{ id: string; submitted_by: string | null; status: string }>(
+      "select id, submitted_by, status from schedules where id = ?",
+      [id]
+    );
+    if (!existing || existing.submitted_by !== userId) return req.server.httpErrors.notFound("Schedule slot not found");
+    if (existing.status !== "pending") return req.server.httpErrors.conflict("Only pending schedules can be deleted");
+    await q("delete from schedules where id = ?", [id]);
+    return { ok: true };
   });
 
   app.delete("/v1/admin/schedules/:id", adminPre, async (req) => {
