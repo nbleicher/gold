@@ -68,17 +68,35 @@ export async function registerStreamRoutes(app: FastifyInstance) {
   });
 
   app.post("/v1/streams/sticker-sale", { preHandler: requireAuth }, async (req) => {
-    const body = createStickerSaleSchema.parse(req.body);
+    const parsed = createStickerSaleSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return req.server.httpErrors.badRequest("Invalid sticker sale payload");
+    }
+    const body = parsed.data;
+    const stream = await one<{ id: string; ended_at: string | null }>(
+      "select id, ended_at from streams where id = ?",
+      [body.streamId]
+    );
+    if (!stream) {
+      return req.server.httpErrors.notFound("Stream not found");
+    }
+    if (stream.ended_at) {
+      return req.server.httpErrors.conflict("Stream is not live");
+    }
     const order = await one<{ id: string; metal: "gold" | "silver" | "mixed"; primary_batch_id: string }>(
       "select id, metal, primary_batch_id from bag_orders where sticker_code = ?",
       [body.stickerCode.toUpperCase()]
     );
-    if (!order) throw new Error("Unknown sticker");
+    if (!order) {
+      return req.server.httpErrors.notFound("Unknown sticker");
+    }
     const existing = await one<{ id: string }>(
       "select id from stream_items where sale_type = 'sticker' and upper(sticker_code) = ? limit 1",
       [body.stickerCode.toUpperCase()]
     );
-    if (existing) throw new Error("Sticker already sold");
+    if (existing) {
+      return req.server.httpErrors.conflict("Sticker already sold");
+    }
     const components = await q<{ metal: "gold" | "silver"; weight_grams: number }>(
       "select metal, weight_grams from bag_order_components where bag_order_id = ?",
       [order.id]

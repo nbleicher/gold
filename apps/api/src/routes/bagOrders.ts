@@ -119,7 +119,55 @@ export async function registerBagOrderRoutes(app: FastifyInstance) {
     return one("select * from bag_orders where id = ?", [id]);
   });
 
-  app.delete("/v1/bag-orders/:id", { preHandler: requireRole("admin") }, async (_req, reply) => {
-    return reply.status(405).send({ error: "Bag orders cannot be deleted" });
+  app.delete("/v1/bag-orders/:id", { preHandler: requireRole("admin") }, async (req) => {
+    const { id } = req.params as { id: string };
+    const order = await one<{ id: string; sold_at: string | null; sticker_code: string | null }>(
+      "select id, sold_at, sticker_code from bag_orders where id = ?",
+      [id]
+    );
+    if (!order) {
+      return req.server.httpErrors.notFound("Bag order not found");
+    }
+
+    const soldBySticker = order.sticker_code
+      ? await one<{ id: string }>(
+          "select id from stream_items where sale_type = 'sticker' and upper(sticker_code) = ? limit 1",
+          [String(order.sticker_code).toUpperCase()]
+        )
+      : null;
+    if (order.sold_at || soldBySticker) {
+      return req.server.httpErrors.conflict("Sold bag orders cannot be removed");
+    }
+
+    return withWriteTx(async (tx) => {
+      const components = await txQ<{ batch_id: string; weight_grams: number }>(
+        tx,
+        "select batch_id, weight_grams from bag_order_components where bag_order_id = ?",
+        [id]
+      );
+      if (!components.length) {
+        throw new Error("Bag order has no components");
+      }
+
+      for (const component of components) {
+        const batch = await txOne<{ id: string }>(
+          tx,
+          "select id from inventory_batches where id = ?",
+          [component.batch_id]
+        );
+        if (!batch) {
+          throw new Error(`Inventory batch missing for component: ${component.batch_id}`);
+        }
+        await txQ(
+          tx,
+          "update inventory_batches set remaining_grams = remaining_grams + ? where id = ?",
+          [Number(component.weight_grams), component.batch_id]
+        );
+      }
+
+      await txQ(tx, "delete from bag_order_components where bag_order_id = ?", [id]);
+      await txQ(tx, "delete from bag_orders where id = ?", [id]);
+      return { ok: true, id, restoredComponents: components.length };
+    });
   });
 }

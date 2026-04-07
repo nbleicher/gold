@@ -111,6 +111,14 @@ export function OrdersPage() {
     onSuccess: () => qc.invalidateQueries({ queryKey: ["bag-orders"] })
   });
 
+  const removeBag = useMutation({
+    mutationFn: (id: string) => api(`/v1/bag-orders/${id}`, { method: "DELETE" }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["bag-orders"] });
+      qc.invalidateQueries({ queryKey: ["batches"] });
+    }
+  });
+
   const onSubmit = (e: FormEvent) => {
     e.preventDefault();
     const primaryWeightNumber = Number(primaryWeight);
@@ -295,14 +303,28 @@ export function OrdersPage() {
                   </td>
                   <td>
                     {!o.sold ? (
-                      <button
-                        type="button"
-                        className="btn btn-outline btn-sm"
-                        disabled={markSold.isPending}
-                        onClick={() => markSold.mutate(o.id)}
-                      >
-                        Mark sold
-                      </button>
+                      <div style={{ display: "flex", gap: "0.4rem", justifyContent: "flex-end" }}>
+                        <button
+                          type="button"
+                          className="btn btn-outline btn-sm"
+                          disabled={markSold.isPending || removeBag.isPending}
+                          onClick={() => markSold.mutate(o.id)}
+                        >
+                          Mark sold
+                        </button>
+                        <button
+                          type="button"
+                          className="btn btn-outline btn-sm"
+                          disabled={removeBag.isPending || markSold.isPending}
+                          onClick={() => {
+                            const ok = window.confirm(`Remove bag ${o.sticker_code}? This will restock its grams.`);
+                            if (!ok) return;
+                            removeBag.mutate(o.id);
+                          }}
+                        >
+                          Remove
+                        </button>
+                      </div>
                     ) : null}
                   </td>
                 </tr>
@@ -311,6 +333,7 @@ export function OrdersPage() {
           </tbody>
         </table>
       </div>
+      {removeBag.error ? <p className="error">{(removeBag.error as Error).message}</p> : null}
     </section>
   );
 }
