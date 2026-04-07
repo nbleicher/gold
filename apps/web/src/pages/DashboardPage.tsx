@@ -43,6 +43,10 @@ function spotStatusClass(state: string) {
   return "spot-status offline";
 }
 
+function parseSqlUtc(ts: string): Date {
+  return new Date(ts.replace(" ", "T") + "Z");
+}
+
 function SpotMetalCard({
   label,
   row,
@@ -76,7 +80,7 @@ function SpotMetalCard({
       <div className="spot-live-text" style={{ marginTop: "0.35rem" }}>
         <span className={spotStatusClass(row.source_state)}>{row.source_state}</span>
         <span style={{ marginLeft: "0.5rem", color: "var(--muted)" }}>
-          {new Date(row.created_at).toLocaleString()}
+          {parseSqlUtc(row.created_at).toLocaleString()}
         </span>
       </div>
     </div>
@@ -93,11 +97,12 @@ export function DashboardPage() {
     queryKey: ["spot-latest"],
     queryFn: () => api<SpotLatestResponse>("/v1/spot/latest"),
     refetchInterval: 30_000,
-    refetchIntervalInBackground: true
+    refetchIntervalInBackground: true,
+    refetchOnWindowFocus: true
   });
   const newestSpotMs = Math.max(
-    spot.data?.gold?.created_at ? new Date(spot.data.gold.created_at).getTime() : 0,
-    spot.data?.silver?.created_at ? new Date(spot.data.silver.created_at).getTime() : 0
+    spot.data?.gold?.created_at ? parseSqlUtc(spot.data.gold.created_at).getTime() : 0,
+    spot.data?.silver?.created_at ? parseSqlUtc(spot.data.silver.created_at).getTime() : 0
   );
   const staleMs = newestSpotMs > 0 ? Date.now() - newestSpotMs : 0;
   const isSpotStale = staleMs > 2 * 60 * 1000;
