@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useLayoutEffect, useState } from "react";
 import { NavLink, Navigate, Route, Routes, useLocation } from "react-router-dom";
 import { useAuth } from "./state/auth";
 import { LoginPage } from "./pages/LoginPage";
@@ -23,6 +23,35 @@ const ADMIN_SECTION_PATHS = [
 ] as const;
 
 const STREAMS_LOG_PATH = "/streams/log";
+
+const THEME_STORAGE_KEY = "goldstream_theme";
+
+type Theme = "light" | "dark";
+
+function readStoredTheme(): Theme {
+  if (typeof window === "undefined") return "dark";
+  try {
+    return window.localStorage.getItem(THEME_STORAGE_KEY) === "light" ? "light" : "dark";
+  } catch {
+    return "dark";
+  }
+}
+
+function ThemeToggle({ theme, onToggle }: { theme: Theme; onToggle: () => void }) {
+  const isDark = theme === "dark";
+  return (
+    <button
+      type="button"
+      className="theme-toggle"
+      onClick={onToggle}
+      aria-pressed={isDark}
+      aria-label={isDark ? "Switch to light mode" : "Switch to dark mode"}
+      title={isDark ? "Light mode" : "Dark mode"}
+    >
+      {isDark ? "☀" : "☾"}
+    </button>
+  );
+}
 
 const navTabClass = ({ isActive }: { isActive: boolean }) => `nav-tab${isActive ? " active" : ""}`;
 
@@ -248,7 +277,29 @@ function Shell() {
 
 export function App() {
   const { user, loading } = useAuth();
-  if (loading) return <div className="app-loading">Loading…</div>;
-  if (!user) return <LoginPage />;
-  return <Shell />;
+  const [theme, setTheme] = useState<Theme>(readStoredTheme);
+
+  useLayoutEffect(() => {
+    document.documentElement.setAttribute("data-theme", theme);
+    try {
+      window.localStorage.setItem(THEME_STORAGE_KEY, theme);
+    } catch {
+      /* ignore quota / private mode */
+    }
+  }, [theme]);
+
+  const toggleTheme = () => setTheme((t) => (t === "dark" ? "light" : "dark"));
+
+  return (
+    <>
+      <ThemeToggle theme={theme} onToggle={toggleTheme} />
+      {loading ? (
+        <div className="app-loading">Loading…</div>
+      ) : !user ? (
+        <LoginPage />
+      ) : (
+        <Shell />
+      )}
+    </>
+  );
 }

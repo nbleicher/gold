@@ -10,6 +10,16 @@
     />
   </head>
   <body>
+    <script>
+      (function () {
+        try {
+          var t = localStorage.getItem("goldstream_theme");
+          document.documentElement.setAttribute("data-theme", t === "light" ? "light" : "dark");
+        } catch (e) {
+          document.documentElement.setAttribute("data-theme", "dark");
+        }
+      })();
+    </script>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>

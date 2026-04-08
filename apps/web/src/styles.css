@@ -17,6 +17,84 @@
   --green: #5a9;
 }
 
+html[data-theme="light"] {
+  --gold-glow: rgba(139, 105, 20, 0.12);
+  --obsidian: #f4f1ea;
+  --charcoal: #ebe6dc;
+  --slate: #e3ddd2;
+  --panel: #e8e3d8;
+  --border: #c8c2b4;
+  --border-gold: #c9b896;
+  --muted: #6a6459;
+  --text: #1c1915;
+  --text-dim: #5a5448;
+}
+
+/* ── THEME TOGGLE (fixed bottom-right) ── */
+.theme-toggle {
+  position: fixed;
+  bottom: 1rem;
+  right: 1rem;
+  z-index: 9500;
+  width: 2.75rem;
+  height: 2.75rem;
+  border-radius: 50%;
+  border: 1px solid var(--border);
+  background: var(--panel);
+  color: var(--text);
+  font-size: 1.15rem;
+  line-height: 1;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.12);
+  transition:
+    background 0.2s,
+    border-color 0.2s,
+    transform 0.15s;
+}
+
+.theme-toggle:hover {
+  border-color: var(--gold-dark);
+  background: var(--slate);
+}
+
+.theme-toggle:focus-visible {
+  outline: 2px solid var(--gold);
+  outline-offset: 3px;
+}
+
+html[data-theme="light"] .theme-toggle {
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.08);
+}
+
+html[data-theme="light"] .theme-toggle:hover {
+  background: var(--charcoal);
+}
+
+/* Light theme: hardcoded dark-only surfaces */
+html[data-theme="light"] .app-header {
+  background: linear-gradient(180deg, var(--charcoal) 0%, var(--obsidian) 100%);
+}
+
+html[data-theme="light"] .login-btn {
+  color: #0a0a0a;
+}
+
+html[data-theme="light"] .admin-subnav {
+  background: linear-gradient(180deg, var(--obsidian) 0%, var(--charcoal) 100%);
+}
+
+html[data-theme="light"] .tbl td {
+  border-bottom-color: var(--border);
+}
+
+html[data-theme="light"] .btn-gold,
+html[data-theme="light"] .card > button {
+  color: #0a0a0a;
+}
+
 * {
   margin: 0;
   padding: 0;

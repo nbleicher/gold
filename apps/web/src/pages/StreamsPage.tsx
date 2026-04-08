@@ -225,12 +225,7 @@ export function StreamsPage() {
           </button>
           {isStartCardOpen ? (
             <div style={{ marginTop: "0.75rem" }}>
-              <p style={{ fontSize: "0.65rem", color: "var(--muted)", marginTop: "0.5rem", marginBottom: "0.75rem" }}>
-                All inventory batches in the system at start are included in this session. Use sticker codes as usual—no
-                batch selection needed. Raw pulls deduct from the first snapshot batch of that metal with enough
-                remaining grams.
-              </p>
-              <div style={{ display: "flex", gap: "0.5rem", marginTop: "0.75rem" }}>
+              <div style={{ display: "flex", gap: "0.5rem" }}>
                 <button
                   type="button"
                   className="btn btn-gold"

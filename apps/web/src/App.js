@@ -1,5 +1,5 @@
 import { jsx as _jsx, jsxs as _jsxs, Fragment as _Fragment } from "react/jsx-runtime";
-import { useEffect, useState } from "react";
+import { useEffect, useLayoutEffect, useState } from "react";
 import { NavLink, Navigate, Route, Routes, useLocation } from "react-router-dom";
 import { useAuth } from "./state/auth";
 import { LoginPage } from "./pages/LoginPage";
@@ -22,6 +22,21 @@ const ADMIN_SECTION_PATHS = [
     "/admin/users"
 ];
 const STREAMS_LOG_PATH = "/streams/log";
+const THEME_STORAGE_KEY = "goldstream_theme";
+function readStoredTheme() {
+    if (typeof window === "undefined")
+        return "dark";
+    try {
+        return window.localStorage.getItem(THEME_STORAGE_KEY) === "light" ? "light" : "dark";
+    }
+    catch {
+        return "dark";
+    }
+}
+function ThemeToggle({ theme, onToggle }) {
+    const isDark = theme === "dark";
+    return (_jsx("button", { type: "button", className: "theme-toggle", onClick: onToggle, "aria-pressed": isDark, "aria-label": isDark ? "Switch to light mode" : "Switch to dark mode", title: isDark ? "Light mode" : "Dark mode", children: isDark ? "☀" : "☾" }));
+}
 const navTabClass = ({ isActive }) => `nav-tab${isActive ? " active" : ""}`;
 const navSubTabClass = ({ isActive }) => `nav-tab nav-tab-sub${isActive ? " active" : ""}`;
 function Shell() {
@@ -59,9 +74,16 @@ function Shell() {
 }
 export function App() {
     const { user, loading } = useAuth();
-    if (loading)
-        return _jsx("div", { className: "app-loading", children: "Loading\u2026" });
-    if (!user)
-        return _jsx(LoginPage, {});
-    return _jsx(Shell, {});
+    const [theme, setTheme] = useState(readStoredTheme);
+    useLayoutEffect(() => {
+        document.documentElement.setAttribute("data-theme", theme);
+        try {
+            window.localStorage.setItem(THEME_STORAGE_KEY, theme);
+        }
+        catch {
+            /* ignore quota / private mode */
+        }
+    }, [theme]);
+    const toggleTheme = () => setTheme((t) => (t === "dark" ? "light" : "dark"));
+    return (_jsxs(_Fragment, { children: [_jsx(ThemeToggle, { theme: theme, onToggle: toggleTheme }), loading ? (_jsx("div", { className: "app-loading", children: "Loading\u2026" })) : !user ? (_jsx(LoginPage, {})) : (_jsx(Shell, {}))] }));
 }
