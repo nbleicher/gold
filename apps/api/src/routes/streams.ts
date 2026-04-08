@@ -45,6 +45,32 @@ export async function registerStreamRoutes(app: FastifyInstance) {
     );
   });
 
+  app.get("/v1/streams/:id/batches", { preHandler: requireAuth }, async (req) => {
+    const { id } = req.params as { id: string };
+    const self = req.authUser?.sub;
+    const isAdmin = req.authUser?.role === "admin";
+    const stream = await one<{ user_id: string }>("select user_id from streams where id = ?", [id]);
+    if (!stream) {
+      return req.server.httpErrors.notFound("Stream not found");
+    }
+    if (!isAdmin && stream.user_id !== self) {
+      return req.server.httpErrors.forbidden();
+    }
+    return q<{
+      id: string;
+      metal: string;
+      batch_name: string | null;
+      remaining_grams: number;
+    }>(
+      `select b.id, b.metal, b.batch_name, b.remaining_grams
+       from stream_batches sb
+       join inventory_batches b on b.id = sb.batch_id
+       where sb.stream_id = ?
+       order by b.created_at asc, b.id asc`,
+      [id]
+    );
+  });
+
   app.post("/v1/streams/start", { preHandler: requireAuth }, async (req) => {
     const body = req.body as {
       userId: string;
@@ -68,11 +94,24 @@ export async function registerStreamRoutes(app: FastifyInstance) {
       return one("select * from streams where id = ?", [existing.id]);
     }
 
-    await q(
-      "insert into streams (user_id, gold_batch_id, silver_batch_id) values (?, ?, ?)",
-      [body.userId, body.goldBatchId ?? null, body.silverBatchId ?? null]
-    );
-    return one("select * from streams order by rowid desc limit 1");
+    return withWriteTx(async (tx) => {
+      await txQ(tx, "insert into streams (user_id, gold_batch_id, silver_batch_id) values (?, ?, ?)", [
+        body.userId,
+        null,
+        null
+      ]);
+      const stream = await txOne<Record<string, unknown>>(
+        tx,
+        "select * from streams order by rowid desc limit 1"
+      );
+      if (!stream || typeof stream.id !== "string") {
+        throw new Error("Failed to create stream");
+      }
+      await txQ(tx, "insert into stream_batches (stream_id, batch_id) select ?, id from inventory_batches", [
+        stream.id
+      ]);
+      return stream;
+    });
   });
 
   app.post("/v1/streams/:id/end", { preHandler: requireAuth }, async (req) => {
@@ -200,18 +239,50 @@ export async function registerStreamRoutes(app: FastifyInstance) {
       "select id, gold_batch_id, silver_batch_id from streams where id = ?",
       [body.streamId]
     );
-    if (!stream) throw new Error("Stream missing");
-    const batchId =
-      body.metal === "gold" ? stream.gold_batch_id : stream.silver_batch_id;
-    if (!batchId) throw new Error(`No active ${body.metal} batch selected`);
+    if (!stream) {
+      return req.server.httpErrors.notFound("Stream missing");
+    }
+
+    const snapshotCountRow = await one<{ c: unknown }>(
+      "select count(*) as c from stream_batches where stream_id = ?",
+      [body.streamId]
+    );
+    const snapshotN = Number(
+      typeof snapshotCountRow?.c === "bigint" ? snapshotCountRow.c : snapshotCountRow?.c ?? 0
+    );
+
+    let batchId: string | null = null;
+    if (snapshotN > 0) {
+      const picked = await one<{ id: string }>(
+        `select b.id from stream_batches sb
+         join inventory_batches b on b.id = sb.batch_id
+         where sb.stream_id = ? and b.metal = ? and b.remaining_grams >= ?
+         order by b.created_at asc, b.id asc
+         limit 1`,
+        [body.streamId, body.metal, body.weightGrams]
+      );
+      if (!picked) {
+        return req.server.httpErrors.badRequest(
+          `No ${body.metal} batch in this stream's inventory snapshot has enough remaining grams for this raw sale`
+        );
+      }
+      batchId = picked.id;
+    } else {
+      batchId = body.metal === "gold" ? stream.gold_batch_id : stream.silver_batch_id;
+      if (!batchId) {
+        return req.server.httpErrors.badRequest(`No active ${body.metal} batch selected for this stream`);
+      }
+    }
 
     const batch = await one<{ id: string; remaining_grams: number }>(
       "select id, remaining_grams from inventory_batches where id = ?",
       [batchId]
     );
-    if (!batch) throw new Error("Batch missing");
+    if (!batch) {
+      return req.server.httpErrors.badRequest("Batch missing");
+    }
     if (Number(batch.remaining_grams) < body.weightGrams) {
-      throw new Error("Insufficient remaining grams");
+      return req.server.httpErrors.badRequest("Insufficient remaining grams");
     }
 
     const spot = await getLatestSpot(body.metal);

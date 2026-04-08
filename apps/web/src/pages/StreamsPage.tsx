@@ -22,6 +22,13 @@ type StreamItemRow = {
   sticker_code: string | null;
 };
 
+type StreamBatchRow = {
+  id: string;
+  metal: "gold" | "silver";
+  batch_name: string | null;
+  remaining_grams: number;
+};
+
 export function StreamsPage() {
   const qc = useQueryClient();
   const { user } = useAuth();
@@ -58,8 +65,30 @@ export function StreamsPage() {
     [streams.data, activeStreamId]
   );
 
-  const canRawGold = Boolean(activeStream?.gold_batch_id);
-  const canRawSilver = Boolean(activeStream?.silver_batch_id);
+  const streamBatches = useQuery({
+    queryKey: ["stream-batches", activeStreamId],
+    queryFn: () => api<StreamBatchRow[]>(`/v1/streams/${activeStreamId}/batches`),
+    enabled: !!activeStreamId
+  });
+
+  const { canRawGold, canRawSilver } = useMemo(() => {
+    const rows = streamBatches.data;
+    const fetched = streamBatches.isFetched;
+    if (!fetched) {
+      return { canRawGold: true, canRawSilver: true };
+    }
+    if (rows && rows.length > 0) {
+      return {
+        canRawGold: rows.some((b) => b.metal === "gold" && Number(b.remaining_grams) > 0),
+        canRawSilver: rows.some((b) => b.metal === "silver" && Number(b.remaining_grams) > 0)
+      };
+    }
+    return {
+      canRawGold: Boolean(activeStream?.gold_batch_id),
+      canRawSilver: Boolean(activeStream?.silver_batch_id)
+    };
+  }, [streamBatches.data, streamBatches.isFetched, activeStream]);
+
   const rawBlocked =
     (rawMetal === "gold" && !canRawGold) || (rawMetal === "silver" && !canRawSilver);
 
@@ -84,6 +113,7 @@ export function StreamsPage() {
       setIsStartCardOpen(false);
       void qc.invalidateQueries({ queryKey: ["streams", user?.id] });
       void qc.invalidateQueries({ queryKey: ["stream-items", stream.id] });
+      void qc.invalidateQueries({ queryKey: ["stream-batches", stream.id] });
     }
   });
 
@@ -113,6 +143,7 @@ export function StreamsPage() {
     onSuccess: () => {
       setRawWeight("");
       void qc.invalidateQueries({ queryKey: ["stream-items", activeStreamId] });
+      void qc.invalidateQueries({ queryKey: ["stream-batches", activeStreamId] });
       void qc.invalidateQueries({ queryKey: ["batches"] });
     }
   });
@@ -122,6 +153,7 @@ export function StreamsPage() {
       api<{ ok: boolean }>(`/v1/streams/items/${itemId}`, { method: "DELETE" }),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ["stream-items", activeStreamId] });
+      void qc.invalidateQueries({ queryKey: ["stream-batches", activeStreamId] });
       void qc.invalidateQueries({ queryKey: ["batches"] });
       void qc.invalidateQueries({ queryKey: ["bag-orders"] });
     }
@@ -148,6 +180,7 @@ export function StreamsPage() {
       }
       void qc.invalidateQueries({ queryKey: ["streams", user?.id] });
       void qc.removeQueries({ queryKey: ["stream-items", streamId] });
+      void qc.removeQueries({ queryKey: ["stream-batches", streamId] });
     }
   });
 
@@ -192,21 +225,10 @@ export function StreamsPage() {
           </button>
           {isStartCardOpen ? (
             <div style={{ marginTop: "0.75rem" }}>
-              {/*
-              Batch selection (commented out per product request — raw pulls need batches set on the stream row via future flow or API)
-              <div className="grid-form">
-                <select value={goldBatchId} onChange={(e) => setGoldBatchId(e.target.value)}>
-                  <option value="">Gold raw batch</option>
-                  ...
-                </select>
-                <select value={silverBatchId} onChange={(e) => setSilverBatchId(e.target.value)}>
-                  ...
-                </select>
-              </div>
-              */}
               <p style={{ fontSize: "0.65rem", color: "var(--muted)", marginTop: "0.5rem", marginBottom: "0.75rem" }}>
-                Starting without raw batches: sticker sales only until batches are linked. Raw sales require a gold or
-                silver batch on the stream.
+                All inventory batches in the system at start are included in this session. Use sticker codes as usual—no
+                batch selection needed. Raw pulls deduct from the first snapshot batch of that metal with enough
+                remaining grams.
               </p>
               <div style={{ display: "flex", gap: "0.5rem", marginTop: "0.75rem" }}>
                 <button
@@ -281,7 +303,7 @@ export function StreamsPage() {
           </div>
           {rawBlocked ? (
             <p style={{ fontSize: "0.62rem", color: "var(--muted)", marginTop: "0.5rem", marginBottom: 0 }}>
-              No {rawMetal} raw batch on this stream — sticker sales still work.
+              No {rawMetal} batch in this session with remaining stock for a raw pull — sticker sales still work.
             </p>
           ) : null}
           {stickerMutation.isError ? (

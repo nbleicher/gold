@@ -35,8 +35,28 @@ export function StreamsPage() {
         }
     }, [user?.id, streams.isSuccess, streams.data]);
     const activeStream = useMemo(() => streams.data?.find((s) => s.id === activeStreamId) ?? null, [streams.data, activeStreamId]);
-    const canRawGold = Boolean(activeStream?.gold_batch_id);
-    const canRawSilver = Boolean(activeStream?.silver_batch_id);
+    const streamBatches = useQuery({
+        queryKey: ["stream-batches", activeStreamId],
+        queryFn: () => api(`/v1/streams/${activeStreamId}/batches`),
+        enabled: !!activeStreamId
+    });
+    const { canRawGold, canRawSilver } = useMemo(() => {
+        const rows = streamBatches.data;
+        const fetched = streamBatches.isFetched;
+        if (!fetched) {
+            return { canRawGold: true, canRawSilver: true };
+        }
+        if (rows && rows.length > 0) {
+            return {
+                canRawGold: rows.some((b) => b.metal === "gold" && Number(b.remaining_grams) > 0),
+                canRawSilver: rows.some((b) => b.metal === "silver" && Number(b.remaining_grams) > 0)
+            };
+        }
+        return {
+            canRawGold: Boolean(activeStream?.gold_batch_id),
+            canRawSilver: Boolean(activeStream?.silver_batch_id)
+        };
+    }, [streamBatches.data, streamBatches.isFetched, activeStream]);
     const rawBlocked = (rawMetal === "gold" && !canRawGold) || (rawMetal === "silver" && !canRawSilver);
     const streamItems = useQuery({
         queryKey: ["stream-items", activeStreamId],
@@ -57,6 +77,7 @@ export function StreamsPage() {
             setIsStartCardOpen(false);
             void qc.invalidateQueries({ queryKey: ["streams", user?.id] });
             void qc.invalidateQueries({ queryKey: ["stream-items", stream.id] });
+            void qc.invalidateQueries({ queryKey: ["stream-batches", stream.id] });
         }
     });
     const stickerMutation = useMutation({
@@ -82,6 +103,7 @@ export function StreamsPage() {
         onSuccess: () => {
             setRawWeight("");
             void qc.invalidateQueries({ queryKey: ["stream-items", activeStreamId] });
+            void qc.invalidateQueries({ queryKey: ["stream-batches", activeStreamId] });
             void qc.invalidateQueries({ queryKey: ["batches"] });
         }
     });
@@ -89,6 +111,7 @@ export function StreamsPage() {
         mutationFn: (itemId) => api(`/v1/streams/items/${itemId}`, { method: "DELETE" }),
         onSuccess: () => {
             void qc.invalidateQueries({ queryKey: ["stream-items", activeStreamId] });
+            void qc.invalidateQueries({ queryKey: ["stream-batches", activeStreamId] });
             void qc.invalidateQueries({ queryKey: ["batches"] });
             void qc.invalidateQueries({ queryKey: ["bag-orders"] });
         }
@@ -110,6 +133,7 @@ export function StreamsPage() {
             }
             void qc.invalidateQueries({ queryKey: ["streams", user?.id] });
             void qc.removeQueries({ queryKey: ["stream-items", streamId] });
+            void qc.removeQueries({ queryKey: ["stream-batches", streamId] });
         }
     });
     const itemCount = streamItems.data?.length ?? 0;
@@ -134,7 +158,7 @@ export function StreamsPage() {
         rawMutation.mutate();
     };
     const startDisabled = !user || startMutation.isPending || activeStreamId !== null;
-    return (_jsxs("section", { className: `card${activeStreamId ? " stream-session-card" : ""}`, children: [_jsx("h2", { children: "Streams" }), !activeStreamId ? (_jsxs(_Fragment, { children: [_jsx("button", { type: "button", className: "btn btn-gold", style: { marginTop: "0.75rem" }, onClick: () => setIsStartCardOpen(true), disabled: startDisabled, children: "Start stream" }), isStartCardOpen ? (_jsxs("div", { style: { marginTop: "0.75rem" }, children: [_jsx("p", { style: { fontSize: "0.65rem", color: "var(--muted)", marginTop: "0.5rem", marginBottom: "0.75rem" }, children: "Starting without raw batches: sticker sales only until batches are linked. Raw sales require a gold or silver batch on the stream." }), _jsxs("div", { style: { display: "flex", gap: "0.5rem", marginTop: "0.75rem" }, children: [_jsx("button", { type: "button", className: "btn btn-gold", onClick: () => startMutation.mutate(), disabled: !user || startMutation.isPending, children: "Confirm" }), _jsx("button", { type: "button", className: "btn btn-outline", onClick: () => setIsStartCardOpen(false), disabled: startMutation.isPending, children: "Cancel" })] })] })) : null] })) : (_jsxs(_Fragment, { children: [_jsxs("div", { className: "stream-live-bar", children: [_jsx("span", { className: "stream-live-dot", "aria-hidden": true }), _jsx("span", { className: "stream-live-label", children: "LIVE" })] }), _jsx("p", { style: { fontSize: "0.65rem", color: "var(--muted)", marginBottom: "0.75rem" }, children: "Session active \u00B7 add sales below" }), _jsxs("div", { className: "grid-form", children: [_jsx("input", { value: stickerCode, onChange: (e) => setStickerCode(e.target.value), placeholder: "sticker code", disabled: endMutation.isPending }), _jsx("button", { type: "button", onClick: onAddSticker, disabled: stickerMutation.isPending || endMutation.isPending, children: "Add sticker sale" }), _jsxs("select", { value: rawMetal, onChange: (e) => setRawMetal(e.target.value), disabled: endMutation.isPending, children: [_jsx("option", { value: "gold", children: "Gold" }), _jsx("option", { value: "silver", children: "Silver" })] }), _jsx("input", { value: rawWeight, onChange: (e) => setRawWeight(e.target.value), placeholder: "raw grams", type: "number", min: 0, step: "0.0001", disabled: endMutation.isPending || rawBlocked }), _jsx("button", { type: "button", onClick: onAddRaw, disabled: rawMutation.isPending || endMutation.isPending || rawBlocked || !(Number(rawWeight) > 0), children: "Add raw sale" })] }), rawBlocked ? (_jsxs("p", { style: { fontSize: "0.62rem", color: "var(--muted)", marginTop: "0.5rem", marginBottom: 0 }, children: ["No ", rawMetal, " raw batch on this stream \u2014 sticker sales still work."] })) : null, stickerMutation.isError ? (_jsx("p", { className: "error", style: { marginTop: "0.5rem", fontSize: "0.75rem" }, children: stickerMutation.error.message })) : null, rawMutation.isError ? (_jsx("p", { className: "error", style: { marginTop: "0.5rem", fontSize: "0.75rem" }, children: rawMutation.error.message })) : null, _jsxs("div", { style: { marginTop: "1rem" }, children: [_jsx("div", { style: { fontSize: "0.65rem", letterSpacing: "0.1em", color: "var(--muted)", marginBottom: "0.5rem" }, children: "SESSION SALES" }), streamItems.isLoading ? (_jsx("p", { style: { fontSize: "0.7rem", color: "var(--muted)" }, children: "Loading\u2026" })) : streamItems.error ? (_jsx("p", { className: "error", children: streamItems.error.message })) : itemCount === 0 ? (_jsx("p", { style: { fontSize: "0.7rem", color: "var(--muted)" }, children: "No sales yet \u2014 add a sticker or raw sale above." })) : (_jsx("div", { className: "tbl-wrap", children: _jsxs("table", { className: "tbl", children: [_jsx("thead", { children: _jsxs("tr", { children: [_jsx("th", { children: "Type" }), _jsx("th", { children: "Sticker / name" }), _jsx("th", { children: "Metal" }), _jsx("th", { children: "Weight (g)" }), _jsx("th", { children: "Spot value" }), _jsx("th", { "aria-label": "Remove" })] }) }), _jsx("tbody", { children: streamItems.data.map((it) => (_jsxs("tr", { children: [_jsx("td", { children: it.sale_type }), _jsx("td", { children: it.sale_type === "sticker" ? it.sticker_code ?? it.name : it.name }), _jsx("td", { children: it.metal }), _jsx("td", { children: Number(it.weight_grams).toFixed(4) }), _jsxs("td", { className: "tbl-green", children: ["$", Number(it.spot_value).toFixed(2)] }), _jsx("td", { children: _jsx("button", { type: "button", className: "btn btn-danger btn-sm", disabled: deleteItemMutation.isPending || endMutation.isPending, onClick: () => {
+    return (_jsxs("section", { className: `card${activeStreamId ? " stream-session-card" : ""}`, children: [_jsx("h2", { children: "Streams" }), !activeStreamId ? (_jsxs(_Fragment, { children: [_jsx("button", { type: "button", className: "btn btn-gold", style: { marginTop: "0.75rem" }, onClick: () => setIsStartCardOpen(true), disabled: startDisabled, children: "Start stream" }), isStartCardOpen ? (_jsxs("div", { style: { marginTop: "0.75rem" }, children: [_jsx("p", { style: { fontSize: "0.65rem", color: "var(--muted)", marginTop: "0.5rem", marginBottom: "0.75rem" }, children: "All inventory batches in the system at start are included in this session. Use sticker codes as usual\u2014no batch selection needed. Raw pulls deduct from the first snapshot batch of that metal with enough remaining grams." }), _jsxs("div", { style: { display: "flex", gap: "0.5rem", marginTop: "0.75rem" }, children: [_jsx("button", { type: "button", className: "btn btn-gold", onClick: () => startMutation.mutate(), disabled: !user || startMutation.isPending, children: "Confirm" }), _jsx("button", { type: "button", className: "btn btn-outline", onClick: () => setIsStartCardOpen(false), disabled: startMutation.isPending, children: "Cancel" })] })] })) : null] })) : (_jsxs(_Fragment, { children: [_jsxs("div", { className: "stream-live-bar", children: [_jsx("span", { className: "stream-live-dot", "aria-hidden": true }), _jsx("span", { className: "stream-live-label", children: "LIVE" })] }), _jsx("p", { style: { fontSize: "0.65rem", color: "var(--muted)", marginBottom: "0.75rem" }, children: "Session active \u00B7 add sales below" }), _jsxs("div", { className: "grid-form", children: [_jsx("input", { value: stickerCode, onChange: (e) => setStickerCode(e.target.value), placeholder: "sticker code", disabled: endMutation.isPending }), _jsx("button", { type: "button", onClick: onAddSticker, disabled: stickerMutation.isPending || endMutation.isPending, children: "Add sticker sale" }), _jsxs("select", { value: rawMetal, onChange: (e) => setRawMetal(e.target.value), disabled: endMutation.isPending, children: [_jsx("option", { value: "gold", children: "Gold" }), _jsx("option", { value: "silver", children: "Silver" })] }), _jsx("input", { value: rawWeight, onChange: (e) => setRawWeight(e.target.value), placeholder: "raw grams", type: "number", min: 0, step: "0.0001", disabled: endMutation.isPending || rawBlocked }), _jsx("button", { type: "button", onClick: onAddRaw, disabled: rawMutation.isPending || endMutation.isPending || rawBlocked || !(Number(rawWeight) > 0), children: "Add raw sale" })] }), rawBlocked ? (_jsxs("p", { style: { fontSize: "0.62rem", color: "var(--muted)", marginTop: "0.5rem", marginBottom: 0 }, children: ["No ", rawMetal, " batch in this session with remaining stock for a raw pull \u2014 sticker sales still work."] })) : null, stickerMutation.isError ? (_jsx("p", { className: "error", style: { marginTop: "0.5rem", fontSize: "0.75rem" }, children: stickerMutation.error.message })) : null, rawMutation.isError ? (_jsx("p", { className: "error", style: { marginTop: "0.5rem", fontSize: "0.75rem" }, children: rawMutation.error.message })) : null, _jsxs("div", { style: { marginTop: "1rem" }, children: [_jsx("div", { style: { fontSize: "0.65rem", letterSpacing: "0.1em", color: "var(--muted)", marginBottom: "0.5rem" }, children: "SESSION SALES" }), streamItems.isLoading ? (_jsx("p", { style: { fontSize: "0.7rem", color: "var(--muted)" }, children: "Loading\u2026" })) : streamItems.error ? (_jsx("p", { className: "error", children: streamItems.error.message })) : itemCount === 0 ? (_jsx("p", { style: { fontSize: "0.7rem", color: "var(--muted)" }, children: "No sales yet \u2014 add a sticker or raw sale above." })) : (_jsx("div", { className: "tbl-wrap", children: _jsxs("table", { className: "tbl", children: [_jsx("thead", { children: _jsxs("tr", { children: [_jsx("th", { children: "Type" }), _jsx("th", { children: "Sticker / name" }), _jsx("th", { children: "Metal" }), _jsx("th", { children: "Weight (g)" }), _jsx("th", { children: "Spot value" }), _jsx("th", { "aria-label": "Remove" })] }) }), _jsx("tbody", { children: streamItems.data.map((it) => (_jsxs("tr", { children: [_jsx("td", { children: it.sale_type }), _jsx("td", { children: it.sale_type === "sticker" ? it.sticker_code ?? it.name : it.name }), _jsx("td", { children: it.metal }), _jsx("td", { children: Number(it.weight_grams).toFixed(4) }), _jsxs("td", { className: "tbl-green", children: ["$", Number(it.spot_value).toFixed(2)] }), _jsx("td", { children: _jsx("button", { type: "button", className: "btn btn-danger btn-sm", disabled: deleteItemMutation.isPending || endMutation.isPending, onClick: () => {
                                                                 if (!window.confirm("Remove this sale from the session?"))
                                                                     return;
                                                                 deleteItemMutation.mutate(it.id);
