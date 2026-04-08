@@ -34,6 +34,10 @@ const reviewScheduleSchema = z.object({
   reviewNote: z.string().trim().max(500).optional()
 });
 
+const patchCompletedEarningsSchema = z.object({
+  completedEarnings: z.number().nonnegative()
+});
+
 export async function registerAdminRoutes(app: FastifyInstance) {
   app.get("/v1/admin/users", adminPre, async () => {
     return q<{
@@ -385,10 +389,12 @@ export async function registerAdminRoutes(app: FastifyInstance) {
       ended_at: string | null;
       gold_batch_id: string | null;
       silver_batch_id: string | null;
+      completed_earnings: number | null;
       user_email: string | null;
       user_display_name: string | null;
     }>(
       `select s.id, s.user_id, s.started_at, s.ended_at, s.gold_batch_id, s.silver_batch_id,
+              s.completed_earnings,
               u.email as user_email, u.display_name as user_display_name
        from streams s
        left join users u on u.id = s.user_id
@@ -442,13 +448,33 @@ export async function registerAdminRoutes(app: FastifyInstance) {
     }
 
     return {
-      streams: streams.map((s) => ({
-        ...s,
-        gold_batch_name: s.gold_batch_id ? batchNameById[s.gold_batch_id] ?? "—" : "—",
-        silver_batch_name: s.silver_batch_id ? batchNameById[s.silver_batch_id] ?? "—" : "—",
-        items: itemsByStream.get(s.id) ?? []
-      }))
+      streams: streams.map((s) => {
+        const ce = s.completed_earnings;
+        const completed_earnings =
+          ce === null || ce === undefined ? null : Number(ce);
+        return {
+          ...s,
+          completed_earnings: Number.isFinite(completed_earnings) ? completed_earnings : null,
+          gold_batch_name: s.gold_batch_id ? batchNameById[s.gold_batch_id] ?? "—" : "—",
+          silver_batch_name: s.silver_batch_id ? batchNameById[s.silver_batch_id] ?? "—" : "—",
+          items: (itemsByStream.get(s.id) ?? []).map((it) => ({
+            ...it,
+            batch_name: it.batch_id ? batchNameById[it.batch_id] ?? null : null
+          }))
+        };
+      })
     };
+  });
+
+  app.patch("/v1/admin/streams/:id/completed-earnings", adminPre, async (req) => {
+    const { id } = req.params as { id: string };
+    const body = patchCompletedEarningsSchema.parse(req.body);
+    const stream = await one<{ id: string }>("select id from streams where id = ?", [id]);
+    if (!stream) {
+      return req.server.httpErrors.notFound("Stream not found");
+    }
+    await q("update streams set completed_earnings = ? where id = ?", [body.completedEarnings, id]);
+    return { ok: true };
   });
 
   app.delete("/v1/admin/streams/:id", adminPre, async (req) => {

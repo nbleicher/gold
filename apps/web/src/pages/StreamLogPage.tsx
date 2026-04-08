@@ -12,7 +12,16 @@ type StreamItem = {
   spot_price: number;
   sticker_code: string | null;
   batch_id: string | null;
+  batch_name: string | null;
 };
+
+function streamLogRawBatchLabel(it: StreamItem): string {
+  if (it.sale_type !== "raw") return "—";
+  const name = it.batch_name?.trim();
+  if (name) return name;
+  if (it.batch_id) return `${it.batch_id.slice(0, 8)}…`;
+  return "—";
+}
 
 type StreamLogStream = {
   id: string;
@@ -21,6 +30,7 @@ type StreamLogStream = {
   ended_at: string | null;
   gold_batch_id: string | null;
   silver_batch_id: string | null;
+  completed_earnings: number | null;
   user_email: string | null;
   user_display_name: string | null;
   gold_batch_name: string;
@@ -52,6 +62,8 @@ function summarizeStream(st: StreamLogStream) {
 export function StreamLogPage() {
   const qc = useQueryClient();
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set());
+  const [earningsEditingId, setEarningsEditingId] = useState<string | null>(null);
+  const [earningsDraft, setEarningsDraft] = useState("");
 
   const toggleExpanded = (streamId: string) => {
     setExpanded((prev) => {
@@ -86,6 +98,19 @@ export function StreamLogPage() {
     }
   });
 
+  const completedEarningsMutation = useMutation({
+    mutationFn: ({ streamId, completedEarnings }: { streamId: string; completedEarnings: number }) =>
+      api<{ ok: boolean }>(`/v1/admin/streams/${streamId}/completed-earnings`, {
+        method: "PATCH",
+        body: JSON.stringify({ completedEarnings })
+      }),
+    onSuccess: () => {
+      setEarningsEditingId(null);
+      setEarningsDraft("");
+      void qc.invalidateQueries({ queryKey: ["admin-stream-log"] });
+    }
+  });
+
   const requestDelete = (st: StreamLogStream) => {
     const ok = window.confirm(
       "Delete this stream session and all logged sales? Raw metal will be returned to batches and sticker bags will be marked unsold."
@@ -115,6 +140,9 @@ export function StreamLogPage() {
       {deleteItemMutation.error ? (
         <p className="error">{(deleteItemMutation.error as Error).message}</p>
       ) : null}
+      {completedEarningsMutation.error ? (
+        <p className="error">{(completedEarningsMutation.error as Error).message}</p>
+      ) : null}
 
       <div className="stats-row" style={{ gridTemplateColumns: "repeat(3, 1fr)", marginBottom: "1.5rem" }}>
         <div className="stat-box">
@@ -141,16 +169,17 @@ export function StreamLogPage() {
               <th>Metal</th>
               <th>Sales mix</th>
               <th>Raw batches</th>
-              <th>Items</th>
+              <th>Items sold</th>
               <th>Spot value total</th>
               <th>Avg spot</th>
+              <th>Completed earnings</th>
               <th aria-label="Actions" />
             </tr>
           </thead>
           <tbody>
             {streams.length === 0 ? (
               <tr>
-                <td colSpan={10} className="tbl-empty">
+                <td colSpan={11} className="tbl-empty">
                   No streams logged yet
                 </td>
               </tr>
@@ -188,6 +217,84 @@ export function StreamLogPage() {
                     <td>{count}</td>
                     <td className="tbl-green">${itemsTotal.toFixed(2)}</td>
                     <td>${Number(avgSpot || 0).toFixed(2)}/oz</td>
+                    <td style={{ fontSize: "0.62rem", verticalAlign: "top" }}>
+                      {earningsEditingId === st.id ? (
+                        <div
+                          style={{
+                            display: "flex",
+                            flexDirection: "column",
+                            gap: "0.35rem",
+                            minWidth: "7.5rem"
+                          }}
+                        >
+                          <input
+                            type="number"
+                            min={0}
+                            step={0.01}
+                            value={earningsDraft}
+                            onChange={(e) => setEarningsDraft(e.target.value)}
+                            disabled={completedEarningsMutation.isPending}
+                            style={{ maxWidth: "9rem" }}
+                          />
+                          <div style={{ display: "flex", flexWrap: "wrap", gap: "0.35rem" }}>
+                            <button
+                              type="button"
+                              className="btn btn-gold btn-sm"
+                              disabled={completedEarningsMutation.isPending}
+                              onClick={() => {
+                                const n = Number(earningsDraft);
+                                if (!Number.isFinite(n) || n < 0) return;
+                                completedEarningsMutation.mutate({
+                                  streamId: st.id,
+                                  completedEarnings: n
+                                });
+                              }}
+                            >
+                              Save
+                            </button>
+                            <button
+                              type="button"
+                              className="btn btn-outline btn-sm"
+                              disabled={completedEarningsMutation.isPending}
+                              onClick={() => {
+                                setEarningsEditingId(null);
+                                setEarningsDraft("");
+                              }}
+                            >
+                              Cancel
+                            </button>
+                          </div>
+                        </div>
+                      ) : st.completed_earnings != null ? (
+                        <div>
+                          <div>
+                            Completed earnings: ${Number(st.completed_earnings).toFixed(2)}
+                          </div>
+                          <button
+                            type="button"
+                            className="btn btn-outline btn-sm"
+                            style={{ marginTop: "0.35rem" }}
+                            onClick={() => {
+                              setEarningsEditingId(st.id);
+                              setEarningsDraft(String(st.completed_earnings));
+                            }}
+                          >
+                            Edit
+                          </button>
+                        </div>
+                      ) : (
+                        <button
+                          type="button"
+                          className="btn btn-outline btn-sm"
+                          onClick={() => {
+                            setEarningsEditingId(st.id);
+                            setEarningsDraft("");
+                          }}
+                        >
+                          Add Completed Earnings
+                        </button>
+                      )}
+                    </td>
                     <td>
                       <button
                         type="button"
@@ -203,7 +310,7 @@ export function StreamLogPage() {
                 if (!isOpen) return [mainRow];
                 const detailRow = (
                   <tr key={`${st.id}-detail`}>
-                    <td colSpan={10} style={{ background: "var(--slate)", padding: "0.75rem 1rem" }}>
+                    <td colSpan={11} style={{ background: "var(--slate)", padding: "0.75rem 1rem" }}>
                       <div style={{ fontSize: "0.65rem", color: "var(--muted)", marginBottom: "0.5rem" }}>
                         Session line items — remove to reverse inventory / unsell sticker
                       </div>
@@ -217,6 +324,7 @@ export function StreamLogPage() {
                                 <th>Type</th>
                                 <th>Sticker / name</th>
                                 <th>Metal</th>
+                                <th>Batch</th>
                                 <th>Weight (g)</th>
                                 <th>Spot value</th>
                                 <th aria-label="Remove" />
@@ -228,6 +336,7 @@ export function StreamLogPage() {
                                   <td>{it.sale_type}</td>
                                   <td>{it.sale_type === "sticker" ? it.sticker_code ?? it.name : it.name}</td>
                                   <td>{it.metal}</td>
+                                  <td style={{ fontSize: "0.7rem" }}>{streamLogRawBatchLabel(it)}</td>
                                   <td>{Number(it.weight_grams).toFixed(4)}</td>
                                   <td className="tbl-green">${Number(it.spot_value).toFixed(2)}</td>
                                   <td>

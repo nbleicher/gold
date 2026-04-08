@@ -20,6 +20,7 @@ type StreamItemRow = {
   spot_value: number;
   spot_price: number;
   sticker_code: string | null;
+  batch_id: string | null;
 };
 
 type StreamBatchRow = {
@@ -28,6 +29,13 @@ type StreamBatchRow = {
   batch_name: string | null;
   remaining_grams: number;
 };
+
+function rawSaleBatchLabel(it: StreamItemRow, batches: StreamBatchRow[] | undefined): string {
+  if (it.sale_type !== "raw" || !it.batch_id) return "—";
+  const name = batches?.find((b) => b.id === it.batch_id)?.batch_name?.trim();
+  if (name) return name;
+  return `${it.batch_id.slice(0, 8)}…`;
+}
 
 export function StreamsPage() {
   const qc = useQueryClient();
@@ -337,6 +345,7 @@ export function StreamsPage() {
                       <th>Type</th>
                       <th>Sticker / name</th>
                       <th>Metal</th>
+                      <th>Batch</th>
                       <th>Weight (g)</th>
                       <th>Spot value</th>
                       <th aria-label="Remove" />
@@ -348,6 +357,7 @@ export function StreamsPage() {
                         <td>{it.sale_type}</td>
                         <td>{it.sale_type === "sticker" ? it.sticker_code ?? it.name : it.name}</td>
                         <td>{it.metal}</td>
+                        <td style={{ fontSize: "0.7rem" }}>{rawSaleBatchLabel(it, streamBatches.data)}</td>
                         <td>{Number(it.weight_grams).toFixed(4)}</td>
                         <td className="tbl-green">${Number(it.spot_value).toFixed(2)}</td>
                         <td>
