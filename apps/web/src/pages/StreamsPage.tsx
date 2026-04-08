@@ -121,7 +121,10 @@ export function StreamsPage() {
     mutationFn: () =>
       api("/v1/streams/sticker-sale", {
         method: "POST",
-        body: JSON.stringify({ streamId: activeStreamId, stickerCode })
+        body: JSON.stringify({
+          streamId: activeStreamId,
+          stickerCode: stickerCode.trim()
+        })
       }),
     onSuccess: () => {
       setStickerCode("");
@@ -265,7 +268,11 @@ export function StreamsPage() {
             <button
               type="button"
               onClick={onAddSticker}
-              disabled={stickerMutation.isPending || endMutation.isPending}
+              disabled={
+                stickerMutation.isPending ||
+                endMutation.isPending ||
+                stickerCode.trim().length < 2
+              }
             >
               Add sticker sale
             </button>

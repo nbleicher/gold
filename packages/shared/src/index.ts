@@ -8,6 +8,8 @@ export type Metal = z.infer<typeof metalSchema>;
 
 const hexBatchIdSchema = z.string().regex(/^[a-f0-9]{32}$/, "Invalid batch id");
 export const batchIdSchema = z.union([hexBatchIdSchema, z.string().uuid()]);
+/** Same format as DB `streams.id` (hex) or RFC UUID. */
+export const streamIdSchema = batchIdSchema;
 
 export const bagComponentSchema = z.object({
   batchId: batchIdSchema,
@@ -38,14 +40,14 @@ export const createBagOrderSchema = z
 export type CreateBagOrderInput = z.infer<typeof createBagOrderSchema>;
 
 export const createRawSaleSchema = z.object({
-  streamId: z.string().uuid(),
+  streamId: streamIdSchema,
   metal: z.enum(["gold", "silver"]),
   weightGrams: z.number().positive()
 });
 export type CreateRawSaleInput = z.infer<typeof createRawSaleSchema>;
 
 export const createStickerSaleSchema = z.object({
-  streamId: z.string().uuid(),
+  streamId: streamIdSchema,
   stickerCode: z.string().min(2).max(20)
 });
 export type CreateStickerSaleInput = z.infer<typeof createStickerSaleSchema>;
