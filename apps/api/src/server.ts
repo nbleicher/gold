@@ -1,6 +1,7 @@
 import Fastify, { type FastifyError } from "fastify";
 import cors from "@fastify/cors";
 import sensible from "@fastify/sensible";
+import { ZodError } from "zod";
 import { env } from "./env.js";
 import { registerInventoryRoutes } from "./routes/inventory.js";
 import { registerBagOrderRoutes } from "./routes/bagOrders.js";
@@ -34,6 +35,10 @@ await registerDashboardRoutes(app);
 
 app.setErrorHandler((error, _req, reply) => {
   app.log.error(error);
+  if (error instanceof ZodError) {
+    const first = error.issues[0];
+    return reply.status(400).send({ error: first?.message ?? "Validation failed" });
+  }
   const message = error instanceof Error ? error.message : "Unhandled error";
   if (message === "Unauthorized") return reply.status(401).send({ error: message });
   if (message === "Forbidden") return reply.status(403).send({ error: message });

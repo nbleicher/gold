@@ -55,6 +55,22 @@ export function AdminUsersPage() {
     onSuccess: () => qc.invalidateQueries({ queryKey: ["admin-users"] })
   });
 
+  const [purgeTarget, setPurgeTarget] = useState<AdminUser | null>(null);
+  const [purgeConfirm, setPurgeConfirm] = useState("");
+
+  const purgeUser = useMutation({
+    mutationFn: ({ id, confirm }: { id: string; confirm: string }) =>
+      api<{ ok: boolean }>(`/v1/admin/users/${id}/purge-from-app`, {
+        method: "POST",
+        body: JSON.stringify({ confirm })
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["admin-users"] });
+      setPurgeTarget(null);
+      setPurgeConfirm("");
+    }
+  });
+
   const onSubmit = (e: FormEvent) => {
     e.preventDefault();
     if (!email.trim() || !password.trim()) return;
@@ -65,7 +81,8 @@ export function AdminUsersPage() {
     <section className="card">
       <h2>User Management</h2>
       <p className="pg-sub" style={{ marginBottom: "1rem", fontSize: "0.65rem", color: "var(--text-dim)" }}>
-        Create users, assign roles, and deactivate accounts while preserving historical records.
+        Create users, assign roles, and deactivate accounts. Inactive users can be removed from the app (streams and
+        other history stay in the database).
       </p>
 
       {users.error ? <p className="error">{(users.error as Error).message}</p> : null}
@@ -194,14 +211,35 @@ export function AdminUsersPage() {
                           Deactivate
                         </button>
                       ) : (
-                        <button
-                          type="button"
-                          className="btn btn-outline btn-sm"
-                          disabled={reactivateUser.isPending || deactivateUser.isPending}
-                          onClick={() => reactivateUser.mutate(u.id)}
-                        >
-                          Reactivate
-                        </button>
+                        <div style={{ display: "flex", flexWrap: "wrap", gap: "0.5rem", alignItems: "center" }}>
+                          <button
+                            type="button"
+                            className="btn btn-outline btn-sm"
+                            disabled={
+                              reactivateUser.isPending ||
+                              deactivateUser.isPending ||
+                              purgeUser.isPending
+                            }
+                            onClick={() => reactivateUser.mutate(u.id)}
+                          >
+                            Reactivate
+                          </button>
+                          <button
+                            type="button"
+                            className="btn btn-danger btn-sm"
+                            disabled={
+                              reactivateUser.isPending ||
+                              deactivateUser.isPending ||
+                              purgeUser.isPending
+                            }
+                            onClick={() => {
+                              setPurgeTarget(u);
+                              setPurgeConfirm("");
+                            }}
+                          >
+                            Remove from app
+                          </button>
+                        </div>
                       )}
                     </td>
                   </tr>
@@ -213,6 +251,80 @@ export function AdminUsersPage() {
       </div>
       {deactivateUser.error ? <p className="error">{(deactivateUser.error as Error).message}</p> : null}
       {reactivateUser.error ? <p className="error">{(reactivateUser.error as Error).message}</p> : null}
+
+      {purgeTarget ? (
+        <div
+          style={{
+            position: "fixed",
+            inset: 0,
+            background: "rgba(0, 0, 0, 0.65)",
+            zIndex: 9600,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            padding: "1rem"
+          }}
+          role="presentation"
+          onClick={(e) => {
+            if (e.target === e.currentTarget && !purgeUser.isPending) {
+              setPurgeTarget(null);
+              setPurgeConfirm("");
+            }
+          }}
+        >
+          <div
+            className="card"
+            style={{ maxWidth: 440, width: "100%" }}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="purge-dialog-title"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h3 id="purge-dialog-title" style={{ fontFamily: '"Playfair Display", serif', marginBottom: "0.75rem" }}>
+              Remove from app
+            </h3>
+            <p style={{ fontSize: "0.72rem", color: "var(--text-dim)", marginBottom: "1rem", lineHeight: 1.5 }}>
+              This removes <strong style={{ color: "var(--text)" }}>{purgeTarget.email}</strong> from the user list and
+              blocks sign-in. Streams, sales, schedules, and other data they entered are not deleted.
+            </p>
+            <label className="form-label" htmlFor="purge-confirm-input">
+              Type <strong style={{ color: "var(--gold)" }}>delete</strong> to confirm
+            </label>
+            <input
+              id="purge-confirm-input"
+              className="form-input"
+              style={{ marginBottom: "1rem" }}
+              value={purgeConfirm}
+              onChange={(e) => setPurgeConfirm(e.target.value)}
+              placeholder="delete"
+              autoComplete="off"
+              disabled={purgeUser.isPending}
+            />
+            {purgeUser.error ? <p className="error">{(purgeUser.error as Error).message}</p> : null}
+            <div style={{ display: "flex", flexWrap: "wrap", gap: "0.5rem", justifyContent: "flex-end" }}>
+              <button
+                type="button"
+                className="btn btn-outline btn-sm"
+                disabled={purgeUser.isPending}
+                onClick={() => {
+                  setPurgeTarget(null);
+                  setPurgeConfirm("");
+                }}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="btn btn-danger btn-sm"
+                disabled={purgeConfirm.trim() !== "delete" || purgeUser.isPending}
+                onClick={() => purgeUser.mutate({ id: purgeTarget.id, confirm: purgeConfirm.trim() })}
+              >
+                Confirm removal
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </section>
   );
 }

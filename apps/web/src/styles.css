@@ -10,9 +10,9 @@
   --panel: #141414;
   --border: #222;
   --border-gold: #2a2010;
-  --muted: #666;
-  --text: #eae0c8;
-  --text-dim: #8a7d60;
+  --muted: #8f8f8f;
+  --text: #f2ebe0;
+  --text-dim: #b5a88a;
   --red: #c44;
   --green: #5a9;
 }
@@ -25,9 +25,9 @@ html[data-theme="light"] {
   --panel: #e8e3d8;
   --border: #c8c2b4;
   --border-gold: #c9b896;
-  --muted: #6a6459;
-  --text: #1c1915;
-  --text-dim: #5a5448;
+  --muted: #4a4438;
+  --text: #14120f;
+  --text-dim: #3d382f;
 }
 
 /* ── THEME TOGGLE (fixed bottom-right) ── */
@@ -108,6 +108,7 @@ body {
   color: var(--text);
   font-family: "DM Mono", monospace;
   font-size: 20px;
+  font-weight: 500;
 }
 
 #root {
@@ -923,7 +924,7 @@ body {
 .tbl td {
   padding: 0.75rem 0.9rem;
   border-bottom: 1px solid #181818;
-  color: var(--text-dim);
+  color: var(--text);
   vertical-align: middle;
 }
 

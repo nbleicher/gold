@@ -1,4 +1,6 @@
 import type { FastifyInstance } from "fastify";
+import bcrypt from "bcrypt";
+import { randomBytes } from "node:crypto";
 import { z } from "zod";
 import { one, q, txQ, withWriteTx } from "../db.js";
 import { requireAuth, requireRole } from "./auth.js";
@@ -38,6 +40,13 @@ const patchCompletedEarningsSchema = z.object({
   completedEarnings: z.number().nonnegative()
 });
 
+const purgeUserConfirmSchema = z.object({
+  confirm: z
+    .string()
+    .trim()
+    .refine((val) => val === "delete", { message: "Type delete to confirm" })
+});
+
 export async function registerAdminRoutes(app: FastifyInstance) {
   app.get("/v1/admin/users", adminPre, async () => {
     return q<{
@@ -49,7 +58,7 @@ export async function registerAdminRoutes(app: FastifyInstance) {
       deactivated_at: string | null;
       deactivated_by: string | null;
     }>(
-      "select id, email, display_name, role, is_active, deactivated_at, deactivated_by from users order by email asc"
+      "select id, email, display_name, role, is_active, deactivated_at, deactivated_by from users where purged_at is null order by email asc"
     );
   });
 
@@ -91,9 +100,15 @@ export async function registerAdminRoutes(app: FastifyInstance) {
 
   app.patch("/v1/admin/users/:id/reactivate", adminPre, async (req) => {
     const { id } = req.params as { id: string };
-    const target = await one<{ id: string; is_active: number }>("select id, is_active from users where id = ?", [id]);
+    const target = await one<{ id: string; is_active: number; purged_at: string | null }>(
+      "select id, is_active, purged_at from users where id = ?",
+      [id]
+    );
     if (!target) {
       return req.server.httpErrors.notFound("User not found");
+    }
+    if (target.purged_at) {
+      return req.server.httpErrors.conflict("This account was removed from the app and cannot be reactivated");
     }
     if (target.is_active) {
       return { ok: true, id, idempotent: true };
@@ -101,6 +116,36 @@ export async function registerAdminRoutes(app: FastifyInstance) {
     await q(
       "update users set is_active = 1, deactivated_at = null, deactivated_by = null where id = ?",
       [id]
+    );
+    return { ok: true, id };
+  });
+
+  app.post("/v1/admin/users/:id/purge-from-app", adminPre, async (req) => {
+    purgeUserConfirmSchema.parse(req.body);
+    const { id } = req.params as { id: string };
+    const actorId = req.authUser?.sub;
+    if (!actorId) throw new Error("Unauthorized");
+    if (id === actorId) {
+      return req.server.httpErrors.conflict("You cannot remove your own account");
+    }
+    const target = await one<{ id: string; is_active: number; purged_at: string | null }>(
+      "select id, is_active, purged_at from users where id = ?",
+      [id]
+    );
+    if (!target) {
+      return req.server.httpErrors.notFound("User not found");
+    }
+    if (target.purged_at) {
+      return { ok: true, id, idempotent: true };
+    }
+    if (target.is_active) {
+      return req.server.httpErrors.conflict("Deactivate the user before removing from the app");
+    }
+    const newEmail = `purged+${id}@invalid`;
+    const passwordHash = await bcrypt.hash(randomBytes(32).toString("hex"), 12);
+    await q(
+      "update users set email = ?, password_hash = ?, display_name = null, purged_at = datetime('now'), purged_by = ? where id = ?",
+      [newEmail, passwordHash, actorId, id]
     );
     return { ok: true, id };
   });

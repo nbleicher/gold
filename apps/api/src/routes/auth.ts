@@ -4,6 +4,16 @@ import jwt from "jsonwebtoken";
 import { env } from "../env.js";
 import { one, q } from "../db.js";
 
+async function assertUserSessionAllowed(userId: string) {
+  const row = await one<{ is_active: number; purged_at: string | null }>(
+    "select is_active, purged_at from users where id = ?",
+    [userId]
+  );
+  if (!row || !row.is_active || row.purged_at) {
+    throw new Error("Unauthorized");
+  }
+}
+
 type JwtPayload = { sub: string; role: "admin" | "user"; email: string };
 
 declare module "fastify" {
@@ -22,6 +32,7 @@ export async function requireAuth(request: import("fastify").FastifyRequest) {
   } catch {
     throw new Error("Unauthorized");
   }
+  await assertUserSessionAllowed(decoded.sub);
   request.authUser = decoded;
 }
 
@@ -68,8 +79,13 @@ export async function registerAuthRoutes(app: FastifyInstance) {
       role: "admin" | "user";
       display_name: string | null;
       is_active: number;
-    }>("select id, email, password_hash, role, display_name, is_active from users where email = ?", [email]);
+      purged_at: string | null;
+    }>(
+      "select id, email, password_hash, role, display_name, is_active, purged_at from users where email = ?",
+      [email]
+    );
     if (!user) throw new Error("Invalid credentials");
+    if (user.purged_at) throw new Error("Invalid credentials");
     if (!user.is_active) throw new Error("Account deactivated");
     const ok = await bcrypt.compare(body.password, user.password_hash);
     if (!ok) throw new Error("Invalid credentials");
@@ -98,12 +114,13 @@ export async function registerAuthRoutes(app: FastifyInstance) {
       role: "admin" | "user";
       display_name: string | null;
       is_active: number;
+      purged_at: string | null;
     }>(
-      "select id, email, role, display_name, is_active from users where id = ?",
+      "select id, email, role, display_name, is_active, purged_at from users where id = ?",
       [userId]
     );
     if (!data) throw new Error("Profile not found");
-    if (!data.is_active) throw new Error("Unauthorized");
+    if (!data.is_active || data.purged_at) throw new Error("Unauthorized");
     return {
       id: data.id,
       email: data.email,
