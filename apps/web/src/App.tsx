@@ -110,7 +110,7 @@ function Shell() {
         <nav className="header-center">
           {isAdmin ? (
             <NavLink
-              to="/admin/expenses"
+              to="/admin/dashboard"
               className={() => `nav-tab${adminSectionActive ? " active" : ""}`}
             >
               Admin

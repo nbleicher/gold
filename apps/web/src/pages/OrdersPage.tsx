@@ -148,6 +148,18 @@ export function OrdersPage() {
       >
         Bag from a batch · weight sets tier · sticker code auto-assigned
       </p>
+      <p
+        style={{
+          fontSize: "0.58rem",
+          color: "var(--muted)",
+          marginBottom: "1.25rem",
+          lineHeight: 1.5,
+          maxWidth: "42rem"
+        }}
+      >
+        Sticker codes use the primary batch&apos;s sticker letter (set in Batch Management), the tier digit from
+        total bag weight, and a sequence letter for each bag in that batch and tier (A, B, …).
+      </p>
 
       {batches.error || bagOrders.error ? (
         <p className="error">{String((batches.error ?? bagOrders.error) as Error)}</p>

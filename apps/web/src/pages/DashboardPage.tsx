@@ -160,11 +160,6 @@ export function DashboardPage() {
         </div>
       </div>
 
-      <p style={{ fontSize: "0.58rem", color: "var(--muted)", marginBottom: "1rem", lineHeight: 1.5 }}>
-        Estimated profit uses batch cost (total cost ÷ original grams × sold grams). Sticker sales use the
-        linked batch only; mixed bags can skew margin. &quot;Today&quot; uses the database calendar day (UTC).
-      </p>
-
       {last ? (
         <div
           style={{
