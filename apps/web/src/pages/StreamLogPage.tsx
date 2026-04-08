@@ -1,7 +1,9 @@
+import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "../lib/api";
 
 type StreamItem = {
+  id: string;
   sale_type: string;
   name: string;
   metal: string;
@@ -49,6 +51,17 @@ function summarizeStream(st: StreamLogStream) {
 
 export function StreamLogPage() {
   const qc = useQueryClient();
+  const [expanded, setExpanded] = useState<Set<string>>(() => new Set());
+
+  const toggleExpanded = (streamId: string) => {
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      if (next.has(streamId)) next.delete(streamId);
+      else next.add(streamId);
+      return next;
+    });
+  };
+
   const q = useQuery({
     queryKey: ["admin-stream-log"],
     queryFn: () => api<StreamLogResponse>("/v1/admin/stream-log")
@@ -59,6 +72,17 @@ export function StreamLogPage() {
       api<{ ok: boolean }>(`/v1/admin/streams/${streamId}`, { method: "DELETE" }),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ["admin-stream-log"] });
+    }
+  });
+
+  const deleteItemMutation = useMutation({
+    mutationFn: (itemId: string) =>
+      api<{ ok: boolean }>(`/v1/streams/items/${itemId}`, { method: "DELETE" }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["admin-stream-log"] });
+      void qc.invalidateQueries({ queryKey: ["streams"] });
+      void qc.invalidateQueries({ queryKey: ["batches"] });
+      void qc.invalidateQueries({ queryKey: ["bag-orders"] });
     }
   });
 
@@ -88,6 +112,9 @@ export function StreamLogPage() {
       {deleteMutation.error ? (
         <p className="error">{(deleteMutation.error as Error).message}</p>
       ) : null}
+      {deleteItemMutation.error ? (
+        <p className="error">{(deleteItemMutation.error as Error).message}</p>
+      ) : null}
 
       <div className="stats-row" style={{ gridTemplateColumns: "repeat(3, 1fr)", marginBottom: "1.5rem" }}>
         <div className="stat-box">
@@ -108,6 +135,7 @@ export function StreamLogPage() {
         <table className="tbl">
           <thead>
             <tr>
+              <th aria-label="Expand" />
               <th>Date</th>
               <th>Host</th>
               <th>Metal</th>
@@ -122,15 +150,28 @@ export function StreamLogPage() {
           <tbody>
             {streams.length === 0 ? (
               <tr>
-                <td colSpan={9} className="tbl-empty">
+                <td colSpan={10} className="tbl-empty">
                   No streams logged yet
                 </td>
               </tr>
             ) : (
-              streams.map((st) => {
+              streams.flatMap((st) => {
                 const { itemsTotal, metal, avgSpot, mix, rawB, count } = summarizeStream(st);
-                return (
+                const isOpen = expanded.has(st.id);
+                const items = st.items ?? [];
+                const mainRow = (
                   <tr key={st.id}>
+                    <td>
+                      <button
+                        type="button"
+                        className="btn btn-outline btn-sm"
+                        aria-expanded={isOpen}
+                        onClick={() => toggleExpanded(st.id)}
+                        style={{ padding: "0.15rem 0.45rem", minWidth: "2rem" }}
+                      >
+                        {isOpen ? "−" : "+"}
+                      </button>
+                    </td>
                     <td>
                       {new Date(st.started_at).toLocaleDateString("en-US", {
                         month: "short",
@@ -159,6 +200,60 @@ export function StreamLogPage() {
                     </td>
                   </tr>
                 );
+                if (!isOpen) return [mainRow];
+                const detailRow = (
+                  <tr key={`${st.id}-detail`}>
+                    <td colSpan={10} style={{ background: "var(--slate)", padding: "0.75rem 1rem" }}>
+                      <div style={{ fontSize: "0.65rem", color: "var(--muted)", marginBottom: "0.5rem" }}>
+                        Session line items — remove to reverse inventory / unsell sticker
+                      </div>
+                      {items.length === 0 ? (
+                        <span style={{ fontSize: "0.7rem", color: "var(--muted)" }}>No items</span>
+                      ) : (
+                        <div className="tbl-wrap">
+                          <table className="tbl">
+                            <thead>
+                              <tr>
+                                <th>Type</th>
+                                <th>Sticker / name</th>
+                                <th>Metal</th>
+                                <th>Weight (g)</th>
+                                <th>Spot value</th>
+                                <th aria-label="Remove" />
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {items.map((it) => (
+                                <tr key={it.id}>
+                                  <td>{it.sale_type}</td>
+                                  <td>{it.sale_type === "sticker" ? it.sticker_code ?? it.name : it.name}</td>
+                                  <td>{it.metal}</td>
+                                  <td>{Number(it.weight_grams).toFixed(4)}</td>
+                                  <td className="tbl-green">${Number(it.spot_value).toFixed(2)}</td>
+                                  <td>
+                                    <button
+                                      type="button"
+                                      className="btn btn-danger btn-sm"
+                                      disabled={deleteItemMutation.isPending}
+                                      onClick={() => {
+                                        if (!window.confirm("Remove this sale and reverse stock / sticker status?"))
+                                          return;
+                                        deleteItemMutation.mutate(it.id);
+                                      }}
+                                    >
+                                      Remove
+                                    </button>
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      )}
+                    </td>
+                  </tr>
+                );
+                return [mainRow, detailRow];
               })
             )}
           </tbody>

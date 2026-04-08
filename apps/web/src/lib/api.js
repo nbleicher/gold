@@ -20,6 +20,7 @@ export async function api(path, init) {
             : undefined;
     const res = await fetch(`${API_BASE_URL}${path}`, {
         ...init,
+        cache: path === "/v1/spot/latest" ? "no-store" : init?.cache,
         body,
         headers: {
             "content-type": "application/json",

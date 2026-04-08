@@ -19,10 +19,11 @@ export function OrdersPage() {
     const qc = useQueryClient();
     const [metal, setMetal] = useState("gold");
     const [primaryBatchId, setPrimaryBatchId] = useState("");
-    const [primaryWeight, setPrimaryWeight] = useState("0.0000");
+    const [primaryWeight, setPrimaryWeight] = useState("");
     const [mixed, setMixed] = useState(false);
     const [secondBatchId, setSecondBatchId] = useState("");
-    const [secondWeight, setSecondWeight] = useState("0.0000");
+    const [secondWeight, setSecondWeight] = useState("");
+    const [formError, setFormError] = useState(null);
     const batches = useQuery({
         queryKey: ["batches"],
         queryFn: () => api("/v1/inventory/batches")
@@ -50,7 +51,9 @@ export function OrdersPage() {
             const primary = (batches.data ?? []).find((b) => b.id === primaryBatchId);
             if (!primary)
                 throw new Error("Select primary batch");
-            const secondary = (batches.data ?? []).find((b) => b.id === secondBatchId);
+            const secondary = mixed ? (batches.data ?? []).find((b) => b.id === secondBatchId) : undefined;
+            if (mixed && !secondary)
+                throw new Error("Select second metal batch");
             return api("/v1/bag-orders", {
                 method: "POST",
                 body: JSON.stringify({
@@ -66,16 +69,37 @@ export function OrdersPage() {
         onSuccess: () => {
             qc.invalidateQueries({ queryKey: ["batches"] });
             qc.invalidateQueries({ queryKey: ["bag-orders"] });
-            setPrimaryWeight("0.0000");
-            setSecondWeight("0.0000");
+            setPrimaryWeight("");
+            setSecondWeight("");
+            setFormError(null);
         }
     });
     const markSold = useMutation({
         mutationFn: (id) => api(`/v1/bag-orders/${id}/mark-sold`, { method: "PATCH" }),
         onSuccess: () => qc.invalidateQueries({ queryKey: ["bag-orders"] })
     });
+    const removeBag = useMutation({
+        mutationFn: (id) => api(`/v1/bag-orders/${id}`, { method: "DELETE" }),
+        onSuccess: () => {
+            qc.invalidateQueries({ queryKey: ["bag-orders"] });
+            qc.invalidateQueries({ queryKey: ["batches"] });
+        }
+    });
     const onSubmit = (e) => {
         e.preventDefault();
+        const primaryWeightNumber = Number(primaryWeight);
+        const secondWeightNumber = Number(secondWeight);
+        if (!primaryBatchId)
+            return setFormError("Select a primary batch.");
+        if (!(primaryWeightNumber > 0))
+            return setFormError("Enter a primary weight greater than 0.");
+        if (mixed) {
+            if (!secondBatchId)
+                return setFormError("Select a second metal batch.");
+            if (!(secondWeightNumber > 0))
+                return setFormError("Enter a second metal weight greater than 0.");
+        }
+        setFormError(null);
         createBag.mutate();
     };
     return (_jsxs("section", { className: "card", children: [_jsx("h2", { children: "Inventory Management" }), _jsx("p", { className: "pg-sub", style: {
@@ -88,7 +112,7 @@ export function OrdersPage() {
                                                     setMetal(e.target.value);
                                                     setPrimaryBatchId("");
                                                     setSecondBatchId("");
-                                                }, children: [_jsx("option", { value: "gold", children: "Gold" }), _jsx("option", { value: "silver", children: "Silver" })] })] }), _jsxs("div", { className: "form-group", style: { flex: "2 1 200px", minWidth: 200 }, children: [_jsx("label", { className: "form-label", children: "Batch" }), _jsxs("select", { className: "form-input", value: primaryBatchId, onChange: (e) => setPrimaryBatchId(e.target.value), children: [_jsx("option", { value: "", children: primaryChoices.length ? "Select batch" : `No ${metal} batches with stock` }), primaryChoices.map((b) => (_jsxs("option", { value: b.id, children: [b.batch_name ?? b.id, " \u00B7 ", Number(b.remaining_grams).toFixed(4), "g left"] }, b.id)))] })] }), _jsxs("div", { className: "form-group", style: { minWidth: 140 }, children: [_jsx("label", { className: "form-label", children: "Weight (g)" }), _jsx("input", { className: "form-input", type: "number", min: 0, step: "0.0001", placeholder: "0.0000", value: primaryWeight, onChange: (e) => setPrimaryWeight(e.target.value) })] }), _jsx("button", { type: "submit", className: "btn btn-gold", disabled: createBag.isPending, style: { alignSelf: "flex-end" }, children: "Create sticker" })] }), _jsxs("label", { style: {
+                                                }, children: [_jsx("option", { value: "gold", children: "Gold" }), _jsx("option", { value: "silver", children: "Silver" })] })] }), _jsxs("div", { className: "form-group", style: { flex: "2 1 200px", minWidth: 200 }, children: [_jsx("label", { className: "form-label", children: "Batch" }), _jsxs("select", { className: "form-input", value: primaryBatchId, onChange: (e) => setPrimaryBatchId(e.target.value), children: [_jsx("option", { value: "", children: primaryChoices.length ? "Select batch" : `No ${metal} batches with stock` }), primaryChoices.map((b) => (_jsxs("option", { value: b.id, children: [b.batch_name ?? b.id, " \u00B7 ", Number(b.remaining_grams).toFixed(4), "g left"] }, b.id)))] })] }), _jsxs("div", { className: "form-group", style: { minWidth: 140 }, children: [_jsx("label", { className: "form-label", children: "Weight (g)" }), _jsx("input", { className: "form-input", type: "number", min: 0, step: "0.0001", placeholder: "grams", value: primaryWeight, onChange: (e) => setPrimaryWeight(e.target.value) })] }), _jsx("button", { type: "submit", className: "btn btn-gold", disabled: createBag.isPending, style: { alignSelf: "flex-end" }, children: "Create sticker" })] }), _jsxs("label", { style: {
                                     cursor: "pointer",
                                     display: "flex",
                                     alignItems: "center",
@@ -96,5 +120,13 @@ export function OrdersPage() {
                                     fontSize: "0.68rem",
                                     color: "var(--text-dim)",
                                     marginTop: "0.75rem"
-                                }, children: [_jsx("input", { type: "checkbox", checked: mixed, onChange: (e) => setMixed(e.target.checked) }), "Add second metal to same bag (gold + silver)"] }), mixed ? (_jsxs("div", { className: "grid-form", style: { marginTop: "0.75rem", display: "flex", flexWrap: "wrap", gap: "0.75rem" }, children: [_jsxs("div", { className: "form-group", style: { minWidth: 180 }, children: [_jsx("label", { className: "form-label", children: "Second metal batch" }), _jsxs("select", { className: "form-input", value: secondBatchId, onChange: (e) => setSecondBatchId(e.target.value), children: [_jsx("option", { value: "", children: secondChoices.length ? "Select batch" : `No ${secondMetal} batches with stock` }), secondChoices.map((b) => (_jsxs("option", { value: b.id, children: [b.batch_name ?? b.id, " \u00B7 ", Number(b.remaining_grams).toFixed(4), "g left"] }, b.id)))] })] }), _jsxs("div", { className: "form-group", style: { minWidth: 140 }, children: [_jsx("label", { className: "form-label", children: "Second metal weight (g)" }), _jsx("input", { className: "form-input", type: "number", min: 0, step: "0.0001", placeholder: "0.0000", value: secondWeight, onChange: (e) => setSecondWeight(e.target.value) })] })] })) : null, _jsx("p", { style: { fontSize: "0.7rem", color: "var(--muted)", marginTop: "0.55rem" }, children: tierPreview }), createBag.error ? _jsx("p", { className: "error", children: createBag.error.message }) : null] })] }), _jsx("div", { style: { fontSize: "0.65rem", letterSpacing: "0.12em", color: "var(--muted)", marginBottom: "0.75rem" }, children: "RECENT BAGS" }), _jsx("div", { className: "tbl-wrap", children: _jsxs("table", { className: "tbl", children: [_jsx("thead", { children: _jsxs("tr", { children: [_jsx("th", { children: "Sticker" }), _jsx("th", { children: "Batch" }), _jsx("th", { children: "Metal" }), _jsx("th", { children: "Weight (g)" }), _jsx("th", { children: "Tier" }), _jsx("th", { children: "Created" }), _jsx("th", { children: "Status" }), _jsx("th", {})] }) }), _jsx("tbody", { children: (bagOrders.data ?? []).length === 0 ? (_jsx("tr", { children: _jsx("td", { colSpan: 8, className: "tbl-empty", children: "No bag orders yet" }) })) : ((bagOrders.data ?? []).map((o) => (_jsxs("tr", { children: [_jsx("td", { className: "tbl-gold", children: o.sticker_code }), _jsx("td", { children: batchLabel(o, batches.data ?? []) }), _jsx("td", { children: o.metal[0].toUpperCase() + o.metal.slice(1) }), _jsx("td", { children: Number(o.actual_weight_grams).toFixed(4) }), _jsx("td", { children: o.tier_index }), _jsx("td", { style: { fontSize: "0.62rem", color: "var(--muted)" }, children: new Date(o.created_at).toLocaleString() }), _jsx("td", { children: o.sold ? (_jsx("span", { className: "badge badge-evening", children: "Sold" })) : (_jsx("span", { className: "badge badge-morning", children: "Open" })) }), _jsx("td", { children: !o.sold ? (_jsx("button", { type: "button", className: "btn btn-outline btn-sm", disabled: markSold.isPending, onClick: () => markSold.mutate(o.id), children: "Mark sold" })) : null })] }, o.id)))) })] }) })] }));
+                                }, children: [_jsx("input", { type: "checkbox", checked: mixed, onChange: (e) => {
+                                            setMixed(e.target.checked);
+                                            setFormError(null);
+                                        } }), "Add second metal to same bag (gold + silver)"] }), mixed ? (_jsxs("div", { className: "grid-form", style: { marginTop: "0.75rem", display: "flex", flexWrap: "wrap", gap: "0.75rem" }, children: [_jsxs("div", { className: "form-group", style: { minWidth: 180 }, children: [_jsx("label", { className: "form-label", children: "Second metal batch" }), _jsxs("select", { className: "form-input", value: secondBatchId, onChange: (e) => setSecondBatchId(e.target.value), children: [_jsx("option", { value: "", children: secondChoices.length ? "Select batch" : `No ${secondMetal} batches with stock` }), secondChoices.map((b) => (_jsxs("option", { value: b.id, children: [b.batch_name ?? b.id, " \u00B7 ", Number(b.remaining_grams).toFixed(4), "g left"] }, b.id)))] })] }), _jsxs("div", { className: "form-group", style: { minWidth: 140 }, children: [_jsx("label", { className: "form-label", children: "Second metal weight (g)" }), _jsx("input", { className: "form-input", type: "number", min: 0, step: "0.0001", placeholder: "grams", value: secondWeight, onChange: (e) => setSecondWeight(e.target.value) })] })] })) : null, _jsx("p", { style: { fontSize: "0.7rem", color: "var(--muted)", marginTop: "0.55rem" }, children: tierPreview }), formError ? _jsx("p", { className: "error", children: formError }) : null, createBag.error ? _jsx("p", { className: "error", children: createBag.error.message }) : null] })] }), _jsx("div", { style: { fontSize: "0.65rem", letterSpacing: "0.12em", color: "var(--muted)", marginBottom: "0.75rem" }, children: "RECENT BAGS" }), _jsx("div", { className: "tbl-wrap", children: _jsxs("table", { className: "tbl", children: [_jsx("thead", { children: _jsxs("tr", { children: [_jsx("th", { children: "Sticker" }), _jsx("th", { children: "Batch" }), _jsx("th", { children: "Metal" }), _jsx("th", { children: "Weight (g)" }), _jsx("th", { children: "Tier" }), _jsx("th", { children: "Created" }), _jsx("th", { children: "Status" }), _jsx("th", {})] }) }), _jsx("tbody", { children: (bagOrders.data ?? []).length === 0 ? (_jsx("tr", { children: _jsx("td", { colSpan: 8, className: "tbl-empty", children: "No bag orders yet" }) })) : ((bagOrders.data ?? []).map((o) => (_jsxs("tr", { children: [_jsx("td", { className: "tbl-gold", children: o.sticker_code }), _jsx("td", { children: batchLabel(o, batches.data ?? []) }), _jsx("td", { children: o.metal[0].toUpperCase() + o.metal.slice(1) }), _jsx("td", { children: Number(o.actual_weight_grams).toFixed(4) }), _jsx("td", { children: o.tier_index }), _jsx("td", { style: { fontSize: "0.62rem", color: "var(--muted)" }, children: new Date(o.created_at).toLocaleString() }), _jsx("td", { children: o.sold ? (_jsx("span", { className: "badge badge-evening", children: "Sold" })) : (_jsx("span", { className: "badge badge-morning", children: "Open" })) }), _jsx("td", { children: !o.sold ? (_jsxs("div", { style: { display: "flex", gap: "0.4rem", justifyContent: "flex-end" }, children: [_jsx("button", { type: "button", className: "btn btn-outline btn-sm", disabled: markSold.isPending || removeBag.isPending, onClick: () => markSold.mutate(o.id), children: "Mark sold" }), _jsx("button", { type: "button", className: "btn btn-outline btn-sm", disabled: removeBag.isPending || markSold.isPending, onClick: () => {
+                                                        const ok = window.confirm(`Remove bag ${o.sticker_code}? This will restock its grams.`);
+                                                        if (!ok)
+                                                            return;
+                                                        removeBag.mutate(o.id);
+                                                    }, children: "Remove" })] })) : null })] }, o.id)))) })] }) }), removeBag.error ? _jsx("p", { className: "error", children: removeBag.error.message }) : null] }));
 }

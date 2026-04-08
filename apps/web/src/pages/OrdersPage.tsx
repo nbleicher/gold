@@ -39,10 +39,10 @@ export function OrdersPage() {
   const qc = useQueryClient();
   const [metal, setMetal] = useState<"gold" | "silver">("gold");
   const [primaryBatchId, setPrimaryBatchId] = useState("");
-  const [primaryWeight, setPrimaryWeight] = useState("0.0000");
+  const [primaryWeight, setPrimaryWeight] = useState("");
   const [mixed, setMixed] = useState(false);
   const [secondBatchId, setSecondBatchId] = useState("");
-  const [secondWeight, setSecondWeight] = useState("0.0000");
+  const [secondWeight, setSecondWeight] = useState("");
   const [formError, setFormError] = useState<string | null>(null);
 
   const batches = useQuery({
@@ -100,8 +100,8 @@ export function OrdersPage() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["batches"] });
       qc.invalidateQueries({ queryKey: ["bag-orders"] });
-      setPrimaryWeight("0.0000");
-      setSecondWeight("0.0000");
+      setPrimaryWeight("");
+      setSecondWeight("");
       setFormError(null);
     }
   });
@@ -196,7 +196,7 @@ export function OrdersPage() {
                 type="number"
                 min={0}
                 step="0.0001"
-                placeholder="0.0000"
+                placeholder="grams"
                 value={primaryWeight}
                 onChange={(e) => setPrimaryWeight(e.target.value)}
               />
@@ -246,7 +246,7 @@ export function OrdersPage() {
                   type="number"
                   min={0}
                   step="0.0001"
-                  placeholder="0.0000"
+                  placeholder="grams"
                   value={secondWeight}
                   onChange={(e) => setSecondWeight(e.target.value)}
                 />

@@ -295,7 +295,7 @@ export function InventoryMgmtPage() {
                 type="number"
                 min={0}
                 step="0.0001"
-                placeholder="0.0000"
+                placeholder="grams"
                 value={grams}
                 onChange={(e) => setGrams(e.target.value)}
                 required

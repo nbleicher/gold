@@ -28,15 +28,46 @@ export async function registerStreamRoutes(app: FastifyInstance) {
     return q("select * from streams where user_id = ? order by started_at desc", [filterId]);
   });
 
+  app.get("/v1/streams/:id/items", { preHandler: requireAuth }, async (req) => {
+    const { id } = req.params as { id: string };
+    const self = req.authUser?.sub;
+    const isAdmin = req.authUser?.role === "admin";
+    const stream = await one<{ user_id: string }>("select user_id from streams where id = ?", [id]);
+    if (!stream) {
+      return req.server.httpErrors.notFound("Stream not found");
+    }
+    if (!isAdmin && stream.user_id !== self) {
+      return req.server.httpErrors.forbidden();
+    }
+    return q(
+      "select * from stream_items where stream_id = ? order by created_at asc",
+      [id]
+    );
+  });
+
   app.post("/v1/streams/start", { preHandler: requireAuth }, async (req) => {
     const body = req.body as {
       userId: string;
       goldBatchId?: string | null;
       silverBatchId?: string | null;
     };
-    if (!body.goldBatchId && !body.silverBatchId) {
-      return req.server.httpErrors.badRequest("Select at least one metal batch before starting stream");
+    const self = req.authUser?.sub;
+    const isAdmin = req.authUser?.role === "admin";
+    if (!body.userId) {
+      return req.server.httpErrors.badRequest("userId required");
     }
+    if (!isAdmin && body.userId !== self) {
+      return req.server.httpErrors.forbidden("Cannot start stream for another user");
+    }
+
+    const existing = await one<{ id: string }>(
+      "select id from streams where user_id = ? and ended_at is null order by started_at desc limit 1",
+      [body.userId]
+    );
+    if (existing) {
+      return one("select * from streams where id = ?", [existing.id]);
+    }
+
     await q(
       "insert into streams (user_id, gold_batch_id, silver_batch_id) values (?, ?, ?)",
       [body.userId, body.goldBatchId ?? null, body.silverBatchId ?? null]
@@ -83,8 +114,13 @@ export async function registerStreamRoutes(app: FastifyInstance) {
     if (stream.ended_at) {
       return req.server.httpErrors.conflict("Stream is not live");
     }
-    const order = await one<{ id: string; metal: "gold" | "silver" | "mixed"; primary_batch_id: string }>(
-      "select id, metal, primary_batch_id from bag_orders where sticker_code = ?",
+    const order = await one<{
+      id: string;
+      metal: "gold" | "silver" | "mixed";
+      primary_batch_id: string;
+      actual_weight_grams: number;
+    }>(
+      "select id, metal, primary_batch_id, actual_weight_grams from bag_orders where sticker_code = ?",
       [body.stickerCode.toUpperCase()]
     );
     if (!order) {
@@ -103,10 +139,29 @@ export async function registerStreamRoutes(app: FastifyInstance) {
     );
     let totalWeight = 0;
     let totalSpotValue = 0;
-    for (const c of components ?? []) {
-      const spot = await getLatestSpot(c.metal);
-      totalWeight += Number(c.weight_grams);
-      totalSpotValue += Number(c.weight_grams) * (spot / OZT_TO_GRAMS);
+    const compList = components ?? [];
+    if (compList.length > 0) {
+      for (const c of compList) {
+        const spot = await getLatestSpot(c.metal);
+        totalWeight += Number(c.weight_grams);
+        totalSpotValue += Number(c.weight_grams) * (spot / OZT_TO_GRAMS);
+      }
+    } else {
+      const w = Number(order.actual_weight_grams);
+      if (!(w > 0)) {
+        return req.server.httpErrors.badRequest("Bag has no component weights and invalid total weight");
+      }
+      totalWeight = w;
+      if (order.metal === "mixed") {
+        const gSpot = await getLatestSpot("gold");
+        const sSpot = await getLatestSpot("silver");
+        const avgPerGram = (gSpot + sSpot) / 2 / OZT_TO_GRAMS;
+        totalSpotValue = w * avgPerGram;
+      } else {
+        const m = order.metal === "silver" ? "silver" : "gold";
+        const spot = await getLatestSpot(m);
+        totalSpotValue = w * (spot / OZT_TO_GRAMS);
+      }
     }
     const spotPrice = totalWeight ? (totalSpotValue / totalWeight) * OZT_TO_GRAMS : 0;
     const codeUpper = body.stickerCode.toUpperCase();
@@ -185,20 +240,44 @@ export async function registerStreamRoutes(app: FastifyInstance) {
 
   app.delete("/v1/streams/items/:id", { preHandler: requireAuth }, async (req) => {
     const { id } = req.params as { id: string };
-    const item = await one<{ id: string; sale_type: string; batch_id: string | null; weight_grams: number }>(
-      "select id, sale_type, batch_id, weight_grams from stream_items where id = ?",
+    const self = req.authUser?.sub;
+    const isAdmin = req.authUser?.role === "admin";
+
+    const row = await one<{
+      item_id: string;
+      sale_type: string;
+      batch_id: string | null;
+      weight_grams: number;
+      sticker_code: string | null;
+      stream_user_id: string;
+    }>(
+      `select si.id as item_id, si.sale_type, si.batch_id, si.weight_grams, si.sticker_code, s.user_id as stream_user_id
+       from stream_items si
+       join streams s on s.id = si.stream_id
+       where si.id = ?`,
       [id]
     );
-    if (!item) throw new Error("Item not found");
-
-    if (item.sale_type === "raw" && item.batch_id) {
-      await q("update inventory_batches set remaining_grams = remaining_grams + ? where id = ?", [
-        item.weight_grams,
-        item.batch_id
-      ]);
+    if (!row) {
+      return req.server.httpErrors.notFound("Item not found");
+    }
+    if (!isAdmin && row.stream_user_id !== self) {
+      return req.server.httpErrors.forbidden();
     }
 
-    await q("delete from stream_items where id = ?", [id]);
-    return { ok: true };
+    return withWriteTx(async (tx) => {
+      if (row.sale_type === "raw" && row.batch_id) {
+        await txQ(tx, "update inventory_batches set remaining_grams = remaining_grams + ? where id = ?", [
+          row.weight_grams,
+          row.batch_id
+        ]);
+      }
+      if (row.sale_type === "sticker" && row.sticker_code) {
+        await txQ(tx, "update bag_orders set sold_at = null where upper(sticker_code) = ?", [
+          row.sticker_code.toUpperCase()
+        ]);
+      }
+      await txQ(tx, "delete from stream_items where id = ?", [id]);
+      return { ok: true };
+    });
   });
 }
