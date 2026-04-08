@@ -15,14 +15,6 @@ type StreamItem = {
   batch_name: string | null;
 };
 
-function streamLogRawBatchLabel(it: StreamItem): string {
-  if (it.sale_type !== "raw") return "—";
-  const name = it.batch_name?.trim();
-  if (name) return name;
-  if (it.batch_id) return `${it.batch_id.slice(0, 8)}…`;
-  return "—";
-}
-
 type StreamLogStream = {
   id: string;
   user_id: string;
@@ -154,7 +146,7 @@ export function StreamLogPage() {
           <div className="stat-val">{totalItems}</div>
         </div>
         <div className="stat-box">
-          <div className="stat-lbl">Total spot value</div>
+          <div className="stat-lbl">Total Cost</div>
           <div className="stat-val">${totalVal.toFixed(0)}</div>
         </div>
       </div>
@@ -170,7 +162,7 @@ export function StreamLogPage() {
               <th>Sales mix</th>
               <th>Raw batches</th>
               <th>Items sold</th>
-              <th>Spot value total</th>
+              <th>Total Cost</th>
               <th>Avg spot</th>
               <th>Completed earnings</th>
               <th aria-label="Actions" />
@@ -324,7 +316,6 @@ export function StreamLogPage() {
                                 <th>Type</th>
                                 <th>Sticker / name</th>
                                 <th>Metal</th>
-                                <th>Batch</th>
                                 <th>Weight (g)</th>
                                 <th>Spot value</th>
                                 <th aria-label="Remove" />
@@ -336,7 +327,6 @@ export function StreamLogPage() {
                                   <td>{it.sale_type}</td>
                                   <td>{it.sale_type === "sticker" ? it.sticker_code ?? it.name : it.name}</td>
                                   <td>{it.metal}</td>
-                                  <td style={{ fontSize: "0.7rem" }}>{streamLogRawBatchLabel(it)}</td>
                                   <td>{Number(it.weight_grams).toFixed(4)}</td>
                                   <td className="tbl-green">${Number(it.spot_value).toFixed(2)}</td>
                                   <td>
