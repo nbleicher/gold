@@ -80,10 +80,10 @@ export function AdminUsersPage() {
   return (
     <section className="card">
       <h2>User Management</h2>
-      <p className="pg-sub" style={{ marginBottom: "1rem", fontSize: "0.65rem", color: "var(--text-dim)" }}>
+      {/* <p className="pg-sub" style={{ marginBottom: "1rem", fontSize: "0.65rem", color: "var(--text-dim)" }}>
         Create users, assign roles, and deactivate accounts. Inactive users can be removed from the app (streams and
         other history stay in the database).
-      </p>
+      </p> */}
 
       {users.error ? <p className="error">{(users.error as Error).message}</p> : null}
 

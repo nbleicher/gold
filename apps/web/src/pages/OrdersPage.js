@@ -108,7 +108,13 @@ export function OrdersPage() {
                     letterSpacing: "0.14em",
                     textTransform: "uppercase",
                     color: "var(--text-dim)"
-                }, children: "Bag from a batch \u00B7 weight sets tier \u00B7 sticker code auto-assigned" }), batches.error || bagOrders.error ? (_jsx("p", { className: "error", children: String((batches.error ?? bagOrders.error)) })) : null, _jsxs("div", { className: "card", style: { marginBottom: "1.5rem", padding: "1.2rem", background: "var(--slate)" }, children: [_jsx("div", { style: { fontSize: "0.65rem", letterSpacing: "0.12em", color: "var(--muted)", marginBottom: "0.75rem" }, children: "NEW BAG" }), _jsxs("form", { onSubmit: onSubmit, children: [_jsxs("div", { className: "grid-form", style: { display: "flex", flexWrap: "wrap", gap: "0.75rem", alignItems: "flex-end" }, children: [_jsxs("div", { className: "form-group", style: { minWidth: 120 }, children: [_jsx("label", { className: "form-label", children: "Metal" }), _jsxs("select", { className: "form-input", value: metal, onChange: (e) => {
+                }, children: "Bag from a batch \u00B7 weight sets tier \u00B7 sticker code auto-assigned" }), _jsx("p", { style: {
+                    fontSize: "0.58rem",
+                    color: "var(--muted)",
+                    marginBottom: "1.25rem",
+                    lineHeight: 1.5,
+                    maxWidth: "42rem"
+                }, children: "Sticker codes use the primary batch's sticker letter (set in Batch Management), the tier digit from total bag weight, and a sequence letter for each bag in that batch and tier (A, B, \u2026)." }), batches.error || bagOrders.error ? (_jsx("p", { className: "error", children: String((batches.error ?? bagOrders.error)) })) : null, _jsxs("div", { className: "card", style: { marginBottom: "1.5rem", padding: "1.2rem", background: "var(--slate)" }, children: [_jsx("div", { style: { fontSize: "0.65rem", letterSpacing: "0.12em", color: "var(--muted)", marginBottom: "0.75rem" }, children: "NEW BAG" }), _jsxs("form", { onSubmit: onSubmit, children: [_jsxs("div", { className: "grid-form", style: { display: "flex", flexWrap: "wrap", gap: "0.75rem", alignItems: "flex-end" }, children: [_jsxs("div", { className: "form-group", style: { minWidth: 120 }, children: [_jsx("label", { className: "form-label", children: "Metal" }), _jsxs("select", { className: "form-input", value: metal, onChange: (e) => {
                                                     setMetal(e.target.value);
                                                     setPrimaryBatchId("");
                                                     setSecondBatchId("");
