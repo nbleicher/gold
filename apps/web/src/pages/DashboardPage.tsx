@@ -112,7 +112,7 @@ export function DashboardPage() {
   return (
     <section className="card">
       <h2 className="pg-title">Home</h2>
-      <p className="pg-sub">Streams, last session margin, live spot</p>
+      // <p className="pg-sub">Streams, last session margin, live spot</p> //
 
       {spot.isSuccess ? (
         <>

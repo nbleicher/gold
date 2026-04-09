@@ -190,9 +190,9 @@ export function SchedulePage() {
   return (
     <section className="card">
       <h2>Schedule</h2>
-      <p className="pg-sub" style={{ marginBottom: "1rem", fontSize: "0.65rem", color: "var(--text-dim)" }}>
+      /* <p className="pg-sub" style={{ marginBottom: "1rem", fontSize: "0.65rem", color: "var(--text-dim)" }}>
         Weekly stream schedule
-      </p>
+      </p> */
 
       {(isAdmin && users.error) || schedules.error ? (
         <p className="error">{String((users.error ?? schedules.error) as Error)}</p>

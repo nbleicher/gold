@@ -46,9 +46,9 @@ export function AdminDashboardPage() {
   return (
     <section className="card">
       <h2>Admin Dashboard</h2>
-      <p className="pg-sub" style={{ marginBottom: "1rem", fontSize: "0.65rem", color: "var(--text-dim)" }}>
+      /* <p className="pg-sub" style={{ marginBottom: "1rem", fontSize: "0.65rem", color: "var(--text-dim)" }}>
         Quick all-time snapshot for supplies, batches, and bag inventory
-      </p>
+      </p> */
 
       {error ? <p className="error">{String(error as Error)}</p> : null}
 
