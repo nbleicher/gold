@@ -13,6 +13,7 @@ type StreamItem = {
   sticker_code: string | null;
   batch_id: string | null;
   batch_name: string | null;
+  cogs: number;
 };
 
 type StreamLogStream = {
@@ -23,6 +24,9 @@ type StreamLogStream = {
   gold_batch_id: string | null;
   silver_batch_id: string | null;
   completed_earnings: number | null;
+  items_spot_total: number;
+  items_cogs_total: number;
+  net_profit: number | null;
   user_email: string | null;
   user_display_name: string | null;
   gold_batch_name: string;
@@ -76,6 +80,7 @@ export function StreamLogPage() {
       api<{ ok: boolean }>(`/v1/admin/streams/${streamId}`, { method: "DELETE" }),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ["admin-stream-log"] });
+      void qc.invalidateQueries({ queryKey: ["admin-profit-metrics"] });
     }
   });
 
@@ -84,6 +89,7 @@ export function StreamLogPage() {
       api<{ ok: boolean }>(`/v1/streams/items/${itemId}`, { method: "DELETE" }),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ["admin-stream-log"] });
+      void qc.invalidateQueries({ queryKey: ["admin-profit-metrics"] });
       void qc.invalidateQueries({ queryKey: ["streams"] });
       void qc.invalidateQueries({ queryKey: ["batches"] });
       void qc.invalidateQueries({ queryKey: ["bag-orders"] });
@@ -100,6 +106,7 @@ export function StreamLogPage() {
       setEarningsEditingId(null);
       setEarningsDraft("");
       void qc.invalidateQueries({ queryKey: ["admin-stream-log"] });
+      void qc.invalidateQueries({ queryKey: ["admin-profit-metrics"] });
     }
   });
 
@@ -146,7 +153,7 @@ export function StreamLogPage() {
           <div className="stat-val">{totalItems}</div>
         </div>
         <div className="stat-box">
-          <div className="stat-lbl">Total Cost</div>
+          <div className="stat-lbl">Total spot value (est.)</div>
           <div className="stat-val">${totalVal.toFixed(0)}</div>
         </div>
       </div>
@@ -162,7 +169,9 @@ export function StreamLogPage() {
               <th>Sales mix</th>
               <th>Raw batches</th>
               <th>Items sold</th>
-              <th>Total Cost</th>
+              <th>Spot value (est.)</th>
+              <th>COGS</th>
+              <th>Net profit</th>
               <th>Avg spot</th>
               <th>Completed earnings</th>
               <th aria-label="Actions" />
@@ -171,13 +180,18 @@ export function StreamLogPage() {
           <tbody>
             {streams.length === 0 ? (
               <tr>
-                <td colSpan={11} className="tbl-empty">
+                <td colSpan={13} className="tbl-empty">
                   No streams logged yet
                 </td>
               </tr>
             ) : (
               streams.flatMap((st) => {
                 const { itemsTotal, metal, avgSpot, mix, rawB, count } = summarizeStream(st);
+                const cogsTotal = Number(st.items_cogs_total ?? 0);
+                const netStr =
+                  st.net_profit != null && Number.isFinite(st.net_profit)
+                    ? `$${Number(st.net_profit).toFixed(2)}`
+                    : "—";
                 const isOpen = expanded.has(st.id);
                 const items = st.items ?? [];
                 const mainRow = (
@@ -208,6 +222,8 @@ export function StreamLogPage() {
                     <td style={{ fontSize: "0.58rem", color: "var(--muted)" }}>{rawB}</td>
                     <td>{count}</td>
                     <td className="tbl-green">${itemsTotal.toFixed(2)}</td>
+                    <td>${cogsTotal.toFixed(2)}</td>
+                    <td style={{ fontSize: "0.62rem" }}>{netStr}</td>
                     <td>${Number(avgSpot || 0).toFixed(2)}/oz</td>
                     <td style={{ fontSize: "0.62rem", verticalAlign: "top" }}>
                       {earningsEditingId === st.id ? (
@@ -302,7 +318,7 @@ export function StreamLogPage() {
                 if (!isOpen) return [mainRow];
                 const detailRow = (
                   <tr key={`${st.id}-detail`}>
-                    <td colSpan={11} style={{ background: "var(--slate)", padding: "0.75rem 1rem" }}>
+                    <td colSpan={13} style={{ background: "var(--slate)", padding: "0.75rem 1rem" }}>
                       <div style={{ fontSize: "0.65rem", color: "var(--muted)", marginBottom: "0.5rem" }}>
                         Session line items — remove to reverse inventory / unsell sticker
                       </div>
@@ -318,6 +334,7 @@ export function StreamLogPage() {
                                 <th>Metal</th>
                                 <th>Weight (g)</th>
                                 <th>Spot value</th>
+                                <th>COGS</th>
                                 <th aria-label="Remove" />
                               </tr>
                             </thead>
@@ -329,6 +346,7 @@ export function StreamLogPage() {
                                   <td>{it.metal}</td>
                                   <td>{Number(it.weight_grams).toFixed(4)}</td>
                                   <td className="tbl-green">${Number(it.spot_value).toFixed(2)}</td>
+                                  <td>${Number(it.cogs ?? 0).toFixed(2)}</td>
                                   <td>
                                     <button
                                       type="button"

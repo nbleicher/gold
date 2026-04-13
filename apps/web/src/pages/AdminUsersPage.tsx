@@ -11,6 +11,7 @@ type AdminUser = {
   is_active: number;
   deactivated_at: string | null;
   deactivated_by: string | null;
+  commission_percent: number;
 };
 
 export function AdminUsersPage() {
@@ -57,6 +58,21 @@ export function AdminUsersPage() {
 
   const [purgeTarget, setPurgeTarget] = useState<AdminUser | null>(null);
   const [purgeConfirm, setPurgeConfirm] = useState("");
+  const [commissionEditId, setCommissionEditId] = useState<string | null>(null);
+  const [commissionDraft, setCommissionDraft] = useState("");
+
+  const patchCommission = useMutation({
+    mutationFn: ({ id, commissionPercent }: { id: string; commissionPercent: number }) =>
+      api<{ ok: boolean }>(`/v1/admin/users/${id}/commission`, {
+        method: "PATCH",
+        body: JSON.stringify({ commissionPercent })
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["admin-users"] });
+      setCommissionEditId(null);
+      setCommissionDraft("");
+    }
+  });
 
   const purgeUser = useMutation({
     mutationFn: ({ id, confirm }: { id: string; confirm: string }) =>
@@ -165,6 +181,7 @@ export function AdminUsersPage() {
               <th>Name</th>
               <th>Email</th>
               <th>Role</th>
+              <th>Commission %</th>
               <th>Status</th>
               <th>Deactivated</th>
               <th />
@@ -173,7 +190,7 @@ export function AdminUsersPage() {
           <tbody>
             {(users.data ?? []).length === 0 ? (
               <tr>
-                <td colSpan={6} className="tbl-empty">
+                <td colSpan={7} className="tbl-empty">
                   No users found
                 </td>
               </tr>
@@ -181,11 +198,68 @@ export function AdminUsersPage() {
               (users.data ?? []).map((u) => {
                 const isActive = Boolean(u.is_active);
                 const isSelf = u.id === profile?.id;
+                const pct = Number(u.commission_percent ?? 0);
+                const pctDisplay = Number.isFinite(pct) ? pct : 0;
                 return (
                   <tr key={u.id}>
                     <td className="tbl-gold">{u.display_name?.trim() || "—"}</td>
                     <td>{u.email}</td>
                     <td>{u.role}</td>
+                    <td style={{ minWidth: "9rem", fontSize: "0.7rem" }}>
+                      {commissionEditId === u.id ? (
+                        <div style={{ display: "flex", flexWrap: "wrap", gap: "0.35rem", alignItems: "center" }}>
+                          <input
+                            className="form-input"
+                            type="number"
+                            min={0}
+                            max={100}
+                            step={0.1}
+                            style={{ maxWidth: "5rem", padding: "0.25rem 0.4rem" }}
+                            value={commissionDraft}
+                            onChange={(e) => setCommissionDraft(e.target.value)}
+                            disabled={patchCommission.isPending}
+                          />
+                          <button
+                            type="button"
+                            className="btn btn-gold btn-sm"
+                            disabled={patchCommission.isPending}
+                            onClick={() => {
+                              const n = Number(commissionDraft);
+                              if (!Number.isFinite(n) || n < 0 || n > 100) return;
+                              patchCommission.mutate({ id: u.id, commissionPercent: n });
+                            }}
+                          >
+                            Save
+                          </button>
+                          <button
+                            type="button"
+                            className="btn btn-outline btn-sm"
+                            disabled={patchCommission.isPending}
+                            onClick={() => {
+                              setCommissionEditId(null);
+                              setCommissionDraft("");
+                            }}
+                          >
+                            Cancel
+                          </button>
+                        </div>
+                      ) : (
+                        <div style={{ display: "flex", flexWrap: "wrap", gap: "0.35rem", alignItems: "center" }}>
+                          <span>{pctDisplay.toFixed(1)}%</span>
+                          <button
+                            type="button"
+                            className="btn btn-outline btn-sm"
+                            disabled={patchCommission.isPending}
+                            onClick={() => {
+                              setCommissionEditId(u.id);
+                              setCommissionDraft(String(pctDisplay));
+                            }}
+                          >
+                            Edit
+                          </button>
+                        </div>
+                      )}
+                    </td>
                     <td>
                       {isActive ? (
                         <span className="badge badge-morning">Active</span>
@@ -251,6 +325,7 @@ export function AdminUsersPage() {
       </div>
       {deactivateUser.error ? <p className="error">{(deactivateUser.error as Error).message}</p> : null}
       {reactivateUser.error ? <p className="error">{(reactivateUser.error as Error).message}</p> : null}
+      {patchCommission.error ? <p className="error">{(patchCommission.error as Error).message}</p> : null}
 
       {purgeTarget ? (
         <div

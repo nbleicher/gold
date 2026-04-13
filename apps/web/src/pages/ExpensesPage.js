@@ -30,6 +30,7 @@ export function ExpensesPage() {
         }),
         onSuccess: () => {
             qc.invalidateQueries({ queryKey: ["admin-expenses"] });
+            void qc.invalidateQueries({ queryKey: ["admin-profit-metrics"] });
             setModalOpen(false);
             setName("");
             setCost("");
@@ -38,7 +39,10 @@ export function ExpensesPage() {
     });
     const remove = useMutation({
         mutationFn: (id) => api(`/v1/admin/expenses/${id}`, { method: "DELETE" }),
-        onSuccess: () => qc.invalidateQueries({ queryKey: ["admin-expenses"] })
+        onSuccess: () => {
+            void qc.invalidateQueries({ queryKey: ["admin-expenses"] });
+            void qc.invalidateQueries({ queryKey: ["admin-profit-metrics"] });
+        }
     });
     const items = list.data ?? [];
     const totalCost = items.reduce((s, i) => s + Number(i.cost), 0);

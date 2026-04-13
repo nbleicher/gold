@@ -1,8 +1,14 @@
-import { useCallback, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "../lib/api";
 
-type AdminUser = { id: string; email: string; display_name: string | null; role: string };
+type AdminUser = {
+  id: string;
+  email: string;
+  display_name: string | null;
+  role: string;
+  commission_percent: number;
+};
 type PayrollRow = {
   id: string;
   user_id: string;
@@ -14,6 +20,23 @@ type PayrollRow = {
 };
 
 type PreviewState = { filename: string; headers: string[]; rows: string[][] } | null;
+
+type CommissionPreviewParams = { userId: string; start: string; end: string };
+
+type CommissionPreviewResponse = {
+  userId: string;
+  commissionPercent: number;
+  streams: Array<{
+    streamId: string;
+    startedAt: string;
+    completedEarnings: number | null;
+    cogs: number;
+    net: number;
+    missingCompletedEarnings: boolean;
+  }>;
+  totalNet: number;
+  commissionAmount: number;
+};
 
 function parseCsvFile(text: string, filename: string): { headers: string[]; rows: string[][] } {
   const lines = text.split(/\n/).filter((l) => l.trim());
@@ -29,9 +52,24 @@ export function PayrollPage() {
   const [preview, setPreview] = useState<PreviewState>(null);
   const [drag, setDrag] = useState(false);
 
+  const [commissionUserId, setCommissionUserId] = useState("");
+  const [commissionStart, setCommissionStart] = useState("");
+  const [commissionEnd, setCommissionEnd] = useState("");
+  const [commissionParams, setCommissionParams] = useState<CommissionPreviewParams | null>(null);
+
   const users = useQuery({
     queryKey: ["admin-users"],
     queryFn: () => api<AdminUser[]>("/v1/admin/users")
+  });
+
+  const commissionPreview = useQuery({
+    queryKey: ["payroll-commission-preview", commissionParams],
+    queryFn: () => {
+      const p = commissionParams!;
+      const qs = new URLSearchParams({ userId: p.userId, start: p.start, end: p.end });
+      return api<CommissionPreviewResponse>(`/v1/admin/payroll/commission-preview?${qs.toString()}`);
+    },
+    enabled: commissionParams !== null
   });
 
   const payroll = useQuery({
@@ -78,16 +116,171 @@ export function PayrollPage() {
 
   const userLabel = (u: AdminUser) => u.display_name?.trim() || u.email;
 
+  const selectedCommissionUser = useMemo(
+    () => (users.data ?? []).find((u) => u.id === commissionUserId),
+    [users.data, commissionUserId]
+  );
+
   return (
     <section className="card">
       <h2>Payroll</h2>
       <p className="pg-sub" style={{ marginBottom: "1rem", fontSize: "0.65rem", color: "var(--text-dim)" }}>
-        Import CSV and assign to a user (metadata only; file content is not stored)
+        Commission calculator from stream net profit, or import CSV metadata for records
       </p>
 
       {users.error || payroll.error ? (
         <p className="error">{String((users.error ?? payroll.error) as Error)}</p>
       ) : null}
+
+      <div className="card" style={{ marginBottom: "1.5rem", padding: "1.2rem", background: "var(--slate)" }}>
+        <div style={{ fontSize: "0.65rem", letterSpacing: "0.12em", color: "var(--muted)", marginBottom: "0.75rem" }}>
+          COMMISSION PAYROLL
+        </div>
+        <p style={{ fontSize: "0.65rem", color: "var(--text-dim)", marginBottom: "1rem", lineHeight: 1.45 }}>
+          Streams whose <strong>started at</strong> date falls in the range (inclusive). Net per stream is completed
+          earnings minus COGS; streams without completed earnings count as $0 net and are flagged below.
+        </p>
+        <div className="grid-form" style={{ display: "flex", flexWrap: "wrap", gap: "0.75rem", alignItems: "flex-end" }}>
+          <div className="form-group" style={{ minWidth: 200 }}>
+            <label className="form-label" htmlFor="pc-user">
+              User
+            </label>
+            <select
+              id="pc-user"
+              className="form-input"
+              value={commissionUserId}
+              onChange={(e) => setCommissionUserId(e.target.value)}
+            >
+              <option value="">— Select user —</option>
+              {(users.data ?? []).map((u) => (
+                <option key={u.id} value={u.id}>
+                  {userLabel(u)}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="form-group" style={{ minWidth: 140 }}>
+            <label className="form-label" htmlFor="pc-start">
+              Start (YYYY-MM-DD)
+            </label>
+            <input
+              id="pc-start"
+              className="form-input"
+              type="date"
+              value={commissionStart}
+              onChange={(e) => setCommissionStart(e.target.value)}
+            />
+          </div>
+          <div className="form-group" style={{ minWidth: 140 }}>
+            <label className="form-label" htmlFor="pc-end">
+              End (YYYY-MM-DD)
+            </label>
+            <input
+              id="pc-end"
+              className="form-input"
+              type="date"
+              value={commissionEnd}
+              onChange={(e) => setCommissionEnd(e.target.value)}
+            />
+          </div>
+          <button
+            type="button"
+            className="btn btn-gold"
+            disabled={!commissionUserId || !commissionStart || !commissionEnd || commissionPreview.isFetching}
+            onClick={() =>
+              setCommissionParams({
+                userId: commissionUserId,
+                start: commissionStart,
+                end: commissionEnd
+              })
+            }
+          >
+            Calculate
+          </button>
+        </div>
+        {selectedCommissionUser ? (
+          <div style={{ fontSize: "0.65rem", color: "var(--muted)", marginTop: "0.75rem" }}>
+            Commission rate:{" "}
+            <strong style={{ color: "var(--gold)" }}>
+              {Number(selectedCommissionUser.commission_percent ?? 0).toFixed(1)}%
+            </strong>{" "}
+            (edit under Users)
+          </div>
+        ) : null}
+        {commissionPreview.error ? (
+          <p className="error" style={{ marginTop: "0.75rem" }}>
+            {(commissionPreview.error as Error).message}
+          </p>
+        ) : null}
+        {commissionPreview.data ? (
+          <div style={{ marginTop: "1rem" }}>
+            <div className="stats-row" style={{ gridTemplateColumns: "repeat(3, 1fr)", marginBottom: "1rem" }}>
+              <div className="stat-box">
+                <div className="stat-lbl">Total net (streams)</div>
+                <div className="stat-val">
+                  $
+                  {commissionPreview.data.totalNet.toLocaleString("en-US", {
+                    minimumFractionDigits: 2,
+                    maximumFractionDigits: 2
+                  })}
+                </div>
+              </div>
+              <div className="stat-box">
+                <div className="stat-lbl">Commission ({commissionPreview.data.commissionPercent.toFixed(1)}%)</div>
+                <div className="stat-val">
+                  $
+                  {commissionPreview.data.commissionAmount.toLocaleString("en-US", {
+                    minimumFractionDigits: 2,
+                    maximumFractionDigits: 2
+                  })}
+                </div>
+              </div>
+              <div className="stat-box">
+                <div className="stat-lbl">Streams in range</div>
+                <div className="stat-val">{commissionPreview.data.streams.length}</div>
+              </div>
+            </div>
+            <div className="tbl-wrap">
+              <table className="tbl">
+                <thead>
+                  <tr>
+                    <th>Started</th>
+                    <th>Completed earnings</th>
+                    <th>COGS</th>
+                    <th>Net</th>
+                    <th>Note</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {commissionPreview.data.streams.length === 0 ? (
+                    <tr>
+                      <td colSpan={5} className="tbl-empty">
+                        No streams in this date range
+                      </td>
+                    </tr>
+                  ) : (
+                    commissionPreview.data.streams.map((row) => (
+                      <tr key={row.streamId}>
+                        <td>{new Date(row.startedAt).toLocaleString()}</td>
+                        <td>
+                          {row.completedEarnings != null
+                            ? `$${row.completedEarnings.toFixed(2)}`
+                            : "—"}
+                        </td>
+                        <td>${row.cogs.toFixed(2)}</td>
+                        <td className="tbl-green">${row.net.toFixed(2)}</td>
+                        <td style={{ fontSize: "0.62rem", color: "var(--muted)" }}>
+                          {row.missingCompletedEarnings ? "No completed earnings (net treated as $0)" : ""}
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        ) : null}
+      </div>
 
       <div className="card" style={{ marginBottom: "1.5rem", padding: "1.2rem", background: "var(--slate)" }}>
         <div style={{ fontSize: "0.65rem", letterSpacing: "0.12em", color: "var(--muted)", marginBottom: "0.75rem" }}>

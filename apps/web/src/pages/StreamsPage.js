@@ -100,6 +100,8 @@ export function StreamsPage() {
             setStickerCode("");
             void qc.invalidateQueries({ queryKey: ["stream-items", activeStreamId] });
             void qc.invalidateQueries({ queryKey: ["bag-orders"] });
+            void qc.invalidateQueries({ queryKey: ["admin-profit-metrics"] });
+            void qc.invalidateQueries({ queryKey: ["admin-stream-log"] });
         }
     });
     const rawMutation = useMutation({
@@ -116,6 +118,8 @@ export function StreamsPage() {
             void qc.invalidateQueries({ queryKey: ["stream-items", activeStreamId] });
             void qc.invalidateQueries({ queryKey: ["stream-batches", activeStreamId] });
             void qc.invalidateQueries({ queryKey: ["batches"] });
+            void qc.invalidateQueries({ queryKey: ["admin-profit-metrics"] });
+            void qc.invalidateQueries({ queryKey: ["admin-stream-log"] });
         }
     });
     const deleteItemMutation = useMutation({
@@ -125,6 +129,8 @@ export function StreamsPage() {
             void qc.invalidateQueries({ queryKey: ["stream-batches", activeStreamId] });
             void qc.invalidateQueries({ queryKey: ["batches"] });
             void qc.invalidateQueries({ queryKey: ["bag-orders"] });
+            void qc.invalidateQueries({ queryKey: ["admin-profit-metrics"] });
+            void qc.invalidateQueries({ queryKey: ["admin-stream-log"] });
         }
     });
     const endMutation = useMutation({
@@ -145,6 +151,8 @@ export function StreamsPage() {
             void qc.invalidateQueries({ queryKey: ["streams", user?.id] });
             void qc.removeQueries({ queryKey: ["stream-items", streamId] });
             void qc.removeQueries({ queryKey: ["stream-batches", streamId] });
+            void qc.invalidateQueries({ queryKey: ["admin-profit-metrics"] });
+            void qc.invalidateQueries({ queryKey: ["admin-stream-log"] });
         }
     });
     const itemCount = streamItems.data?.length ?? 0;

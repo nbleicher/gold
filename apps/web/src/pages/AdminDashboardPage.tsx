@@ -5,6 +5,14 @@ import { api } from "../lib/api";
 type Expense = { id: string; cost: number };
 type Batch = { id: string; grams: number; remaining_grams: number; total_cost: number };
 type BagOrder = { id: string };
+type ProfitMetrics = {
+  totalSpotValue: number;
+  totalCogs: number;
+  totalExpenses: number;
+  grossProfit: number;
+  netProfit: number;
+  lineItemCount: number;
+};
 
 function money(value: number): string {
   return `$${value.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
@@ -22,6 +30,10 @@ export function AdminDashboardPage() {
   const bagOrders = useQuery({
     queryKey: ["bag-orders"],
     queryFn: () => api<BagOrder[]>("/v1/bag-orders")
+  });
+  const profitMetrics = useQuery({
+    queryKey: ["admin-profit-metrics"],
+    queryFn: () => api<ProfitMetrics>("/v1/admin/profit-metrics")
   });
 
   const metrics = useMemo(() => {
@@ -41,7 +53,7 @@ export function AdminDashboardPage() {
     };
   }, [expenses.data, batches.data, bagOrders.data]);
 
-  const error = expenses.error ?? batches.error ?? bagOrders.error;
+  const error = expenses.error ?? batches.error ?? bagOrders.error ?? profitMetrics.error;
 
   return (
     <section className="card">
@@ -81,14 +93,16 @@ export function AdminDashboardPage() {
         </div>
         <div className="stat-box">
           <div className="stat-lbl">Gross profit</div>
-          <div className="stat-val" style={{ fontSize: "1.2rem" }}>
-            Coming soon
+          <div className="stat-val">{money(profitMetrics.data?.grossProfit ?? 0)}</div>
+          <div style={{ fontSize: "0.62rem", color: "var(--muted)", marginTop: "0.25rem" }}>
+            Spot value − COGS ({profitMetrics.data?.lineItemCount ?? 0} line items)
           </div>
         </div>
         <div className="stat-box">
           <div className="stat-lbl">Net profit</div>
-          <div className="stat-val" style={{ fontSize: "1.2rem" }}>
-            Coming soon
+          <div className="stat-val">{money(profitMetrics.data?.netProfit ?? 0)}</div>
+          <div style={{ fontSize: "0.62rem", color: "var(--muted)", marginTop: "0.25rem" }}>
+            Gross − supplies ({money(profitMetrics.data?.totalExpenses ?? 0)})
           </div>
         </div>
       </div>

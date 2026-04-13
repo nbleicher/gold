@@ -3,6 +3,18 @@ import bcrypt from "bcrypt";
 import { randomBytes } from "node:crypto";
 import { z } from "zod";
 import { one, q, txQ, withWriteTx } from "../db.js";
+import {
+  type BagOrderRow,
+  type BatchRow,
+  type ComponentRow,
+  type StreamItemCogsInput,
+  buildBatchMap,
+  buildComponentsByOrder,
+  buildOrderBySticker,
+  cogsByItemId,
+  totalCogsFromMap,
+  totalSpotValue
+} from "../domain/streamCogs.js";
 import { requireAuth, requireRole } from "./auth.js";
 
 const adminPre = { preHandler: requireRole("admin") };
@@ -40,12 +52,73 @@ const patchCompletedEarningsSchema = z.object({
   completedEarnings: z.number().nonnegative()
 });
 
+const patchUserCommissionSchema = z.object({
+  commissionPercent: z.number().min(0).max(100)
+});
+
 const purgeUserConfirmSchema = z.object({
   confirm: z
     .string()
     .trim()
     .refine((val) => val === "delete", { message: "Type delete to confirm" })
 });
+
+type StreamItemWithSpot = StreamItemCogsInput & { spot_value: number };
+
+async function computeCogsByItemIdForDbItems(items: StreamItemWithSpot[]): Promise<Map<string, number>> {
+  if (!items.length) return new Map();
+
+  const batchIdSet = new Set<string>();
+  for (const it of items) {
+    if (it.sale_type === "raw" && it.batch_id) batchIdSet.add(it.batch_id);
+  }
+
+  const stickerCodes: string[] = [];
+  for (const it of items) {
+    if (it.sale_type === "sticker" && it.sticker_code) {
+      const c = String(it.sticker_code).trim().toUpperCase();
+      if (c) stickerCodes.push(c);
+    }
+  }
+  const uniqueStickers = [...new Set(stickerCodes)];
+
+  let orders: BagOrderRow[] = [];
+  if (uniqueStickers.length) {
+    const ph = uniqueStickers.map(() => "?").join(",");
+    orders = await q<BagOrderRow>(
+      `select id, primary_batch_id, actual_weight_grams, sticker_code from bag_orders where upper(sticker_code) in (${ph})`,
+      uniqueStickers
+    );
+    for (const o of orders) batchIdSet.add(o.primary_batch_id);
+  }
+
+  let componentsRows: ComponentRow[] = [];
+  if (orders.length) {
+    const oids = orders.map((o) => o.id);
+    const oph = oids.map(() => "?").join(",");
+    componentsRows = await q<ComponentRow>(
+      `select bag_order_id, batch_id, weight_grams from bag_order_components where bag_order_id in (${oph})`,
+      oids
+    );
+    for (const c of componentsRows) batchIdSet.add(c.batch_id);
+  }
+
+  const componentsByOrderId = buildComponentsByOrder(componentsRows);
+  const orderBySticker = buildOrderBySticker(orders);
+
+  const batchIds = [...batchIdSet];
+  let batchById = new Map<string, BatchRow>();
+  if (batchIds.length) {
+    const bph = batchIds.map(() => "?").join(",");
+    const batches = await q<BatchRow>(
+      `select id, total_cost, grams from inventory_batches where id in (${bph})`,
+      batchIds
+    );
+    batchById = buildBatchMap(batches);
+  }
+
+  return cogsByItemId(items, batchById, orderBySticker, componentsByOrderId);
+}
 
 export async function registerAdminRoutes(app: FastifyInstance) {
   app.get("/v1/admin/users", adminPre, async () => {
@@ -57,9 +130,21 @@ export async function registerAdminRoutes(app: FastifyInstance) {
       is_active: number;
       deactivated_at: string | null;
       deactivated_by: string | null;
+      commission_percent: number;
     }>(
-      "select id, email, display_name, role, is_active, deactivated_at, deactivated_by from users where purged_at is null order by email asc"
+      "select id, email, display_name, role, is_active, deactivated_at, deactivated_by, commission_percent from users where purged_at is null order by email asc"
     );
+  });
+
+  app.patch("/v1/admin/users/:id/commission", adminPre, async (req) => {
+    const { id } = req.params as { id: string };
+    const body = patchUserCommissionSchema.parse(req.body);
+    const target = await one<{ id: string }>("select id from users where id = ? and purged_at is null", [id]);
+    if (!target) {
+      return req.server.httpErrors.notFound("User not found");
+    }
+    await q("update users set commission_percent = ? where id = ?", [body.commissionPercent, id]);
+    return { ok: true, id, commissionPercent: body.commissionPercent };
   });
 
   app.delete("/v1/admin/users/:id", adminPre, async (req) => {
@@ -216,6 +301,115 @@ export async function registerAdminRoutes(app: FastifyInstance) {
     const { id } = req.params as { id: string };
     await q("delete from payroll_records where id = ?", [id]);
     return { ok: true };
+  });
+
+  app.get("/v1/admin/profit-metrics", adminPre, async () => {
+    const items = await q<StreamItemWithSpot>(
+      "select id, stream_id, sale_type, batch_id, weight_grams, sticker_code, spot_value from stream_items"
+    );
+    const cogsMap = await computeCogsByItemIdForDbItems(items);
+    const totalCogs = totalCogsFromMap(cogsMap);
+    const totalSpotValueNum = totalSpotValue(items);
+    const grossProfit = totalSpotValueNum - totalCogs;
+    const expRow = await one<{ s: number | null }>("select sum(cost) as s from expenses");
+    const totalExpenses = Number(expRow?.s ?? 0);
+    const netProfit = grossProfit - totalExpenses;
+    return {
+      totalSpotValue: totalSpotValueNum,
+      totalCogs,
+      totalExpenses,
+      grossProfit,
+      netProfit,
+      lineItemCount: items.length
+    };
+  });
+
+  app.get("/v1/admin/payroll/commission-preview", adminPre, async (req) => {
+    const parsed = z
+      .object({
+        userId: z.string().min(1),
+        start: z.string().min(10),
+        end: z.string().min(10)
+      })
+      .safeParse(req.query);
+    if (!parsed.success) {
+      return req.server.httpErrors.badRequest("userId, start, and end (YYYY-MM-DD) query params required");
+    }
+    const { userId, start, end } = parsed.data;
+
+    const user = await one<{ id: string; commission_percent: number }>(
+      "select id, commission_percent from users where id = ? and purged_at is null",
+      [userId]
+    );
+    if (!user) {
+      return req.server.httpErrors.notFound("User not found");
+    }
+
+    const streams = await q<{
+      id: string;
+      started_at: string;
+      completed_earnings: number | null;
+    }>(
+      `select id, started_at, completed_earnings from streams
+       where user_id = ? and date(started_at) >= date(?) and date(started_at) <= date(?)
+       order by started_at desc`,
+      [userId, start, end]
+    );
+
+    if (!streams.length) {
+      const pct = Number(user.commission_percent);
+      return {
+        userId,
+        commissionPercent: Number.isFinite(pct) ? pct : 0,
+        streams: [] as Array<Record<string, unknown>>,
+        totalNet: 0,
+        commissionAmount: 0
+      };
+    }
+
+    const streamIds = streams.map((s) => s.id);
+    const ph = streamIds.map(() => "?").join(",");
+    const items = await q<StreamItemWithSpot>(
+      `select id, stream_id, sale_type, batch_id, weight_grams, sticker_code, spot_value from stream_items where stream_id in (${ph})`,
+      streamIds
+    );
+    const cogsMap = await computeCogsByItemIdForDbItems(items);
+    const cogsByStream = new Map<string, number>();
+    for (const it of items) {
+      const c = cogsMap.get(it.id) ?? 0;
+      cogsByStream.set(it.stream_id, (cogsByStream.get(it.stream_id) ?? 0) + c);
+    }
+
+    const pct = Number(user.commission_percent);
+    const rate = (Number.isFinite(pct) ? pct : 0) / 100;
+
+    let totalNet = 0;
+    const rows = streams.map((st) => {
+      const cogs = cogsByStream.get(st.id) ?? 0;
+      const ce = st.completed_earnings;
+      const completed =
+        ce === null || ce === undefined || !Number.isFinite(Number(ce)) ? null : Number(ce);
+      const missingCompletedEarnings = completed === null;
+      const net = missingCompletedEarnings ? 0 : completed - cogs;
+      if (!missingCompletedEarnings) totalNet += net;
+      return {
+        streamId: st.id,
+        startedAt: st.started_at,
+        completedEarnings: completed,
+        cogs,
+        net,
+        missingCompletedEarnings
+      };
+    });
+
+    const commissionAmount = totalNet * rate;
+    return {
+      userId,
+      commissionPercent: Number.isFinite(pct) ? pct : 0,
+      streams: rows,
+      totalNet,
+      commissionAmount
+    };
   });
 
   app.get("/v1/admin/schedules", adminPre, async (req) => {
@@ -465,6 +659,25 @@ export async function registerAdminRoutes(app: FastifyInstance) {
       batch_id: string | null;
     }>(`select * from stream_items where stream_id in (${ph})`, streamIds);
 
+    const itemsForCogs: StreamItemWithSpot[] = items.map((it) => ({
+      id: it.id,
+      stream_id: it.stream_id,
+      sale_type: it.sale_type,
+      batch_id: it.batch_id,
+      weight_grams: Number(it.weight_grams),
+      sticker_code: it.sticker_code,
+      spot_value: Number(it.spot_value)
+    }));
+    const cogsByItemId = await computeCogsByItemIdForDbItems(itemsForCogs);
+    const cogsByStreamId = new Map<string, number>();
+    const spotByStreamId = new Map<string, number>();
+    for (const it of items) {
+      const cid = it.stream_id;
+      const cg = cogsByItemId.get(it.id) ?? 0;
+      cogsByStreamId.set(cid, (cogsByStreamId.get(cid) ?? 0) + cg);
+      spotByStreamId.set(cid, (spotByStreamId.get(cid) ?? 0) + Number(it.spot_value));
+    }
+
     const batchIds = new Set<string>();
     for (const s of streams) {
       if (s.gold_batch_id) batchIds.add(s.gold_batch_id);
@@ -497,13 +710,22 @@ export async function registerAdminRoutes(app: FastifyInstance) {
         const ce = s.completed_earnings;
         const completed_earnings =
           ce === null || ce === undefined ? null : Number(ce);
+        const ceNum = Number.isFinite(completed_earnings) ? completed_earnings : null;
+        const items_cogs_total = cogsByStreamId.get(s.id) ?? 0;
+        const items_spot_total = spotByStreamId.get(s.id) ?? 0;
+        const net_profit =
+          ceNum !== null && Number.isFinite(items_cogs_total) ? ceNum - items_cogs_total : null;
         return {
           ...s,
-          completed_earnings: Number.isFinite(completed_earnings) ? completed_earnings : null,
+          completed_earnings: ceNum,
+          items_spot_total,
+          items_cogs_total,
+          net_profit,
           gold_batch_name: s.gold_batch_id ? batchNameById[s.gold_batch_id] ?? "—" : "—",
           silver_batch_name: s.silver_batch_id ? batchNameById[s.silver_batch_id] ?? "—" : "—",
           items: (itemsByStream.get(s.id) ?? []).map((it) => ({
             ...it,
+            cogs: cogsByItemId.get(it.id) ?? 0,
             batch_name: it.batch_id ? batchNameById[it.batch_id] ?? null : null
           }))
         };

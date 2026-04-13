@@ -19,7 +19,8 @@ const ADMIN_SECTION_PATHS = [
   "/admin/inventory-management",
   "/admin/orders",
   "/admin/payroll",
-  "/admin/users"
+  "/admin/users",
+  "/admin/stream-log"
 ] as const;
 
 const STREAMS_LOG_PATH = "/streams/log";
@@ -67,10 +68,7 @@ function Shell() {
     location.pathname as (typeof ADMIN_SECTION_PATHS)[number]
   );
   const showAdminSubnav = isAdmin && adminSectionActive;
-  const streamsSectionActive = isAdmin
-    ? location.pathname === "/streams" || location.pathname === STREAMS_LOG_PATH
-    : location.pathname === "/streams";
-  const showStreamsSubnav = isAdmin && (location.pathname === "/streams" || location.pathname === STREAMS_LOG_PATH);
+  const streamsSectionActive = location.pathname === "/streams";
 
   useEffect(() => {
     setMobileNavOpen(false);
@@ -172,6 +170,9 @@ function Shell() {
                 <NavLink to="/admin/users" className={navTabClass} onClick={() => setMobileNavOpen(false)}>
                   Users
                 </NavLink>
+                <NavLink to="/admin/stream-log" className={navTabClass} onClick={() => setMobileNavOpen(false)}>
+                  Stream Log
+                </NavLink>
                 <NavLink to="/admin/schedule" className={navTabClass} onClick={() => setMobileNavOpen(false)}>
                   Schedule
                 </NavLink>
@@ -187,26 +188,9 @@ function Shell() {
             <NavLink to="/schedule" className={navTabClass} onClick={() => setMobileNavOpen(false)}>
               Schedule
             </NavLink>
-            {isAdmin ? (
-              <NavLink to={STREAMS_LOG_PATH} className={navTabClass} onClick={() => setMobileNavOpen(false)}>
-                Stream Log
-              </NavLink>
-            ) : null}
             <button type="button" className="logout-btn mobile-nav-logout" onClick={() => void signOut()}>
               Sign out
             </button>
-          </nav>
-        </div>
-      ) : null}
-      {showStreamsSubnav ? (
-        <div className="admin-subnav">
-          <nav className="admin-subnav-inner" aria-label="Streams sections">
-            <NavLink to="/streams" end className={navSubTabClass}>
-              Live
-            </NavLink>
-            <NavLink to={STREAMS_LOG_PATH} className={navSubTabClass}>
-              Stream Log
-            </NavLink>
           </nav>
         </div>
       ) : null}
@@ -231,6 +215,9 @@ function Shell() {
             <NavLink to="/admin/users" className={navSubTabClass}>
               Users
             </NavLink>
+            <NavLink to="/admin/stream-log" className={navSubTabClass}>
+              Stream Log
+            </NavLink>
           </nav>
         </div>
       ) : null}
@@ -241,11 +228,11 @@ function Shell() {
             <Route path="/streams" element={<StreamsPage />} />
             <Route
               path={STREAMS_LOG_PATH}
-              element={isAdmin ? <StreamLogPage /> : <Navigate to="/streams" replace />}
+              element={isAdmin ? <Navigate to="/admin/stream-log" replace /> : <Navigate to="/streams" replace />}
             />
             <Route
               path="/admin/stream-log"
-              element={isAdmin ? <Navigate to={STREAMS_LOG_PATH} replace /> : <Navigate to="/" replace />}
+              element={isAdmin ? <StreamLogPage /> : <Navigate to="/" replace />}
             />
             <Route
               path="/admin"
