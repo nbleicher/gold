@@ -15,7 +15,10 @@ type ProfitMetrics = {
 };
 
 function money(value: number): string {
-  return `$${value.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  const sign = value < 0 ? "-" : "";
+  const abs = Math.abs(value);
+  const formatted = abs.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  return `${sign}$${formatted}`;
 }
 
 export function AdminDashboardPage() {
@@ -93,16 +96,34 @@ export function AdminDashboardPage() {
         </div>
         <div className="stat-box">
           <div className="stat-lbl">Gross profit</div>
-          <div className="stat-val">{money(profitMetrics.data?.grossProfit ?? 0)}</div>
+          <div
+            className="stat-val"
+            style={
+              profitMetrics.isSuccess && profitMetrics.data.grossProfit < 0
+                ? { color: "var(--danger, #c44)" }
+                : undefined
+            }
+          >
+            {profitMetrics.isSuccess ? money(profitMetrics.data.grossProfit) : "—"}
+          </div>
           <div style={{ fontSize: "0.62rem", color: "var(--muted)", marginTop: "0.25rem" }}>
-            Spot value − COGS ({profitMetrics.data?.lineItemCount ?? 0} line items)
+            Spot value − COGS ({profitMetrics.isSuccess ? profitMetrics.data.lineItemCount : "—"} line items)
           </div>
         </div>
         <div className="stat-box">
           <div className="stat-lbl">Net profit</div>
-          <div className="stat-val">{money(profitMetrics.data?.netProfit ?? 0)}</div>
+          <div
+            className="stat-val"
+            style={
+              profitMetrics.isSuccess && profitMetrics.data.netProfit < 0
+                ? { color: "var(--danger, #c44)" }
+                : undefined
+            }
+          >
+            {profitMetrics.isSuccess ? money(profitMetrics.data.netProfit) : "—"}
+          </div>
           <div style={{ fontSize: "0.62rem", color: "var(--muted)", marginTop: "0.25rem" }}>
-            Gross − supplies ({money(profitMetrics.data?.totalExpenses ?? 0)})
+            Gross − supplies ({profitMetrics.isSuccess ? money(profitMetrics.data.totalExpenses) : "—"})
           </div>
         </div>
       </div>
