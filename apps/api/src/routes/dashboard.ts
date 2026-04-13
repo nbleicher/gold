@@ -9,6 +9,29 @@ function countFromRows(rows: unknown[]): number {
   return typeof raw === "bigint" ? Number(raw) : Number(raw ?? 0);
 }
 
+async function nextApprovedScheduleForStreamer(streamerId: string) {
+  const row = await one<{
+    id: string;
+    date: string;
+    start_time: string;
+    status: string;
+  }>(
+    `select id, date, start_time, status from schedules
+     where streamer_id = ? and status = 'approved'
+       and datetime(date || ' ' || start_time) >= datetime('now', 'localtime')
+     order by date asc, start_time asc
+     limit 1`,
+    [streamerId]
+  );
+  if (!row) return null;
+  return {
+    id: row.id,
+    date: row.date,
+    startTime: row.start_time,
+    status: row.status
+  };
+}
+
 export async function registerDashboardRoutes(app: FastifyInstance) {
   app.get("/v1/dashboard/home", { preHandler: requireAuth }, async (req) => {
     const userId = req.authUser!.sub;
@@ -18,6 +41,8 @@ export async function registerDashboardRoutes(app: FastifyInstance) {
       [userId]
     );
     const streamsToday = countFromRows(todayRows);
+
+    const nextSchedule = await nextApprovedScheduleForStreamer(userId);
 
     const last = await one<{
       id: string;
@@ -29,7 +54,7 @@ export async function registerDashboardRoutes(app: FastifyInstance) {
     );
 
     if (!last) {
-      return { streamsToday, lastStream: null };
+      return { streamsToday, lastStream: null, nextSchedule };
     }
 
     const itemRows = await q<{
@@ -75,7 +100,8 @@ export async function registerDashboardRoutes(app: FastifyInstance) {
         estimatedProfit,
         durationMinutes,
         profitPerMinute
-      }
+      },
+      nextSchedule
     };
   });
 }

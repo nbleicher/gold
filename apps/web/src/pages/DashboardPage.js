@@ -14,6 +14,20 @@ function spotStatusClass(state) {
 function parseSqlUtc(ts) {
     return new Date(ts.replace(" ", "T") + "Z");
 }
+function formatUpcomingSchedule(s) {
+    const t = s.startTime.includes(":") && s.startTime.split(":").length === 2 ? `${s.startTime}:00` : s.startTime;
+    const d = new Date(`${s.date}T${t}`);
+    if (Number.isNaN(d.getTime()))
+        return `${s.date} · ${s.startTime}`;
+    return d.toLocaleString(undefined, {
+        weekday: "short",
+        month: "short",
+        day: "numeric",
+        year: "numeric",
+        hour: "numeric",
+        minute: "2-digit"
+    });
+}
 function SpotMetalCard({ label, row, emphasize }) {
     if (!row) {
         return (_jsxs("div", { className: `spot-card${emphasize ? " active" : ""}`, children: [_jsx("div", { className: "spot-label", children: label }), _jsx("div", { className: "spot-price", style: { fontSize: "1.1rem", color: "var(--muted)" }, children: "No data yet" }), _jsx("p", { style: { fontSize: "0.55rem", color: "var(--muted)", marginTop: "0.5rem", lineHeight: 1.4 }, children: "Run the spot ingest job (see README) or wait for the next scheduled run." })] }));
@@ -36,7 +50,8 @@ export function DashboardPage() {
     const staleMs = newestSpotMs > 0 ? Date.now() - newestSpotMs : 0;
     const isSpotStale = staleMs > 2 * 60 * 1000;
     const last = home.data?.lastStream ?? null;
-    return (_jsxs("section", { className: "card", children: [_jsx("h2", { className: "pg-title", children: "Home" }), spot.isSuccess ? (_jsxs(_Fragment, { children: [isSpotStale ? (_jsx("p", { style: { fontSize: "0.6rem", color: "var(--gold)", marginBottom: "0.75rem" }, children: "Spot feed appears stale (last update over 2 minutes ago). Check VPS push job and API push secret config." })) : null, spot.data.partial ? (_jsx("p", { style: { fontSize: "0.6rem", color: "var(--gold)", marginBottom: "0.75rem" }, children: "Spot feed is partial (only one metal has snapshots). Run spot ingest for both metals." })) : null, _jsxs("div", { className: "spot-ticker", children: [_jsx(SpotMetalCard, { label: "Gold", row: spot.data.gold, emphasize: true }), _jsx(SpotMetalCard, { label: "Silver", row: spot.data.silver })] })] })) : spot.isError ? (_jsx("p", { className: "error", style: { marginBottom: "1rem" }, children: spot.error.message })) : spot.isLoading ? (_jsx("p", { style: { fontSize: "0.65rem", color: "var(--muted)", marginBottom: "1rem" }, children: "Loading spot\u2026" })) : null, home.error ? _jsx("p", { className: "error", children: home.error.message }) : null, _jsxs("div", { className: "stats-row", style: { gridTemplateColumns: "repeat(3, 1fr)", marginBottom: "0.5rem" }, children: [_jsxs("div", { className: "stat-box", children: [_jsx("div", { className: "stat-lbl", children: "Streams today (UTC)" }), _jsx("div", { className: "stat-val", children: home.isLoading ? "—" : (home.data?.streamsToday ?? 0) })] }), _jsxs("div", { className: "stat-box", children: [_jsx("div", { className: "stat-lbl", children: "Last stream \u00B7 est. profit" }), _jsx("div", { className: "stat-val", style: { fontSize: "1.35rem" }, children: home.isLoading ? "—" : last ? fmtMoney(last.estimatedProfit) : "—" })] }), _jsxs("div", { className: "stat-box", children: [_jsx("div", { className: "stat-lbl", children: "Last stream \u00B7 profit / min" }), _jsx("div", { className: "stat-val", style: { fontSize: "1.35rem" }, children: home.isLoading ? "—" : last ? fmtMoney(last.profitPerMinute) : "—" })] })] }), last ? (_jsxs("div", { style: {
+    const next = home.data?.nextSchedule ?? null;
+    return (_jsxs("section", { className: "card", children: [_jsx("h2", { className: "pg-title", children: "Home" }), spot.isSuccess ? (_jsxs(_Fragment, { children: [isSpotStale ? (_jsx("p", { style: { fontSize: "0.6rem", color: "var(--gold)", marginBottom: "0.75rem" }, children: "Spot feed appears stale (last update over 2 minutes ago). Check VPS push job and API push secret config." })) : null, spot.data.partial ? (_jsx("p", { style: { fontSize: "0.6rem", color: "var(--gold)", marginBottom: "0.75rem" }, children: "Spot feed is partial (only one metal has snapshots). Run spot ingest for both metals." })) : null, _jsxs("div", { className: "spot-ticker", children: [_jsx(SpotMetalCard, { label: "Gold", row: spot.data.gold, emphasize: true }), _jsx(SpotMetalCard, { label: "Silver", row: spot.data.silver })] })] })) : spot.isError ? (_jsx("p", { className: "error", style: { marginBottom: "1rem" }, children: spot.error.message })) : spot.isLoading ? (_jsx("p", { style: { fontSize: "0.65rem", color: "var(--muted)", marginBottom: "1rem" }, children: "Loading spot\u2026" })) : null, home.error ? _jsx("p", { className: "error", children: home.error.message }) : null, _jsxs("div", { className: "stats-row", style: { gridTemplateColumns: "repeat(3, 1fr)", marginBottom: "0.5rem" }, children: [_jsxs("div", { className: "stat-box", children: [_jsx("div", { className: "stat-lbl", children: "Streams today (UTC)" }), _jsx("div", { className: "stat-val", children: home.isLoading ? "—" : (home.data?.streamsToday ?? 0) })] }), _jsxs("div", { className: "stat-box", children: [_jsx("div", { className: "stat-lbl", children: "Last stream \u00B7 est. profit" }), _jsx("div", { className: "stat-val", style: { fontSize: "1.35rem" }, children: home.isLoading ? "—" : last ? fmtMoney(last.estimatedProfit) : "—" })] }), _jsxs("div", { className: "stat-box", children: [_jsx("div", { className: "stat-lbl", children: "Upcoming stream" }), _jsx("div", { className: "stat-val", style: { fontSize: "1.05rem", lineHeight: 1.25 }, children: home.isLoading ? "—" : next ? formatUpcomingSchedule(next) : "—" }), !home.isLoading && !next ? (_jsx("div", { style: { fontSize: "0.58rem", color: "var(--muted)", marginTop: "0.35rem" }, children: "No approved future slots" })) : null] })] }), last ? (_jsxs("div", { style: {
                     fontSize: "0.65rem",
                     color: "var(--text-dim)",
                     borderTop: "1px solid var(--border)",

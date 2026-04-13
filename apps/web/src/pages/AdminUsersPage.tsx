@@ -111,7 +111,7 @@ export function AdminUsersPage() {
           <div className="grid-form" style={{ display: "flex", flexWrap: "wrap", gap: "0.75rem", alignItems: "flex-end" }}>
             <div className="form-group" style={{ minWidth: 220, flex: "2 1 240px" }}>
               <label className="form-label" htmlFor="au-email">
-                Email
+                User
               </label>
               <input
                 id="au-email"
@@ -179,7 +179,7 @@ export function AdminUsersPage() {
           <thead>
             <tr>
               <th>Name</th>
-              <th>Email</th>
+              <th>User</th>
               <th>Role</th>
               <th>Commission %</th>
               <th>Status</th>

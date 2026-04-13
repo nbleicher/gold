@@ -38,6 +38,9 @@ type CommissionPreviewResponse = {
   commissionAmount: number;
 };
 
+/** Set to true to show CSV import UI again. */
+const PAYROLL_CSV_IMPORT_ENABLED = false;
+
 function parseCsvFile(text: string, filename: string): { headers: string[]; rows: string[][] } {
   const lines = text.split(/\n/).filter((l) => l.trim());
   if (!lines.length) return { headers: [], rows: [] };
@@ -125,7 +128,7 @@ export function PayrollPage() {
     <section className="card">
       <h2>Payroll</h2>
       <p className="pg-sub" style={{ marginBottom: "1rem", fontSize: "0.65rem", color: "var(--text-dim)" }}>
-        Commission calculator from stream net profit, or import CSV metadata for records
+        Commission calculator from stream net profit
       </p>
 
       {users.error || payroll.error ? (
@@ -282,107 +285,109 @@ export function PayrollPage() {
         ) : null}
       </div>
 
-      <div className="card" style={{ marginBottom: "1.5rem", padding: "1.2rem", background: "var(--slate)" }}>
-        <div style={{ fontSize: "0.65rem", letterSpacing: "0.12em", color: "var(--muted)", marginBottom: "0.75rem" }}>
-          IMPORT PAYROLL CSV
-        </div>
-        <div className="form-group" style={{ maxWidth: 280 }}>
-          <label className="form-label" htmlFor="pr-user">
-            Assign to user
-          </label>
-          <select
-            id="pr-user"
-            className="form-input"
-            value={userId}
-            onChange={(e) => setUserId(e.target.value)}
+      {PAYROLL_CSV_IMPORT_ENABLED ? (
+        <div className="card" style={{ marginBottom: "1.5rem", padding: "1.2rem", background: "var(--slate)" }}>
+          <div style={{ fontSize: "0.65rem", letterSpacing: "0.12em", color: "var(--muted)", marginBottom: "0.75rem" }}>
+            IMPORT PAYROLL CSV
+          </div>
+          <div className="form-group" style={{ maxWidth: 280 }}>
+            <label className="form-label" htmlFor="pr-user">
+              Assign to user
+            </label>
+            <select
+              id="pr-user"
+              className="form-input"
+              value={userId}
+              onChange={(e) => setUserId(e.target.value)}
+            >
+              <option value="">— Select user —</option>
+              {(users.data ?? []).map((u) => (
+                <option key={u.id} value={u.id}>
+                  {userLabel(u)}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div
+            className={`upload-zone${drag ? " drag" : ""}`}
+            onClick={() => document.getElementById("csv-input")?.click()}
+            onDragOver={(e) => {
+              e.preventDefault();
+              setDrag(true);
+            }}
+            onDragLeave={() => setDrag(false)}
+            onDrop={(e) => {
+              e.preventDefault();
+              setDrag(false);
+              const f = e.dataTransfer.files[0];
+              if (f) onFile(f);
+            }}
           >
-            <option value="">— Select user —</option>
-            {(users.data ?? []).map((u) => (
-              <option key={u.id} value={u.id}>
-                {userLabel(u)}
-              </option>
-            ))}
-          </select>
-        </div>
+            <div className="upload-icon">📄</div>
+            <div className="upload-text">Click to upload CSV file</div>
+            <div className="upload-hint">Columns are auto-detected from the first row</div>
+          </div>
+          <input
+            id="csv-input"
+            type="file"
+            accept=".csv"
+            style={{ display: "none" }}
+            onChange={(e) => onFile(e.target.files?.[0] ?? null)}
+          />
 
-        <div
-          className={`upload-zone${drag ? " drag" : ""}`}
-          onClick={() => document.getElementById("csv-input")?.click()}
-          onDragOver={(e) => {
-            e.preventDefault();
-            setDrag(true);
-          }}
-          onDragLeave={() => setDrag(false)}
-          onDrop={(e) => {
-            e.preventDefault();
-            setDrag(false);
-            const f = e.dataTransfer.files[0];
-            if (f) onFile(f);
-          }}
-        >
-          <div className="upload-icon">📄</div>
-          <div className="upload-text">Click to upload CSV file</div>
-          <div className="upload-hint">Columns are auto-detected from the first row</div>
-        </div>
-        <input
-          id="csv-input"
-          type="file"
-          accept=".csv"
-          style={{ display: "none" }}
-          onChange={(e) => onFile(e.target.files?.[0] ?? null)}
-        />
-
-        {preview && preview.headers.length ? (
-          <div style={{ marginTop: "1rem" }}>
-            <div style={{ fontSize: "0.6rem", color: "var(--muted)", marginBottom: "0.5rem" }}>
-              PREVIEW — {preview.filename} — {preview.rows.length} rows
-            </div>
-            <div className="tbl-wrap">
-              <table className="tbl">
-                <thead>
-                  <tr>
-                    {preview.headers.map((h) => (
-                      <th key={h}>{h}</th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {preview.rows.slice(0, 8).map((r, i) => (
-                    <tr key={i}>
-                      {r.map((c, j) => (
-                        <td key={j}>{c}</td>
+          {preview && preview.headers.length ? (
+            <div style={{ marginTop: "1rem" }}>
+              <div style={{ fontSize: "0.6rem", color: "var(--muted)", marginBottom: "0.5rem" }}>
+                PREVIEW — {preview.filename} — {preview.rows.length} rows
+              </div>
+              <div className="tbl-wrap">
+                <table className="tbl">
+                  <thead>
+                    <tr>
+                      {preview.headers.map((h) => (
+                        <th key={h}>{h}</th>
                       ))}
                     </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-            {preview.rows.length > 8 ? (
-              <div style={{ fontSize: "0.6rem", color: "var(--muted)", padding: "0.5rem 0" }}>
-                …and {preview.rows.length - 8} more rows
+                  </thead>
+                  <tbody>
+                    {preview.rows.slice(0, 8).map((r, i) => (
+                      <tr key={i}>
+                        {r.map((c, j) => (
+                          <td key={j}>{c}</td>
+                        ))}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
               </div>
-            ) : null}
-            <div style={{ display: "flex", gap: "0.75rem", marginTop: "1rem" }}>
-              <button
-                type="button"
-                className="btn btn-gold"
-                disabled={importMutation.isPending}
-                onClick={() => importMutation.mutate()}
-              >
-                ✓ Import this CSV
-              </button>
-              <button type="button" className="btn btn-outline" onClick={() => setPreview(null)}>
-                Cancel
-              </button>
+              {preview.rows.length > 8 ? (
+                <div style={{ fontSize: "0.6rem", color: "var(--muted)", padding: "0.5rem 0" }}>
+                  …and {preview.rows.length - 8} more rows
+                </div>
+              ) : null}
+              <div style={{ display: "flex", gap: "0.75rem", marginTop: "1rem" }}>
+                <button
+                  type="button"
+                  className="btn btn-gold"
+                  disabled={importMutation.isPending}
+                  onClick={() => importMutation.mutate()}
+                >
+                  ✓ Import this CSV
+                </button>
+                <button type="button" className="btn btn-outline" onClick={() => setPreview(null)}>
+                  Cancel
+                </button>
+              </div>
+              {importMutation.error ? (
+                <p className="error" style={{ marginTop: "0.75rem" }}>
+                  {(importMutation.error as Error).message}
+                </p>
+              ) : null}
             </div>
-            {importMutation.error ? (
-              <p className="error" style={{ marginTop: "0.75rem" }}>
-                {(importMutation.error as Error).message}
-              </p>
-            ) : null}
-          </div>
-        ) : null}
-      </div>
+          ) : null}
+        </div>
+      ) : null}
 
       <div style={{ fontSize: "0.65rem", letterSpacing: "0.12em", color: "var(--muted)", marginBottom: "0.75rem" }}>
         PAYROLL RECORDS

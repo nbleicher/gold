@@ -12,9 +12,17 @@ type HomeLastStream = {
   profitPerMinute: number;
 };
 
+type HomeNextSchedule = {
+  id: string;
+  date: string;
+  startTime: string;
+  status: string;
+};
+
 type HomeResponse = {
   streamsToday: number;
   lastStream: HomeLastStream | null;
+  nextSchedule: HomeNextSchedule | null;
 };
 
 type SpotSnapshot = {
@@ -45,6 +53,20 @@ function spotStatusClass(state: string) {
 
 function parseSqlUtc(ts: string): Date {
   return new Date(ts.replace(" ", "T") + "Z");
+}
+
+function formatUpcomingSchedule(s: HomeNextSchedule): string {
+  const t = s.startTime.includes(":") && s.startTime.split(":").length === 2 ? `${s.startTime}:00` : s.startTime;
+  const d = new Date(`${s.date}T${t}`);
+  if (Number.isNaN(d.getTime())) return `${s.date} · ${s.startTime}`;
+  return d.toLocaleString(undefined, {
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    hour: "numeric",
+    minute: "2-digit"
+  });
 }
 
 function SpotMetalCard({
@@ -108,6 +130,7 @@ export function DashboardPage() {
   const isSpotStale = staleMs > 2 * 60 * 1000;
 
   const last = home.data?.lastStream ?? null;
+  const next = home.data?.nextSchedule ?? null;
 
   return (
     <section className="card">
@@ -153,10 +176,15 @@ export function DashboardPage() {
           </div>
         </div>
         <div className="stat-box">
-          <div className="stat-lbl">Last stream · profit / min</div>
-          <div className="stat-val" style={{ fontSize: "1.35rem" }}>
-            {home.isLoading ? "—" : last ? fmtMoney(last.profitPerMinute) : "—"}
+          <div className="stat-lbl">Upcoming stream</div>
+          <div className="stat-val" style={{ fontSize: "1.05rem", lineHeight: 1.25 }}>
+            {home.isLoading ? "—" : next ? formatUpcomingSchedule(next) : "—"}
           </div>
+          {!home.isLoading && !next ? (
+            <div style={{ fontSize: "0.58rem", color: "var(--muted)", marginTop: "0.35rem" }}>
+              No approved future slots
+            </div>
+          ) : null}
         </div>
       </div>
 
