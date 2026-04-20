@@ -33,7 +33,14 @@ export async function api<T>(path: string, init?: RequestInit): Promise<T> {
   });
   if (!res.ok) {
     const text = await res.text();
-    throw new Error(text || `Request failed: ${res.status}`);
+    let message = text || `Request failed: ${res.status}`;
+    try {
+      const j = JSON.parse(text) as { error?: string };
+      if (typeof j?.error === "string" && j.error.trim()) message = j.error.trim();
+    } catch {
+      /* keep message */
+    }
+    throw new Error(message);
   }
   return (await res.json()) as T;
 }

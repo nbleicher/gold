@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "../lib/api";
 
@@ -8,6 +8,9 @@ type AdminUser = {
   display_name: string | null;
   role: string;
   commission_percent: number;
+  pay_structure: string;
+  hourly_rate: number;
+  requires_login: number;
 };
 type PayrollRow = {
   id: string;
@@ -117,12 +120,26 @@ export function PayrollPage() {
     reader.readAsText(file);
   }, []);
 
-  const userLabel = (u: AdminUser) => u.display_name?.trim() || u.email;
+  const userLabel = (u: AdminUser) =>
+    u.display_name?.trim() || (u.email.includes("@internal.invalid") ? `${u.id.slice(0, 8)}…` : u.email);
+
+  const commissionEligibleUsers = useMemo(
+    () => (users.data ?? []).filter((u) => u.pay_structure === "commission"),
+    [users.data]
+  );
 
   const selectedCommissionUser = useMemo(
     () => (users.data ?? []).find((u) => u.id === commissionUserId),
     [users.data, commissionUserId]
   );
+
+  useEffect(() => {
+    if (!commissionUserId) return;
+    if (!commissionEligibleUsers.some((u) => u.id === commissionUserId)) {
+      setCommissionUserId("");
+      setCommissionParams(null);
+    }
+  }, [commissionEligibleUsers, commissionUserId]);
 
   return (
     <section className="card">
@@ -141,7 +158,8 @@ export function PayrollPage() {
         </div>
         <p style={{ fontSize: "0.65rem", color: "var(--text-dim)", marginBottom: "1rem", lineHeight: 1.45 }}>
           Streams whose <strong>started at</strong> date falls in the range (inclusive). Net per stream is completed
-          earnings minus COGS; streams without completed earnings count as $0 net and are flagged below.
+          earnings minus COGS; streams without completed earnings count as $0 net and are flagged below. Only users on{" "}
+          <strong>commission</strong> pay appear in the list; hourly workers are excluded from this calculator.
         </p>
         <div className="grid-form" style={{ display: "flex", flexWrap: "wrap", gap: "0.75rem", alignItems: "flex-end" }}>
           <div className="form-group" style={{ minWidth: 200 }}>
@@ -155,7 +173,7 @@ export function PayrollPage() {
               onChange={(e) => setCommissionUserId(e.target.value)}
             >
               <option value="">— Select user —</option>
-              {(users.data ?? []).map((u) => (
+              {commissionEligibleUsers.map((u) => (
                 <option key={u.id} value={u.id}>
                   {userLabel(u)}
                 </option>
@@ -207,7 +225,7 @@ export function PayrollPage() {
             <strong style={{ color: "var(--gold)" }}>
               {Number(selectedCommissionUser.commission_percent ?? 0).toFixed(1)}%
             </strong>{" "}
-            (edit under Users)
+            (edit under User Management)
           </div>
         ) : null}
         {commissionPreview.error ? (

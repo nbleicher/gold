@@ -15,7 +15,7 @@ import {
   totalCogsFromMap,
   totalSpotValue
 } from "../domain/streamCogs.js";
-import { requireAuth, requireRole } from "./auth.js";
+import { requireAuth, requireRole, type AppRole } from "./auth.js";
 
 const adminPre = { preHandler: requireRole("admin") };
 
@@ -52,8 +52,10 @@ const patchCompletedEarningsSchema = z.object({
   completedEarnings: z.number().nonnegative()
 });
 
-const patchUserCommissionSchema = z.object({
-  commissionPercent: z.number().min(0).max(100)
+const patchUserPaySettingsSchema = z.object({
+  payStructure: z.enum(["commission", "hourly"]),
+  commissionPercent: z.number().min(0).max(100),
+  hourlyRate: z.number().nonnegative()
 });
 
 const purgeUserConfirmSchema = z.object({
@@ -131,20 +133,36 @@ export async function registerAdminRoutes(app: FastifyInstance) {
       deactivated_at: string | null;
       deactivated_by: string | null;
       commission_percent: number;
+      pay_structure: string;
+      hourly_rate: number;
+      requires_login: number;
     }>(
-      "select id, email, display_name, role, is_active, deactivated_at, deactivated_by, commission_percent from users where purged_at is null order by email asc"
+      `select id, email, display_name, role, is_active, deactivated_at, deactivated_by,
+              commission_percent, pay_structure, hourly_rate, requires_login
+       from users where purged_at is null order by email asc`
     );
   });
 
-  app.patch("/v1/admin/users/:id/commission", adminPre, async (req) => {
+  app.patch("/v1/admin/users/:id/pay-settings", adminPre, async (req) => {
     const { id } = req.params as { id: string };
-    const body = patchUserCommissionSchema.parse(req.body);
+    const body = patchUserPaySettingsSchema.parse(req.body);
     const target = await one<{ id: string }>("select id from users where id = ? and purged_at is null", [id]);
     if (!target) {
       return req.server.httpErrors.notFound("User not found");
     }
-    await q("update users set commission_percent = ? where id = ?", [body.commissionPercent, id]);
-    return { ok: true, id, commissionPercent: body.commissionPercent };
+    const commissionPct = body.payStructure === "commission" ? body.commissionPercent : 0;
+    const hourly = body.payStructure === "hourly" ? body.hourlyRate : 0;
+    await q(
+      "update users set pay_structure = ?, commission_percent = ?, hourly_rate = ? where id = ?",
+      [body.payStructure, commissionPct, hourly, id]
+    );
+    return {
+      ok: true,
+      id,
+      payStructure: body.payStructure,
+      commissionPercent: commissionPct,
+      hourlyRate: hourly
+    };
   });
 
   app.delete("/v1/admin/users/:id", adminPre, async (req) => {
@@ -155,7 +173,7 @@ export async function registerAdminRoutes(app: FastifyInstance) {
       return req.server.httpErrors.conflict("You cannot deactivate your own account");
     }
 
-    const target = await one<{ id: string; role: "admin" | "user"; is_active: number }>(
+    const target = await one<{ id: string; role: AppRole; is_active: number }>(
       "select id, role, is_active from users where id = ?",
       [id]
     );
@@ -337,12 +355,15 @@ export async function registerAdminRoutes(app: FastifyInstance) {
     }
     const { userId, start, end } = parsed.data;
 
-    const user = await one<{ id: string; commission_percent: number }>(
-      "select id, commission_percent from users where id = ? and purged_at is null",
+    const user = await one<{ id: string; commission_percent: number; pay_structure: string }>(
+      "select id, commission_percent, pay_structure from users where id = ? and purged_at is null",
       [userId]
     );
     if (!user) {
       return req.server.httpErrors.notFound("User not found");
+    }
+    if (user.pay_structure !== "commission") {
+      return req.server.httpErrors.badRequest("Commission preview only applies to users on commission pay");
     }
 
     const streams = await q<{

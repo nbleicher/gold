@@ -1,18 +1,25 @@
-import { FormEvent, useState } from "react";
+import { FormEvent, useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "../lib/api";
 import { useAuth } from "../state/auth";
+
+type AppRole = "admin" | "streamer" | "shipper" | "bagger";
 
 type AdminUser = {
   id: string;
   email: string;
   display_name: string | null;
-  role: "admin" | "user";
+  role: AppRole;
   is_active: number;
   deactivated_at: string | null;
   deactivated_by: string | null;
   commission_percent: number;
+  pay_structure: string;
+  hourly_rate: number;
+  requires_login: number;
 };
+
+type PayStructure = "commission" | "hourly";
 
 export function AdminUsersPage() {
   const qc = useQueryClient();
@@ -20,7 +27,16 @@ export function AdminUsersPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [displayName, setDisplayName] = useState("");
-  const [role, setRole] = useState<"admin" | "user">("user");
+  const [role, setRole] = useState<AppRole>("streamer");
+  const [payStructure, setPayStructure] = useState<PayStructure>("commission");
+  const [commissionPercent, setCommissionPercent] = useState("10");
+  const [hourlyRate, setHourlyRate] = useState("15");
+  const [requiresLogin, setRequiresLogin] = useState(true);
+
+  useEffect(() => {
+    if (role === "admin") setRequiresLogin(true);
+    if (role === "shipper" || role === "bagger") setRequiresLogin(false);
+  }, [role]);
 
   const users = useQuery({
     queryKey: ["admin-users"],
@@ -28,22 +44,36 @@ export function AdminUsersPage() {
   });
 
   const createUser = useMutation({
-    mutationFn: () =>
-      api<{ id: string; role: "admin" | "user"; displayName: string | null }>("/v1/auth/register", {
+    mutationFn: () => {
+      const pct = Number(commissionPercent);
+      const hr = Number(hourlyRate);
+      const body: Record<string, unknown> = {
+        displayName: displayName.trim() || undefined,
+        role,
+        payStructure,
+        commissionPercent: payStructure === "commission" && Number.isFinite(pct) ? pct : 0,
+        hourlyRate: payStructure === "hourly" && Number.isFinite(hr) ? hr : 0,
+        requiresLogin
+      };
+      if (requiresLogin) {
+        body.email = email.trim();
+        body.password = password;
+      }
+      return api<{ id: string; role: AppRole; displayName: string | null }>("/v1/auth/register", {
         method: "POST",
-        body: JSON.stringify({
-          email: email.trim(),
-          password,
-          displayName: displayName.trim() || undefined,
-          role
-        })
-      }),
+        body: JSON.stringify(body)
+      });
+    },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["admin-users"] });
       setEmail("");
       setPassword("");
       setDisplayName("");
-      setRole("user");
+      setRole("streamer");
+      setPayStructure("commission");
+      setCommissionPercent("10");
+      setHourlyRate("15");
+      setRequiresLogin(true);
     }
   });
 
@@ -58,19 +88,25 @@ export function AdminUsersPage() {
 
   const [purgeTarget, setPurgeTarget] = useState<AdminUser | null>(null);
   const [purgeConfirm, setPurgeConfirm] = useState("");
-  const [commissionEditId, setCommissionEditId] = useState<string | null>(null);
-  const [commissionDraft, setCommissionDraft] = useState("");
 
-  const patchCommission = useMutation({
-    mutationFn: ({ id, commissionPercent }: { id: string; commissionPercent: number }) =>
-      api<{ ok: boolean }>(`/v1/admin/users/${id}/commission`, {
+  const [payEditId, setPayEditId] = useState<string | null>(null);
+  const [payEditStructure, setPayEditStructure] = useState<PayStructure>("commission");
+  const [payEditCommission, setPayEditCommission] = useState("");
+  const [payEditHourly, setPayEditHourly] = useState("");
+
+  const patchPaySettings = useMutation({
+    mutationFn: (args: { id: string; payStructure: PayStructure; commissionPercent: number; hourlyRate: number }) =>
+      api<{ ok: boolean }>(`/v1/admin/users/${args.id}/pay-settings`, {
         method: "PATCH",
-        body: JSON.stringify({ commissionPercent })
+        body: JSON.stringify({
+          payStructure: args.payStructure,
+          commissionPercent: args.commissionPercent,
+          hourlyRate: args.hourlyRate
+        })
       }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["admin-users"] });
-      setCommissionEditId(null);
-      setCommissionDraft("");
+      setPayEditId(null);
     }
   });
 
@@ -89,17 +125,36 @@ export function AdminUsersPage() {
 
   const onSubmit = (e: FormEvent) => {
     e.preventDefault();
-    if (!email.trim() || !password.trim()) return;
+    if (!displayName.trim()) return;
+    if (requiresLogin) {
+      if (!email.trim() || !password.trim()) return;
+    }
     createUser.mutate();
   };
+
+  const canLoginRow = (u: AdminUser) => Boolean(u.requires_login) && (u.role === "admin" || u.role === "streamer");
+
+  const accountLabel = (u: AdminUser) => {
+    if (!canLoginRow(u)) return "—";
+    if (u.email.includes("@internal.invalid")) return "—";
+    return u.email;
+  };
+
+  const payLabel = (u: AdminUser) =>
+    u.pay_structure === "hourly"
+      ? `$${Number(u.hourly_rate ?? 0).toFixed(2)}/hr`
+      : `${Number(u.commission_percent ?? 0).toFixed(1)}%`;
+
+  const loginBadge = (u: AdminUser) =>
+    canLoginRow(u) ? (
+      <span className="badge badge-morning">Yes</span>
+    ) : (
+      <span className="badge badge-evening">No</span>
+    );
 
   return (
     <section className="card">
       <h2>User Management</h2>
-      {/* <p className="pg-sub" style={{ marginBottom: "1rem", fontSize: "0.65rem", color: "var(--text-dim)" }}>
-        Create users, assign roles, and deactivate accounts. Inactive users can be removed from the app (streams and
-        other history stay in the database).
-      </p> */}
 
       {users.error ? <p className="error">{(users.error as Error).message}</p> : null}
 
@@ -108,38 +163,13 @@ export function AdminUsersPage() {
           CREATE USER
         </div>
         <form onSubmit={onSubmit}>
-          <div className="grid-form" style={{ display: "flex", flexWrap: "wrap", gap: "0.75rem", alignItems: "flex-end" }}>
-            <div className="form-group" style={{ minWidth: 220, flex: "2 1 240px" }}>
-              <label className="form-label" htmlFor="au-email">
-                User
-              </label>
-              <input
-                id="au-email"
-                className="form-input"
-                type="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                placeholder="user@example.com"
-                autoComplete="off"
-              />
-            </div>
-            <div className="form-group" style={{ minWidth: 220, flex: "2 1 220px" }}>
-              <label className="form-label" htmlFor="au-password">
-                Password
-              </label>
-              <input
-                id="au-password"
-                className="form-input"
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                placeholder="Set initial password"
-                autoComplete="new-password"
-              />
-            </div>
-            <div className="form-group" style={{ minWidth: 180, flex: "2 1 180px" }}>
+          <div
+            className="grid-form"
+            style={{ display: "flex", flexWrap: "wrap", gap: "0.75rem", alignItems: "flex-end", marginBottom: "0.75rem" }}
+          >
+            <div className="form-group" style={{ minWidth: 200, flex: "1 1 200px" }}>
               <label className="form-label" htmlFor="au-display-name">
-                Display name (optional)
+                Display name
               </label>
               <input
                 id="au-display-name"
@@ -157,16 +187,132 @@ export function AdminUsersPage() {
                 id="au-role"
                 className="form-input"
                 value={role}
-                onChange={(e) => setRole(e.target.value as "admin" | "user")}
+                onChange={(e) => setRole(e.target.value as AppRole)}
               >
-                <option value="user">User</option>
+                <option value="streamer">Streamer</option>
                 <option value="admin">Admin</option>
+                <option value="shipper">Shipper</option>
+                <option value="bagger">Bagger</option>
               </select>
             </div>
-            <button type="submit" className="btn btn-gold" disabled={createUser.isPending}>
-              Create user
-            </button>
+            <div className="form-group" style={{ minWidth: 220, flex: "1 1 220px" }}>
+              <span className="form-label">Pay structure</span>
+              <div style={{ display: "flex", gap: "1rem", flexWrap: "wrap", marginTop: "0.35rem" }}>
+                <label style={{ display: "flex", alignItems: "center", gap: "0.35rem", fontSize: "0.75rem" }}>
+                  <input
+                    type="radio"
+                    name="au-pay"
+                    checked={payStructure === "commission"}
+                    onChange={() => setPayStructure("commission")}
+                  />
+                  Commission (%)
+                </label>
+                <label style={{ display: "flex", alignItems: "center", gap: "0.35rem", fontSize: "0.75rem" }}>
+                  <input
+                    type="radio"
+                    name="au-pay"
+                    checked={payStructure === "hourly"}
+                    onChange={() => setPayStructure("hourly")}
+                  />
+                  Hourly ($/hr)
+                </label>
+              </div>
+            </div>
+            {payStructure === "commission" ? (
+              <div className="form-group" style={{ minWidth: 100 }}>
+                <label className="form-label" htmlFor="au-commission">
+                  %
+                </label>
+                <input
+                  id="au-commission"
+                  className="form-input"
+                  type="number"
+                  min={0}
+                  max={100}
+                  step={0.1}
+                  value={commissionPercent}
+                  onChange={(e) => setCommissionPercent(e.target.value)}
+                />
+              </div>
+            ) : (
+              <div className="form-group" style={{ minWidth: 100 }}>
+                <label className="form-label" htmlFor="au-hourly">
+                  Rate
+                </label>
+                <input
+                  id="au-hourly"
+                  className="form-input"
+                  type="number"
+                  min={0}
+                  step={0.01}
+                  value={hourlyRate}
+                  onChange={(e) => setHourlyRate(e.target.value)}
+                />
+              </div>
+            )}
           </div>
+
+          <div style={{ marginBottom: "0.75rem" }}>
+            <label style={{ display: "flex", alignItems: "center", gap: "0.5rem", fontSize: "0.75rem" }}>
+              <input
+                type="checkbox"
+                checked={requiresLogin}
+                disabled={role === "admin" || role === "shipper" || role === "bagger"}
+                onChange={(e) => setRequiresLogin(e.target.checked)}
+              />
+              Requires app login (email + password)
+            </label>
+            {role === "admin" ? (
+              <p style={{ fontSize: "0.62rem", color: "var(--muted)", margin: "0.35rem 0 0" }}>
+                Admins must always have login credentials.
+              </p>
+            ) : null}
+            {role === "shipper" || role === "bagger" ? (
+              <p style={{ fontSize: "0.62rem", color: "var(--muted)", margin: "0.35rem 0 0" }}>
+                Shippers and baggers are payroll-only and cannot sign in.
+              </p>
+            ) : null}
+          </div>
+
+          {requiresLogin ? (
+            <div
+              className="grid-form"
+              style={{ display: "flex", flexWrap: "wrap", gap: "0.75rem", alignItems: "flex-end", marginBottom: "0.75rem" }}
+            >
+              <div className="form-group" style={{ minWidth: 220, flex: "2 1 240px" }}>
+                <label className="form-label" htmlFor="au-email">
+                  Email
+                </label>
+                <input
+                  id="au-email"
+                  className="form-input"
+                  type="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  placeholder="user@example.com"
+                  autoComplete="off"
+                />
+              </div>
+              <div className="form-group" style={{ minWidth: 220, flex: "2 1 220px" }}>
+                <label className="form-label" htmlFor="au-password">
+                  Password
+                </label>
+                <input
+                  id="au-password"
+                  className="form-input"
+                  type="password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  placeholder="At least 8 characters"
+                  autoComplete="new-password"
+                />
+              </div>
+            </div>
+          ) : null}
+
+          <button type="submit" className="btn btn-gold" disabled={createUser.isPending}>
+            Create user
+          </button>
           {createUser.error ? <p className="error">{(createUser.error as Error).message}</p> : null}
         </form>
       </div>
@@ -179,9 +325,10 @@ export function AdminUsersPage() {
           <thead>
             <tr>
               <th>Name</th>
-              <th>User</th>
+              <th>Account</th>
               <th>Role</th>
-              <th>Commission %</th>
+              <th>Pay</th>
+              <th>Login</th>
               <th>Status</th>
               <th>Deactivated</th>
               <th />
@@ -190,7 +337,7 @@ export function AdminUsersPage() {
           <tbody>
             {(users.data ?? []).length === 0 ? (
               <tr>
-                <td colSpan={7} className="tbl-empty">
+                <td colSpan={8} className="tbl-empty">
                   No users found
                 </td>
               </tr>
@@ -198,61 +345,91 @@ export function AdminUsersPage() {
               (users.data ?? []).map((u) => {
                 const isActive = Boolean(u.is_active);
                 const isSelf = u.id === profile?.id;
-                const pct = Number(u.commission_percent ?? 0);
-                const pctDisplay = Number.isFinite(pct) ? pct : 0;
                 return (
                   <tr key={u.id}>
                     <td className="tbl-gold">{u.display_name?.trim() || "—"}</td>
-                    <td>{u.email}</td>
+                    <td style={{ fontSize: "0.72rem" }}>{accountLabel(u)}</td>
                     <td>{u.role}</td>
-                    <td style={{ minWidth: "9rem", fontSize: "0.7rem" }}>
-                      {commissionEditId === u.id ? (
-                        <div style={{ display: "flex", flexWrap: "wrap", gap: "0.35rem", alignItems: "center" }}>
-                          <input
+                    <td style={{ minWidth: "10rem", fontSize: "0.7rem" }}>
+                      {payEditId === u.id ? (
+                        <div style={{ display: "flex", flexDirection: "column", gap: "0.35rem" }}>
+                          <select
                             className="form-input"
-                            type="number"
-                            min={0}
-                            max={100}
-                            step={0.1}
-                            style={{ maxWidth: "5rem", padding: "0.25rem 0.4rem" }}
-                            value={commissionDraft}
-                            onChange={(e) => setCommissionDraft(e.target.value)}
-                            disabled={patchCommission.isPending}
-                          />
-                          <button
-                            type="button"
-                            className="btn btn-gold btn-sm"
-                            disabled={patchCommission.isPending}
-                            onClick={() => {
-                              const n = Number(commissionDraft);
-                              if (!Number.isFinite(n) || n < 0 || n > 100) return;
-                              patchCommission.mutate({ id: u.id, commissionPercent: n });
-                            }}
+                            style={{ padding: "0.25rem 0.4rem" }}
+                            value={payEditStructure}
+                            onChange={(e) => setPayEditStructure(e.target.value as PayStructure)}
+                            disabled={patchPaySettings.isPending}
                           >
-                            Save
-                          </button>
-                          <button
-                            type="button"
-                            className="btn btn-outline btn-sm"
-                            disabled={patchCommission.isPending}
-                            onClick={() => {
-                              setCommissionEditId(null);
-                              setCommissionDraft("");
-                            }}
-                          >
-                            Cancel
-                          </button>
+                            <option value="commission">Commission</option>
+                            <option value="hourly">Hourly</option>
+                          </select>
+                          {payEditStructure === "commission" ? (
+                            <input
+                              className="form-input"
+                              type="number"
+                              min={0}
+                              max={100}
+                              step={0.1}
+                              style={{ maxWidth: "6rem", padding: "0.25rem 0.4rem" }}
+                              value={payEditCommission}
+                              onChange={(e) => setPayEditCommission(e.target.value)}
+                              disabled={patchPaySettings.isPending}
+                            />
+                          ) : (
+                            <input
+                              className="form-input"
+                              type="number"
+                              min={0}
+                              step={0.01}
+                              style={{ maxWidth: "6rem", padding: "0.25rem 0.4rem" }}
+                              value={payEditHourly}
+                              onChange={(e) => setPayEditHourly(e.target.value)}
+                              disabled={patchPaySettings.isPending}
+                            />
+                          )}
+                          <div style={{ display: "flex", gap: "0.35rem" }}>
+                            <button
+                              type="button"
+                              className="btn btn-gold btn-sm"
+                              disabled={patchPaySettings.isPending}
+                              onClick={() => {
+                                const pct = Number(payEditCommission);
+                                const hr = Number(payEditHourly);
+                                if (payEditStructure === "commission" && (!Number.isFinite(pct) || pct < 0 || pct > 100))
+                                  return;
+                                if (payEditStructure === "hourly" && (!Number.isFinite(hr) || hr < 0)) return;
+                                patchPaySettings.mutate({
+                                  id: u.id,
+                                  payStructure: payEditStructure,
+                                  commissionPercent: payEditStructure === "commission" ? pct : 0,
+                                  hourlyRate: payEditStructure === "hourly" ? hr : 0
+                                });
+                              }}
+                            >
+                              Save
+                            </button>
+                            <button
+                              type="button"
+                              className="btn btn-outline btn-sm"
+                              disabled={patchPaySettings.isPending}
+                              onClick={() => setPayEditId(null)}
+                            >
+                              Cancel
+                            </button>
+                          </div>
                         </div>
                       ) : (
                         <div style={{ display: "flex", flexWrap: "wrap", gap: "0.35rem", alignItems: "center" }}>
-                          <span>{pctDisplay.toFixed(1)}%</span>
+                          <span>{payLabel(u)}</span>
                           <button
                             type="button"
                             className="btn btn-outline btn-sm"
-                            disabled={patchCommission.isPending}
+                            disabled={patchPaySettings.isPending}
                             onClick={() => {
-                              setCommissionEditId(u.id);
-                              setCommissionDraft(String(pctDisplay));
+                              setPayEditId(u.id);
+                              setPayEditStructure(u.pay_structure === "hourly" ? "hourly" : "commission");
+                              setPayEditCommission(String(Number(u.commission_percent ?? 0)));
+                              setPayEditHourly(String(Number(u.hourly_rate ?? 0)));
                             }}
                           >
                             Edit
@@ -260,6 +437,7 @@ export function AdminUsersPage() {
                         </div>
                       )}
                     </td>
+                    <td>{loginBadge(u)}</td>
                     <td>
                       {isActive ? (
                         <span className="badge badge-morning">Active</span>
@@ -278,7 +456,7 @@ export function AdminUsersPage() {
                           disabled={deactivateUser.isPending || reactivateUser.isPending || isSelf}
                           title={isSelf ? "You cannot deactivate your own account" : undefined}
                           onClick={() => {
-                            if (!confirm(`Deactivate ${u.email}?`)) return;
+                            if (!confirm(`Deactivate ${u.display_name?.trim() || u.email}?`)) return;
                             deactivateUser.mutate(u.id);
                           }}
                         >
@@ -289,11 +467,7 @@ export function AdminUsersPage() {
                           <button
                             type="button"
                             className="btn btn-outline btn-sm"
-                            disabled={
-                              reactivateUser.isPending ||
-                              deactivateUser.isPending ||
-                              purgeUser.isPending
-                            }
+                            disabled={reactivateUser.isPending || deactivateUser.isPending || purgeUser.isPending}
                             onClick={() => reactivateUser.mutate(u.id)}
                           >
                             Reactivate
@@ -301,11 +475,7 @@ export function AdminUsersPage() {
                           <button
                             type="button"
                             className="btn btn-danger btn-sm"
-                            disabled={
-                              reactivateUser.isPending ||
-                              deactivateUser.isPending ||
-                              purgeUser.isPending
-                            }
+                            disabled={reactivateUser.isPending || deactivateUser.isPending || purgeUser.isPending}
                             onClick={() => {
                               setPurgeTarget(u);
                               setPurgeConfirm("");
@@ -325,7 +495,7 @@ export function AdminUsersPage() {
       </div>
       {deactivateUser.error ? <p className="error">{(deactivateUser.error as Error).message}</p> : null}
       {reactivateUser.error ? <p className="error">{(reactivateUser.error as Error).message}</p> : null}
-      {patchCommission.error ? <p className="error">{(patchCommission.error as Error).message}</p> : null}
+      {patchPaySettings.error ? <p className="error">{(patchPaySettings.error as Error).message}</p> : null}
 
       {purgeTarget ? (
         <div
@@ -359,8 +529,12 @@ export function AdminUsersPage() {
               Remove from app
             </h3>
             <p style={{ fontSize: "0.72rem", color: "var(--text-dim)", marginBottom: "1rem", lineHeight: 1.5 }}>
-              This removes <strong style={{ color: "var(--text)" }}>{purgeTarget.email}</strong> from the user list and
-              blocks sign-in. Streams, sales, schedules, and other data they entered are not deleted.
+              This removes{" "}
+              <strong style={{ color: "var(--text)" }}>
+                {purgeTarget.display_name?.trim() || purgeTarget.email}
+              </strong>{" "}
+              from the user list and blocks sign-in. Streams, sales, schedules, and other data they entered are not
+              deleted.
             </p>
             <label className="form-label" htmlFor="purge-confirm-input">
               Type <strong style={{ color: "var(--gold)" }}>delete</strong> to confirm

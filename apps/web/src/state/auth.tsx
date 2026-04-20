@@ -1,10 +1,12 @@
 import { createContext, useContext, useEffect, useMemo, useState } from "react";
 import { api, getAuthToken, setAuthToken } from "../lib/api";
 
+export type AppRole = "admin" | "streamer" | "shipper" | "bagger";
+
 type AppUser = {
   id: string;
   email: string;
-  role: "admin" | "user";
+  role: AppRole;
   displayName: string | null;
 };
 

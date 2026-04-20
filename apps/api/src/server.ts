@@ -44,6 +44,15 @@ app.setErrorHandler((error, _req, reply) => {
   if (message === "Forbidden") return reply.status(403).send({ error: message });
   if (message.includes("Invalid credentials")) return reply.status(401).send({ error: message });
   if (message === "Account deactivated") return reply.status(401).send({ error: message });
+  if (message === "No app access") return reply.status(403).send({ error: message });
+  if (message === "Email already exists") return reply.status(409).send({ error: message });
+  if (
+    message === "Email is required when login is enabled" ||
+    message === "Password is required when login is enabled" ||
+    message === "Display name is required for users without login"
+  ) {
+    return reply.status(400).send({ error: message });
+  }
   if (message === "Stream not found") return reply.status(404).send({ error: message });
   const statusCode = (error as FastifyError).statusCode;
   if (typeof statusCode === "number" && statusCode >= 400 && statusCode < 500) {

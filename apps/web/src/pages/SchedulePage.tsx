@@ -57,10 +57,14 @@ export function SchedulePage() {
 
   const users = useQuery({
     queryKey: ["admin-users"],
-    queryFn: () => api<AdminUser[]>("/v1/admin/users")
-    ,
+    queryFn: () => api<AdminUser[]>("/v1/admin/users"),
     enabled: isAdmin
   });
+
+  const streamHosts = useMemo(
+    () => (users.data ?? []).filter((u) => u.role === "admin" || u.role === "streamer"),
+    [users.data]
+  );
 
   const schedules = useQuery({
     queryKey: [isAdmin ? "admin-schedules" : "my-schedules", from, to, statusFilter],
@@ -146,9 +150,9 @@ export function SchedulePage() {
     setFormDate(dateKey);
     setFormTime("09:00");
     if (isAdmin) {
-      const u = users.data ?? [];
+      const u = streamHosts;
       if (!u.length) {
-        alert("Add users first.");
+        alert("Add an admin or streamer first.");
         return;
       }
       setFormStreamer(u[0].id);
@@ -173,7 +177,8 @@ export function SchedulePage() {
     else createMut.mutate();
   };
 
-  const userLabel = (u: AdminUser) => u.display_name?.trim() || u.email;
+  const userLabel = (u: AdminUser) =>
+    u.display_name?.trim() || (u.email.includes("@internal.invalid") ? u.id.slice(0, 8) + "…" : u.email);
   const slotHost = (s: ScheduleSlot) => s.streamer_display_name?.trim() || s.streamer_email;
   const statusBadge = (status: ScheduleSlot["status"]) =>
     status === "approved"
@@ -417,7 +422,7 @@ export function SchedulePage() {
                   value={formStreamer}
                   onChange={(e) => setFormStreamer(e.target.value)}
                 >
-                  {(users.data ?? []).map((u) => (
+                  {streamHosts.map((u) => (
                     <option key={u.id} value={u.id}>
                       {userLabel(u)}
                     </option>

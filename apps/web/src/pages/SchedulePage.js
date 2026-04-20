@@ -41,6 +41,7 @@ export function SchedulePage() {
         queryFn: () => api("/v1/admin/users"),
         enabled: isAdmin
     });
+    const streamHosts = useMemo(() => (users.data ?? []).filter((u) => u.role === "admin" || u.role === "streamer"), [users.data]);
     const schedules = useQuery({
         queryKey: [isAdmin ? "admin-schedules" : "my-schedules", from, to, statusFilter],
         queryFn: () => isAdmin
@@ -106,9 +107,9 @@ export function SchedulePage() {
         setFormDate(dateKey);
         setFormTime("09:00");
         if (isAdmin) {
-            const u = users.data ?? [];
+            const u = streamHosts;
             if (!u.length) {
-                alert("Add users first.");
+                alert("Add an admin or streamer first.");
                 return;
             }
             setFormStreamer(u[0].id);
@@ -134,7 +135,7 @@ export function SchedulePage() {
         else
             createMut.mutate();
     };
-    const userLabel = (u) => u.display_name?.trim() || u.email;
+    const userLabel = (u) => u.display_name?.trim() || (u.email.includes("@internal.invalid") ? u.id.slice(0, 8) + "…" : u.email);
     const slotHost = (s) => s.streamer_display_name?.trim() || s.streamer_email;
     const statusBadge = (status) => status === "approved"
         ? "badge badge-morning"
@@ -189,5 +190,5 @@ export function SchedulePage() {
                                                             if (confirm("Delete this stream card?"))
                                                                 deleteMut.mutate(s.id);
                                                         }, children: "\u2715" })) : null, isAdmin && s.status === "pending" ? (_jsxs(_Fragment, { children: [_jsx("button", { type: "button", className: "btn btn-gold btn-sm", onClick: () => reviewMut.mutate({ id: s.id, action: "approve" }), children: "Approve" }), _jsx("button", { type: "button", className: "btn btn-outline btn-sm", onClick: () => reviewMut.mutate({ id: s.id, action: "reject" }), children: "Reject" })] })) : null] })] }, s.id)))), _jsx("button", { type: "button", className: "btn btn-outline btn-sm", style: { width: "100%" }, onClick: () => openAdd(key), children: isAdmin ? "+ Add stream" : "+ Request stream" })] })] }, key));
-                }) }), _jsx("div", { className: `modal-overlay${modalOpen ? " open" : ""}`, role: "presentation", onClick: (e) => e.target === e.currentTarget && closeModal(), children: _jsxs("div", { className: "modal", children: [_jsx("button", { type: "button", className: "modal-close", onClick: closeModal, "aria-label": "Close", children: "\u2715" }), _jsx("div", { className: "modal-title", children: editingId ? "Edit scheduled stream" : isAdmin ? "Add scheduled stream" : "Request scheduled stream" }), _jsxs("form", { onSubmit: onSubmit, children: [_jsxs("div", { className: "form-group", children: [_jsx("label", { className: "form-label", htmlFor: "sc-date", children: "Date" }), _jsx("input", { id: "sc-date", className: "form-input", type: "date", value: formDate, onChange: (e) => setFormDate(e.target.value) })] }), _jsxs("div", { className: "form-group", children: [_jsx("label", { className: "form-label", htmlFor: "sc-time", children: "Start time" }), _jsx("input", { id: "sc-time", className: "form-input", type: "time", value: formTime, onChange: (e) => setFormTime(e.target.value) })] }), isAdmin ? (_jsxs("div", { className: "form-group", children: [_jsx("label", { className: "form-label", htmlFor: "sc-streamer", children: "Streamer" }), _jsx("select", { id: "sc-streamer", className: "form-input", value: formStreamer, onChange: (e) => setFormStreamer(e.target.value), children: (users.data ?? []).map((u) => (_jsx("option", { value: u.id, children: userLabel(u) }, u.id))) })] })) : null, mutError ? _jsx("p", { className: "error", children: mutError.message }) : null, reviewMut.error ? _jsx("p", { className: "error", children: reviewMut.error.message }) : null, _jsxs("div", { className: "modal-actions", children: [_jsx("button", { type: "button", className: "btn btn-outline", onClick: closeModal, children: "Cancel" }), _jsx("button", { type: "submit", className: "btn btn-gold", disabled: pending, children: isAdmin ? "Save" : "Submit" })] })] })] }) })] }));
+                }) }), _jsx("div", { className: `modal-overlay${modalOpen ? " open" : ""}`, role: "presentation", onClick: (e) => e.target === e.currentTarget && closeModal(), children: _jsxs("div", { className: "modal", children: [_jsx("button", { type: "button", className: "modal-close", onClick: closeModal, "aria-label": "Close", children: "\u2715" }), _jsx("div", { className: "modal-title", children: editingId ? "Edit scheduled stream" : isAdmin ? "Add scheduled stream" : "Request scheduled stream" }), _jsxs("form", { onSubmit: onSubmit, children: [_jsxs("div", { className: "form-group", children: [_jsx("label", { className: "form-label", htmlFor: "sc-date", children: "Date" }), _jsx("input", { id: "sc-date", className: "form-input", type: "date", value: formDate, onChange: (e) => setFormDate(e.target.value) })] }), _jsxs("div", { className: "form-group", children: [_jsx("label", { className: "form-label", htmlFor: "sc-time", children: "Start time" }), _jsx("input", { id: "sc-time", className: "form-input", type: "time", value: formTime, onChange: (e) => setFormTime(e.target.value) })] }), isAdmin ? (_jsxs("div", { className: "form-group", children: [_jsx("label", { className: "form-label", htmlFor: "sc-streamer", children: "Streamer" }), _jsx("select", { id: "sc-streamer", className: "form-input", value: formStreamer, onChange: (e) => setFormStreamer(e.target.value), children: streamHosts.map((u) => (_jsx("option", { value: u.id, children: userLabel(u) }, u.id))) })] })) : null, mutError ? _jsx("p", { className: "error", children: mutError.message }) : null, reviewMut.error ? _jsx("p", { className: "error", children: reviewMut.error.message }) : null, _jsxs("div", { className: "modal-actions", children: [_jsx("button", { type: "button", className: "btn btn-outline", onClick: closeModal, children: "Cancel" }), _jsx("button", { type: "submit", className: "btn btn-gold", disabled: pending, children: isAdmin ? "Save" : "Submit" })] })] })] }) })] }));
 }
