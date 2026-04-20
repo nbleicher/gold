@@ -90,7 +90,7 @@ function money(n: number) {
 
 const DAY_LABELS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 
-/** Display `HH:MM` (24h) as 12-hour labels, e.g. 2am, 1:15pm (values stay 24h for the API). */
+/** Display `HH:MM` (24h) as 12-hour labels, e.g. 2am, 1:30pm (values stay 24h for the API). */
 function formatTime12hLabel(hhmm: string): string {
   const m = /^(\d{2}):(\d{2})$/.exec(hhmm.trim());
   if (!m) return hhmm;
@@ -104,10 +104,10 @@ function formatTime12hLabel(hhmm: string): string {
   return `${h12}:${String(min).padStart(2, "0")}${period}`;
 }
 
-/** 15-minute steps for shift start/end dropdowns (value "" = unset). */
+/** 30-minute steps for shift start/end dropdowns (value "" = unset). */
 const TIME_SELECT_OPTIONS: { value: string; label: string }[] = (() => {
   const opts: { value: string; label: string }[] = [{ value: "", label: "—" }];
-  for (let mins = 0; mins < 24 * 60; mins += 15) {
+  for (let mins = 0; mins < 24 * 60; mins += 30) {
     const h = Math.floor(mins / 60);
     const m = mins % 60;
     const value = `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
@@ -116,7 +116,19 @@ const TIME_SELECT_OPTIONS: { value: string; label: string }[] = (() => {
   return opts;
 })();
 
-const TIME_QUARTERS = TIME_SELECT_OPTIONS.filter((o) => o.value !== "");
+const TIME_HALF_HOUR_VALUES = TIME_SELECT_OPTIONS.filter((o) => o.value !== "");
+
+/** Include legacy/off-grid HH:MM values so controlled selects stay valid after switching from 15- to 30-minute steps. */
+function timeSelectOptionsIncludingValues(...currents: string[]) {
+  const extras = [...new Set(currents.filter(Boolean))].filter(
+    (v) => !TIME_SELECT_OPTIONS.some((o) => o.value === v)
+  );
+  if (!extras.length) return TIME_SELECT_OPTIONS;
+  const inserted = extras
+    .map((v) => ({ value: v, label: formatTime12hLabel(v) }))
+    .sort((a, b) => a.value.localeCompare(b.value));
+  return [TIME_SELECT_OPTIONS[0], ...inserted, ...TIME_SELECT_OPTIONS.slice(1)];
+}
 
 function minutesFromHHMM(s: string): number {
   const m = /^(\d{2}):(\d{2})$/.exec(s.trim());
@@ -124,11 +136,11 @@ function minutesFromHHMM(s: string): number {
   return Number(m[1]) * 60 + Number(m[2]);
 }
 
-/** Snap total minutes-from-midnight to nearest 15-min option (for display end from start + hours). */
-function snapMinutesToNearestQuarter(totalMinutes: number): string {
-  let best = TIME_QUARTERS[0]?.value ?? "00:00";
+/** Snap total minutes-from-midnight to nearest 30-min option (for display end from start + hours). */
+function snapMinutesToNearestHalfHour(totalMinutes: number): string {
+  let best = TIME_HALF_HOUR_VALUES[0]?.value ?? "00:00";
   let bestD = Infinity;
-  for (const o of TIME_QUARTERS) {
+  for (const o of TIME_HALF_HOUR_VALUES) {
     const om = minutesFromHHMM(o.value);
     if (!Number.isFinite(om)) continue;
     const d = Math.abs(om - totalMinutes);
@@ -305,18 +317,25 @@ function AttendanceGrid({
                       const startVal = draft?.start ?? serverSh?.start ?? "";
                       const endVal = draft?.end ?? serverSh?.end ?? "";
                       const h = cellHours(u.id, dateStr);
+                      const selectOpts = timeSelectOptionsIncludingValues(startVal, endVal);
                       return (
-                        <td key={dateStr} style={{ textAlign: "center", verticalAlign: "middle", minWidth: "7.5rem" }}>
-                          <div style={{ display: "flex", flexDirection: "column", gap: "0.25rem", alignItems: "center" }}>
-                            <div style={{ display: "flex", gap: "0.2rem", alignItems: "center", flexWrap: "wrap", justifyContent: "center" }}>
+                        <td key={dateStr} style={{ textAlign: "center", verticalAlign: "middle", minWidth: "5.5rem" }}>
+                          <div style={{ display: "flex", flexDirection: "column", gap: "0.2rem", alignItems: "stretch", width: "100%" }}>
+                            <div style={{ display: "flex", flexDirection: "column", gap: "0.15rem", alignItems: "stretch" }}>
                               <select
                                 className="form-input"
                                 aria-label={`Start ${userLabel(u)} ${dateStr}`}
-                                style={{ padding: "0.15rem 0.2rem", fontSize: "0.65rem", minWidth: "3.25rem" }}
+                                style={{
+                                  width: "100%",
+                                  maxWidth: "4.25rem",
+                                  padding: "0.1rem 0.15rem",
+                                  fontSize: "0.62rem",
+                                  margin: "0 auto"
+                                }}
                                 value={startVal}
                                 onChange={(e) => onShiftFieldChange(u.id, dateStr, "start", e.target.value)}
                               >
-                                {TIME_SELECT_OPTIONS.map((o) => (
+                                {selectOpts.map((o) => (
                                   <option key={`s-${o.value}`} value={o.value}>
                                     {o.label}
                                   </option>
@@ -325,11 +344,17 @@ function AttendanceGrid({
                               <select
                                 className="form-input"
                                 aria-label={`End ${userLabel(u)} ${dateStr}`}
-                                style={{ padding: "0.15rem 0.2rem", fontSize: "0.65rem", minWidth: "3.25rem" }}
+                                style={{
+                                  width: "100%",
+                                  maxWidth: "4.25rem",
+                                  padding: "0.1rem 0.15rem",
+                                  fontSize: "0.62rem",
+                                  margin: "0 auto"
+                                }}
                                 value={endVal}
                                 onChange={(e) => onShiftFieldChange(u.id, dateStr, "end", e.target.value)}
                               >
-                                {TIME_SELECT_OPTIONS.map((o) => (
+                                {selectOpts.map((o) => (
                                   <option key={`e-${o.value}`} value={o.value}>
                                     {o.label}
                                   </option>
@@ -474,7 +499,7 @@ export function PayrollPage() {
     return m;
   }, [schedules.data]);
 
-  /** Display start/end from DB; end is snapped to 15-min grid from start + hours when start is not legacy 00:00. */
+  /** Display start/end from DB; end is snapped to 30-min grid from start + hours when start is not legacy 00:00. */
   const laborShiftMap = useMemo(() => {
     const m = new Map<string, LaborShift | null>();
     const agg = new Map<string, { totalH: number; startTime: string | null }>();
@@ -494,7 +519,7 @@ export function PayrollPage() {
       }
       const startM = minutesFromHHMM(v.startTime);
       const endRawM = startM + v.totalH * 60;
-      const endSnapped = snapMinutesToNearestQuarter(endRawM);
+      const endSnapped = snapMinutesToNearestHalfHour(endRawM);
       m.set(k, { start: v.startTime, end: endSnapped });
     }
     return m;
@@ -534,7 +559,7 @@ export function PayrollPage() {
           WEEKLY ATTENDANCE
         </div>
         <p style={{ fontSize: "0.62rem", color: "var(--muted)", marginBottom: "0.75rem" }}>
-          For hourly workers (shippers and baggers), set start and end time per day (15-minute steps). Hours are computed
+          For hourly workers (shippers and baggers), set start and end time per day (30-minute steps). Hours are computed
           for the pay summary below. Legacy entries stored without a start time show totals only until you set times.
         </p>
         {laborDayMutation.error ? (
