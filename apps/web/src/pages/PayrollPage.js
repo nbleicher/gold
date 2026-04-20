@@ -1,38 +1,56 @@
 import { jsx as _jsx, jsxs as _jsxs } from "react/jsx-runtime";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "../lib/api";
 /** Set to true to show CSV import UI again. */
 const PAYROLL_CSV_IMPORT_ENABLED = false;
+function localYmd(d) {
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, "0");
+    const day = String(d.getDate()).padStart(2, "0");
+    return `${y}-${m}-${day}`;
+}
+function getWeekDates(weekOffset) {
+    const now = new Date();
+    const day = now.getDay();
+    const mon = new Date(now);
+    mon.setDate(now.getDate() - (day === 0 ? 6 : day - 1) + weekOffset * 7);
+    return Array.from({ length: 7 }, (_, i) => {
+        const d = new Date(mon);
+        d.setDate(mon.getDate() + i);
+        return d;
+    });
+}
 function parseCsvFile(text, filename) {
-    const lines = text.split(/\n/).filter((l) => l.trim());
+    const lines = text.split("\n").filter((l) => l.trim());
     if (!lines.length)
         return { headers: [], rows: [] };
     const headers = lines[0].split(",").map((h) => h.trim());
     const rows = lines.slice(1).map((l) => l.split(",").map((c) => c.trim()));
     return { headers, rows };
 }
+function money(n) {
+    return n.toLocaleString("en-US", { style: "currency", currency: "USD" });
+}
 export function PayrollPage() {
     const qc = useQueryClient();
     const [userId, setUserId] = useState("");
     const [preview, setPreview] = useState(null);
     const [drag, setDrag] = useState(false);
-    const [commissionUserId, setCommissionUserId] = useState("");
-    const [commissionStart, setCommissionStart] = useState("");
-    const [commissionEnd, setCommissionEnd] = useState("");
-    const [commissionParams, setCommissionParams] = useState(null);
+    const [weekOffset, setWeekOffset] = useState(0);
+    const weekDates = useMemo(() => getWeekDates(weekOffset), [weekOffset]);
+    const from = localYmd(weekDates[0]);
+    const to = localYmd(weekDates[6]);
     const users = useQuery({
         queryKey: ["admin-users"],
         queryFn: () => api("/v1/admin/users")
     });
-    const commissionPreview = useQuery({
-        queryKey: ["payroll-commission-preview", commissionParams],
+    const weeklySummary = useQuery({
+        queryKey: ["payroll-weekly-summary", from, to],
         queryFn: () => {
-            const p = commissionParams;
-            const qs = new URLSearchParams({ userId: p.userId, start: p.start, end: p.end });
-            return api(`/v1/admin/payroll/commission-preview?${qs.toString()}`);
-        },
-        enabled: commissionParams !== null
+            const qs = new URLSearchParams({ from, to });
+            return api(`/v1/admin/payroll/weekly-summary?${qs.toString()}`);
+        }
     });
     const payroll = useQuery({
         queryKey: ["admin-payroll"],
@@ -74,29 +92,8 @@ export function PayrollPage() {
         reader.readAsText(file);
     }, []);
     const userLabel = (u) => u.display_name?.trim() || (u.email.includes("@internal.invalid") ? `${u.id.slice(0, 8)}…` : u.email);
-    const commissionEligibleUsers = useMemo(() => (users.data ?? []).filter((u) => u.pay_structure === "commission"), [users.data]);
-    const selectedCommissionUser = useMemo(() => (users.data ?? []).find((u) => u.id === commissionUserId), [users.data, commissionUserId]);
-    useEffect(() => {
-        if (!commissionUserId)
-            return;
-        if (!commissionEligibleUsers.some((u) => u.id === commissionUserId)) {
-            setCommissionUserId("");
-            setCommissionParams(null);
-        }
-    }, [commissionEligibleUsers, commissionUserId]);
-    return (_jsxs("section", { className: "card", children: [_jsx("h2", { children: "Payroll" }), _jsx("p", { className: "pg-sub", style: { marginBottom: "1rem", fontSize: "0.65rem", color: "var(--text-dim)" }, children: "Commission calculator from stream net profit" }), users.error || payroll.error ? (_jsx("p", { className: "error", children: String((users.error ?? payroll.error)) })) : null, _jsxs("div", { className: "card", style: { marginBottom: "1.5rem", padding: "1.2rem", background: "var(--slate)" }, children: [_jsx("div", { style: { fontSize: "0.65rem", letterSpacing: "0.12em", color: "var(--muted)", marginBottom: "0.75rem" }, children: "COMMISSION PAYROLL" }), _jsxs("p", { style: { fontSize: "0.65rem", color: "var(--text-dim)", marginBottom: "1rem", lineHeight: 1.45 }, children: ["Streams whose ", _jsx("strong", { children: "started at" }), " date falls in the range (inclusive). Net per stream is completed earnings minus COGS; streams without completed earnings count as $0 net and are flagged below. Only users on", " ", _jsx("strong", { children: "commission" }), " pay appear in the list; hourly workers are excluded from this calculator."] }), _jsxs("div", { className: "grid-form", style: { display: "flex", flexWrap: "wrap", gap: "0.75rem", alignItems: "flex-end" }, children: [_jsxs("div", { className: "form-group", style: { minWidth: 200 }, children: [_jsx("label", { className: "form-label", htmlFor: "pc-user", children: "User" }), _jsxs("select", { id: "pc-user", className: "form-input", value: commissionUserId, onChange: (e) => setCommissionUserId(e.target.value), children: [_jsx("option", { value: "", children: "\u2014 Select user \u2014" }), commissionEligibleUsers.map((u) => (_jsx("option", { value: u.id, children: userLabel(u) }, u.id)))] })] }), _jsxs("div", { className: "form-group", style: { minWidth: 140 }, children: [_jsx("label", { className: "form-label", htmlFor: "pc-start", children: "Start (YYYY-MM-DD)" }), _jsx("input", { id: "pc-start", className: "form-input", type: "date", value: commissionStart, onChange: (e) => setCommissionStart(e.target.value) })] }), _jsxs("div", { className: "form-group", style: { minWidth: 140 }, children: [_jsx("label", { className: "form-label", htmlFor: "pc-end", children: "End (YYYY-MM-DD)" }), _jsx("input", { id: "pc-end", className: "form-input", type: "date", value: commissionEnd, onChange: (e) => setCommissionEnd(e.target.value) })] }), _jsx("button", { type: "button", className: "btn btn-gold", disabled: !commissionUserId || !commissionStart || !commissionEnd || commissionPreview.isFetching, onClick: () => setCommissionParams({
-                                    userId: commissionUserId,
-                                    start: commissionStart,
-                                    end: commissionEnd
-                                }), children: "Calculate" })] }), selectedCommissionUser ? (_jsxs("div", { style: { fontSize: "0.65rem", color: "var(--muted)", marginTop: "0.75rem" }, children: ["Commission rate:", " ", _jsxs("strong", { style: { color: "var(--gold)" }, children: [Number(selectedCommissionUser.commission_percent ?? 0).toFixed(1), "%"] }), " ", "(edit under User Management)"] })) : null, commissionPreview.error ? (_jsx("p", { className: "error", style: { marginTop: "0.75rem" }, children: commissionPreview.error.message })) : null, commissionPreview.data ? (_jsxs("div", { style: { marginTop: "1rem" }, children: [_jsxs("div", { className: "stats-row", style: { gridTemplateColumns: "repeat(3, 1fr)", marginBottom: "1rem" }, children: [_jsxs("div", { className: "stat-box", children: [_jsx("div", { className: "stat-lbl", children: "Total net (streams)" }), _jsxs("div", { className: "stat-val", children: ["$", commissionPreview.data.totalNet.toLocaleString("en-US", {
-                                                        minimumFractionDigits: 2,
-                                                        maximumFractionDigits: 2
-                                                    })] })] }), _jsxs("div", { className: "stat-box", children: [_jsxs("div", { className: "stat-lbl", children: ["Commission (", commissionPreview.data.commissionPercent.toFixed(1), "%)"] }), _jsxs("div", { className: "stat-val", children: ["$", commissionPreview.data.commissionAmount.toLocaleString("en-US", {
-                                                        minimumFractionDigits: 2,
-                                                        maximumFractionDigits: 2
-                                                    })] })] }), _jsxs("div", { className: "stat-box", children: [_jsx("div", { className: "stat-lbl", children: "Streams in range" }), _jsx("div", { className: "stat-val", children: commissionPreview.data.streams.length })] })] }), _jsx("div", { className: "tbl-wrap", children: _jsxs("table", { className: "tbl", children: [_jsx("thead", { children: _jsxs("tr", { children: [_jsx("th", { children: "Started" }), _jsx("th", { children: "Completed earnings" }), _jsx("th", { children: "COGS" }), _jsx("th", { children: "Net" }), _jsx("th", { children: "Note" })] }) }), _jsx("tbody", { children: commissionPreview.data.streams.length === 0 ? (_jsx("tr", { children: _jsx("td", { colSpan: 5, className: "tbl-empty", children: "No streams in this date range" }) })) : (commissionPreview.data.streams.map((row) => (_jsxs("tr", { children: [_jsx("td", { children: new Date(row.startedAt).toLocaleString() }), _jsx("td", { children: row.completedEarnings != null
-                                                            ? `$${row.completedEarnings.toFixed(2)}`
-                                                            : "—" }), _jsxs("td", { children: ["$", row.cogs.toFixed(2)] }), _jsxs("td", { className: "tbl-green", children: ["$", row.net.toFixed(2)] }), _jsx("td", { style: { fontSize: "0.62rem", color: "var(--muted)" }, children: row.missingCompletedEarnings ? "No completed earnings (net treated as $0)" : "" })] }, row.streamId)))) })] }) })] })) : null] }), PAYROLL_CSV_IMPORT_ENABLED ? (_jsxs("div", { className: "card", style: { marginBottom: "1.5rem", padding: "1.2rem", background: "var(--slate)" }, children: [_jsx("div", { style: { fontSize: "0.65rem", letterSpacing: "0.12em", color: "var(--muted)", marginBottom: "0.75rem" }, children: "IMPORT PAYROLL CSV" }), _jsxs("div", { className: "form-group", style: { maxWidth: 280 }, children: [_jsx("label", { className: "form-label", htmlFor: "pr-user", children: "Assign to user" }), _jsxs("select", { id: "pr-user", className: "form-input", value: userId, onChange: (e) => setUserId(e.target.value), children: [_jsx("option", { value: "", children: "\u2014 Select user \u2014" }), (users.data ?? []).map((u) => (_jsx("option", { value: u.id, children: userLabel(u) }, u.id)))] })] }), _jsxs("div", { className: `upload-zone${drag ? " drag" : ""}`, onClick: () => document.getElementById("csv-input")?.click(), onDragOver: (e) => {
+    const weekLabel = `${weekDates[0].toLocaleDateString("en-US", { month: "short", day: "numeric" })} — ${weekDates[6].toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}`;
+    return (_jsxs("section", { className: "card", children: [_jsx("h2", { children: "Payroll" }), _jsx("p", { className: "pg-sub", style: { marginBottom: "1rem", fontSize: "0.65rem", color: "var(--text-dim)" }, children: "Weekly pay from labor hours (hourly) and stream net profit (commission). Uses schedule labor entries and streams in the selected week (Mon\u2013Sun)." }), users.error || payroll.error || weeklySummary.error ? (_jsx("p", { className: "error", children: String((users.error ?? payroll.error ?? weeklySummary.error)) })) : null, _jsxs("div", { className: "card", style: { marginBottom: "1.5rem", padding: "1.2rem", background: "var(--slate)" }, children: [_jsx("div", { style: { fontSize: "0.65rem", letterSpacing: "0.12em", color: "var(--muted)", marginBottom: "0.75rem" }, children: "WEEKLY PAY SUMMARY" }), _jsxs("div", { style: { display: "flex", alignItems: "center", gap: "1rem", marginBottom: "1rem" }, children: [_jsx("button", { type: "button", className: "btn btn-outline btn-sm", onClick: () => setWeekOffset((w) => w - 1), children: "\u25C0 Prev week" }), _jsx("span", { style: { flex: 1, textAlign: "center", fontSize: "0.72rem", color: "var(--text-dim)" }, children: weekLabel }), _jsx("button", { type: "button", className: "btn btn-outline btn-sm", onClick: () => setWeekOffset((w) => w + 1), children: "Next week \u25B6" })] }), _jsxs("p", { style: { fontSize: "0.62rem", color: "var(--muted)", marginBottom: "0.75rem" }, children: ["Range: ", _jsx("strong", { style: { color: "var(--text)" }, children: from }), " to ", _jsx("strong", { style: { color: "var(--text)" }, children: to })] }), weeklySummary.isFetching ? (_jsx("p", { style: { fontSize: "0.65rem", color: "var(--muted)" }, children: "Loading\u2026" })) : (_jsx("div", { className: "tbl-wrap", children: _jsxs("table", { className: "tbl", children: [_jsx("thead", { children: _jsxs("tr", { children: [_jsx("th", { children: "User" }), _jsx("th", { children: "Role" }), _jsx("th", { children: "Pay" }), _jsx("th", { children: "Hours (wk)" }), _jsx("th", { children: "Hourly pay" }), _jsx("th", { children: "Commission pay" }), _jsx("th", { children: "Total" })] }) }), _jsx("tbody", { children: (weeklySummary.data?.users ?? []).length === 0 ? (_jsx("tr", { children: _jsx("td", { colSpan: 7, className: "tbl-empty", children: "No users" }) })) : ((weeklySummary.data?.users ?? []).map((r) => (_jsxs("tr", { children: [_jsx("td", { className: "tbl-gold", children: r.displayName?.trim() || r.email }), _jsx("td", { style: { fontSize: "0.7rem" }, children: r.role }), _jsx("td", { style: { fontSize: "0.7rem" }, children: r.payStructure }), _jsx("td", { children: r.hoursWorkedWeek.toFixed(2) }), _jsx("td", { children: money(r.hourlyPay) }), _jsx("td", { children: money(r.commissionPay) }), _jsx("td", { className: "tbl-green", children: money(r.totalPay) })] }, r.userId)))) })] }) }))] }), PAYROLL_CSV_IMPORT_ENABLED ? (_jsxs("div", { className: "card", style: { marginBottom: "1.5rem", padding: "1.2rem", background: "var(--slate)" }, children: [_jsx("div", { style: { fontSize: "0.65rem", letterSpacing: "0.12em", color: "var(--muted)", marginBottom: "0.75rem" }, children: "IMPORT PAYROLL CSV" }), _jsxs("div", { className: "form-group", style: { maxWidth: 280 }, children: [_jsx("label", { className: "form-label", htmlFor: "pr-user", children: "Assign to user" }), _jsxs("select", { id: "pr-user", className: "form-input", value: userId, onChange: (e) => setUserId(e.target.value), children: [_jsx("option", { value: "", children: "\u2014 Select user \u2014" }), (users.data ?? []).map((u) => (_jsx("option", { value: u.id, children: userLabel(u) }, u.id)))] })] }), _jsxs("div", { className: `upload-zone${drag ? " drag" : ""}`, onClick: () => document.getElementById("csv-input")?.click(), onDragOver: (e) => {
                             e.preventDefault();
                             setDrag(true);
                         }, onDragLeave: () => setDrag(false), onDrop: (e) => {

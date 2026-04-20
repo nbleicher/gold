@@ -18,6 +18,7 @@ async function nextApprovedScheduleForStreamer(streamerId: string) {
   }>(
     `select id, date, start_time, status from schedules
      where streamer_id = ? and status = 'approved'
+       and ifnull(entry_type, 'stream') = 'stream'
        and datetime(date || ' ' || start_time) >= datetime('now', 'localtime')
      order by date asc, start_time asc
      limit 1`,

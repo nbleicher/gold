@@ -3,13 +3,21 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "../lib/api";
 import { useAuth } from "../state/auth";
 
-type AdminUser = { id: string; email: string; display_name: string | null; role: string };
+type AdminUser = {
+  id: string;
+  email: string;
+  display_name: string | null;
+  role: string;
+  is_active: number;
+};
 type ScheduleSlot = {
   id: string;
   date: string;
   start_time: string;
   streamer_id: string;
   created_at: string;
+  entry_type?: string;
+  hours_worked?: number | null;
   status: "pending" | "approved" | "rejected";
   pending_submitted_at: string | null;
   review_note: string | null;
@@ -48,6 +56,7 @@ export function SchedulePage() {
   const [formDate, setFormDate] = useState("");
   const [formTime, setFormTime] = useState("09:00");
   const [formStreamer, setFormStreamer] = useState("");
+  const [formHours, setFormHours] = useState("8");
   const [statusFilter, setStatusFilter] = useState<"all" | "pending" | "approved" | "rejected">("all");
 
   const weekDates = useMemo(() => getWeekDates(weekOffset), [weekOffset]);
@@ -61,10 +70,17 @@ export function SchedulePage() {
     enabled: isAdmin
   });
 
-  const streamHosts = useMemo(
-    () => (users.data ?? []).filter((u) => u.role === "admin" || u.role === "streamer"),
+  const scheduleAssignees = useMemo(
+    () =>
+      (users.data ?? []).filter(
+        (u) =>
+          Boolean(u.is_active) &&
+          (u.role === "admin" || u.role === "streamer" || u.role === "shipper" || u.role === "bagger")
+      ),
     [users.data]
   );
+
+  const assignee = useMemo(() => (users.data ?? []).find((u) => u.id === formStreamer), [users.data, formStreamer]);
 
   const schedules = useQuery({
     queryKey: [isAdmin ? "admin-schedules" : "my-schedules", from, to, statusFilter],
@@ -77,6 +93,17 @@ export function SchedulePage() {
           )
         : api<ScheduleSlot[]>(`/v1/schedules/mine?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`)
   });
+
+  const editingSlot = useMemo(
+    () => (schedules.data ?? []).find((s) => s.id === editingId) ?? null,
+    [schedules.data, editingId]
+  );
+
+  const modalLaborMode = Boolean(
+    editingId
+      ? editingSlot?.entry_type === "labor"
+      : assignee && (assignee.role === "shipper" || assignee.role === "bagger")
+  );
 
   const byDate = useMemo(() => {
     const m = new Map<string, ScheduleSlot[]>();
@@ -98,13 +125,27 @@ export function SchedulePage() {
   }, [schedules.data]);
 
   const createMut = useMutation({
-    mutationFn: () =>
-      api<ScheduleSlot>(isAdmin ? "/v1/admin/schedules" : "/v1/schedules/mine", {
+    mutationFn: () => {
+      if (isAdmin) {
+        const labor = assignee && (assignee.role === "shipper" || assignee.role === "bagger");
+        if (labor) {
+          const h = Number(formHours);
+          if (!Number.isFinite(h) || h <= 0) throw new Error("Hours worked must be a positive number");
+          return api<ScheduleSlot>("/v1/admin/schedules", {
+            method: "POST",
+            body: JSON.stringify({ date: formDate, streamerId: formStreamer, hoursWorked: h })
+          });
+        }
+        return api<ScheduleSlot>("/v1/admin/schedules", {
+          method: "POST",
+          body: JSON.stringify({ date: formDate, startTime: formTime, streamerId: formStreamer })
+        });
+      }
+      return api<ScheduleSlot>("/v1/schedules/mine", {
         method: "POST",
-        body: JSON.stringify(
-          isAdmin ? { date: formDate, startTime: formTime, streamerId: formStreamer } : { date: formDate, startTime: formTime }
-        )
-      }),
+        body: JSON.stringify({ date: formDate, startTime: formTime })
+      });
+    },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: [isAdmin ? "admin-schedules" : "my-schedules"] });
       closeModal();
@@ -112,13 +153,27 @@ export function SchedulePage() {
   });
 
   const patchMut = useMutation({
-    mutationFn: () =>
-      api<ScheduleSlot>(isAdmin ? `/v1/admin/schedules/${editingId}` : `/v1/schedules/mine/${editingId}`, {
+    mutationFn: () => {
+      if (!editingId) throw new Error("Nothing to edit");
+      if (isAdmin) {
+        if (editingSlot?.entry_type === "labor") {
+          const h = Number(formHours);
+          if (!Number.isFinite(h) || h <= 0) throw new Error("Hours worked must be a positive number");
+          return api<ScheduleSlot>(`/v1/admin/schedules/${editingId}`, {
+            method: "PATCH",
+            body: JSON.stringify({ date: formDate, streamerId: formStreamer, hoursWorked: h })
+          });
+        }
+        return api<ScheduleSlot>(`/v1/admin/schedules/${editingId}`, {
+          method: "PATCH",
+          body: JSON.stringify({ date: formDate, startTime: formTime, streamerId: formStreamer })
+        });
+      }
+      return api<ScheduleSlot>(`/v1/schedules/mine/${editingId}`, {
         method: "PATCH",
-        body: JSON.stringify(
-          isAdmin ? { date: formDate, startTime: formTime, streamerId: formStreamer } : { date: formDate, startTime: formTime }
-        )
-      }),
+        body: JSON.stringify({ date: formDate, startTime: formTime })
+      });
+    },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: [isAdmin ? "admin-schedules" : "my-schedules"] });
       closeModal();
@@ -149,10 +204,11 @@ export function SchedulePage() {
     setEditingId(null);
     setFormDate(dateKey);
     setFormTime("09:00");
+    setFormHours("8");
     if (isAdmin) {
-      const u = streamHosts;
+      const u = scheduleAssignees;
       if (!u.length) {
-        alert("Add an admin or streamer first.");
+        alert("Add a user (admin, streamer, shipper, or bagger) first.");
         return;
       }
       setFormStreamer(u[0].id);
@@ -167,12 +223,19 @@ export function SchedulePage() {
     setFormDate(slot.date);
     setFormTime(slot.start_time.length >= 5 ? slot.start_time.slice(0, 5) : slot.start_time);
     setFormStreamer(slot.streamer_id);
+    setFormHours(
+      slot.entry_type === "labor" && slot.hours_worked != null ? String(slot.hours_worked) : "8"
+    );
     setModalOpen(true);
   };
 
   const onSubmit = (e: FormEvent) => {
     e.preventDefault();
-    if (!formDate || !formTime || (isAdmin && !formStreamer)) return;
+    if (!formDate || (isAdmin && !formStreamer)) return;
+    if (isAdmin && modalLaborMode) {
+      const h = Number(formHours);
+      if (!Number.isFinite(h) || h <= 0) return;
+    } else if (!formTime) return;
     if (editingId) patchMut.mutate();
     else createMut.mutate();
   };
@@ -285,10 +348,12 @@ export function SchedulePage() {
                       borderRadius: 2
                     }}
                   >
-                    No streams
+                    Nothing scheduled
                   </div>
                 ) : (
-                  slots.map((s) => (
+                  slots.map((s) => {
+                    const labor = s.entry_type === "labor";
+                    return (
                     <div
                       key={s.id}
                       style={{
@@ -307,10 +372,12 @@ export function SchedulePage() {
                           marginBottom: "0.3rem"
                         }}
                       >
-                        Stream
+                        {labor ? "Labor" : "Stream"}
                       </div>
                       <div style={{ fontSize: "0.72rem", color: "var(--gold-light)", marginBottom: "0.2rem" }}>
-                        {s.start_time}
+                        {labor && s.hours_worked != null
+                          ? `${Number(s.hours_worked).toFixed(2)} hr`
+                          : s.start_time}
                       </div>
                       <div style={{ fontSize: "0.62rem", color: "var(--text-dim)" }}>Host: {slotHost(s)}</div>
                       <div style={{ marginTop: "0.25rem" }}>
@@ -337,13 +404,13 @@ export function SchedulePage() {
                             type="button"
                             className="btn btn-danger btn-sm"
                             onClick={() => {
-                              if (confirm("Delete this stream card?")) deleteMut.mutate(s.id);
+                              if (confirm("Delete this entry?")) deleteMut.mutate(s.id);
                             }}
                           >
                             ✕
                           </button>
                         ) : null}
-                        {isAdmin && s.status === "pending" ? (
+                        {isAdmin && s.status === "pending" && !labor ? (
                           <>
                             <button
                               type="button"
@@ -363,10 +430,11 @@ export function SchedulePage() {
                         ) : null}
                       </div>
                     </div>
-                  ))
+                  );
+                  })
                 )}
                 <button type="button" className="btn btn-outline btn-sm" style={{ width: "100%" }} onClick={() => openAdd(key)}>
-                  {isAdmin ? "+ Add stream" : "+ Request stream"}
+                  {isAdmin ? "+ Add" : "+ Request stream"}
                 </button>
               </div>
             </div>
@@ -384,9 +452,36 @@ export function SchedulePage() {
             ✕
           </button>
           <div className="modal-title">
-            {editingId ? "Edit scheduled stream" : isAdmin ? "Add scheduled stream" : "Request scheduled stream"}
+            {editingId
+              ? modalLaborMode
+                ? "Edit labor entry"
+                : "Edit scheduled stream"
+              : isAdmin
+                ? modalLaborMode
+                  ? "Add labor hours"
+                  : "Add scheduled stream"
+                : "Request scheduled stream"}
           </div>
           <form onSubmit={onSubmit}>
+            {isAdmin ? (
+              <div className="form-group">
+                <label className="form-label" htmlFor="sc-streamer">
+                  User
+                </label>
+                <select
+                  id="sc-streamer"
+                  className="form-input"
+                  value={formStreamer}
+                  onChange={(e) => setFormStreamer(e.target.value)}
+                >
+                  {scheduleAssignees.map((u) => (
+                    <option key={u.id} value={u.id}>
+                      {userLabel(u)} ({u.role})
+                    </option>
+                  ))}
+                </select>
+              </div>
+            ) : null}
             <div className="form-group">
               <label className="form-label" htmlFor="sc-date">
                 Date
@@ -399,37 +494,35 @@ export function SchedulePage() {
                 onChange={(e) => setFormDate(e.target.value)}
               />
             </div>
-            <div className="form-group">
-              <label className="form-label" htmlFor="sc-time">
-                Start time
-              </label>
-              <input
-                id="sc-time"
-                className="form-input"
-                type="time"
-                value={formTime}
-                onChange={(e) => setFormTime(e.target.value)}
-              />
-            </div>
-            {isAdmin ? (
+            {modalLaborMode ? (
               <div className="form-group">
-                <label className="form-label" htmlFor="sc-streamer">
-                  Streamer
+                <label className="form-label" htmlFor="sc-hours">
+                  Hours worked
                 </label>
-                <select
-                  id="sc-streamer"
+                <input
+                  id="sc-hours"
                   className="form-input"
-                  value={formStreamer}
-                  onChange={(e) => setFormStreamer(e.target.value)}
-                >
-                  {streamHosts.map((u) => (
-                    <option key={u.id} value={u.id}>
-                      {userLabel(u)}
-                    </option>
-                  ))}
-                </select>
+                  type="number"
+                  min={0.01}
+                  step={0.25}
+                  value={formHours}
+                  onChange={(e) => setFormHours(e.target.value)}
+                />
               </div>
-            ) : null}
+            ) : (
+              <div className="form-group">
+                <label className="form-label" htmlFor="sc-time">
+                  Start time
+                </label>
+                <input
+                  id="sc-time"
+                  className="form-input"
+                  type="time"
+                  value={formTime}
+                  onChange={(e) => setFormTime(e.target.value)}
+                />
+              </div>
+            )}
             {mutError ? <p className="error">{(mutError as Error).message}</p> : null}
             {reviewMut.error ? <p className="error">{(reviewMut.error as Error).message}</p> : null}
             <div className="modal-actions">

@@ -103,8 +103,6 @@ export function AdminUsersPage() {
         if (requiresLogin) {
             if (!email.trim() || !password.trim())
                 return;
-            if (password.length < 8)
-                return;
         }
         createUser.mutate();
     };

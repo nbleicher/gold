@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "../lib/api";
 
@@ -12,6 +12,7 @@ type AdminUser = {
   hourly_rate: number;
   requires_login: number;
 };
+
 type PayrollRow = {
   id: string;
   user_id: string;
@@ -22,34 +23,60 @@ type PayrollRow = {
   display_name: string | null;
 };
 
-type PreviewState = { filename: string; headers: string[]; rows: string[][] } | null;
-
-type CommissionPreviewParams = { userId: string; start: string; end: string };
-
-type CommissionPreviewResponse = {
+type WeeklySummaryRow = {
   userId: string;
+  email: string;
+  displayName: string | null;
+  role: string;
+  payStructure: string;
   commissionPercent: number;
-  streams: Array<{
-    streamId: string;
-    startedAt: string;
-    completedEarnings: number | null;
-    cogs: number;
-    net: number;
-    missingCompletedEarnings: boolean;
-  }>;
-  totalNet: number;
-  commissionAmount: number;
+  hourlyRate: number;
+  hoursWorkedWeek: number;
+  hourlyPay: number;
+  commissionPay: number;
+  totalPay: number;
 };
+
+type WeeklySummaryResponse = {
+  from: string;
+  to: string;
+  users: WeeklySummaryRow[];
+};
+
+type PreviewState = { filename: string; headers: string[]; rows: string[][] } | null;
 
 /** Set to true to show CSV import UI again. */
 const PAYROLL_CSV_IMPORT_ENABLED = false;
 
+function localYmd(d: Date): string {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
+function getWeekDates(weekOffset: number): Date[] {
+  const now = new Date();
+  const day = now.getDay();
+  const mon = new Date(now);
+  mon.setDate(now.getDate() - (day === 0 ? 6 : day - 1) + weekOffset * 7);
+  return Array.from({ length: 7 }, (_, i) => {
+    const d = new Date(mon);
+    d.setDate(mon.getDate() + i);
+    return d;
+  });
+}
+
 function parseCsvFile(text: string, filename: string): { headers: string[]; rows: string[][] } {
-  const lines = text.split(/\n/).filter((l) => l.trim());
+  const lines = text.split("\n").filter((l) => l.trim());
   if (!lines.length) return { headers: [], rows: [] };
   const headers = lines[0].split(",").map((h) => h.trim());
   const rows = lines.slice(1).map((l) => l.split(",").map((c) => c.trim()));
   return { headers, rows };
+}
+
+function money(n: number) {
+  return n.toLocaleString("en-US", { style: "currency", currency: "USD" });
 }
 
 export function PayrollPage() {
@@ -57,25 +84,23 @@ export function PayrollPage() {
   const [userId, setUserId] = useState("");
   const [preview, setPreview] = useState<PreviewState>(null);
   const [drag, setDrag] = useState(false);
+  const [weekOffset, setWeekOffset] = useState(0);
 
-  const [commissionUserId, setCommissionUserId] = useState("");
-  const [commissionStart, setCommissionStart] = useState("");
-  const [commissionEnd, setCommissionEnd] = useState("");
-  const [commissionParams, setCommissionParams] = useState<CommissionPreviewParams | null>(null);
+  const weekDates = useMemo(() => getWeekDates(weekOffset), [weekOffset]);
+  const from = localYmd(weekDates[0]);
+  const to = localYmd(weekDates[6]);
 
   const users = useQuery({
     queryKey: ["admin-users"],
     queryFn: () => api<AdminUser[]>("/v1/admin/users")
   });
 
-  const commissionPreview = useQuery({
-    queryKey: ["payroll-commission-preview", commissionParams],
+  const weeklySummary = useQuery({
+    queryKey: ["payroll-weekly-summary", from, to],
     queryFn: () => {
-      const p = commissionParams!;
-      const qs = new URLSearchParams({ userId: p.userId, start: p.start, end: p.end });
-      return api<CommissionPreviewResponse>(`/v1/admin/payroll/commission-preview?${qs.toString()}`);
-    },
-    enabled: commissionParams !== null
+      const qs = new URLSearchParams({ from, to });
+      return api<WeeklySummaryResponse>(`/v1/admin/payroll/weekly-summary?${qs.toString()}`);
+    }
   });
 
   const payroll = useQuery({
@@ -123,184 +148,76 @@ export function PayrollPage() {
   const userLabel = (u: AdminUser) =>
     u.display_name?.trim() || (u.email.includes("@internal.invalid") ? `${u.id.slice(0, 8)}…` : u.email);
 
-  const commissionEligibleUsers = useMemo(
-    () => (users.data ?? []).filter((u) => u.pay_structure === "commission"),
-    [users.data]
-  );
-
-  const selectedCommissionUser = useMemo(
-    () => (users.data ?? []).find((u) => u.id === commissionUserId),
-    [users.data, commissionUserId]
-  );
-
-  useEffect(() => {
-    if (!commissionUserId) return;
-    if (!commissionEligibleUsers.some((u) => u.id === commissionUserId)) {
-      setCommissionUserId("");
-      setCommissionParams(null);
-    }
-  }, [commissionEligibleUsers, commissionUserId]);
+  const weekLabel = `${weekDates[0].toLocaleDateString("en-US", { month: "short", day: "numeric" })} — ${weekDates[6].toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}`;
 
   return (
     <section className="card">
       <h2>Payroll</h2>
       <p className="pg-sub" style={{ marginBottom: "1rem", fontSize: "0.65rem", color: "var(--text-dim)" }}>
-        Commission calculator from stream net profit
+        Weekly pay from labor hours (hourly) and stream net profit (commission). Uses schedule labor entries and
+        streams in the selected week (Mon–Sun).
       </p>
 
-      {users.error || payroll.error ? (
-        <p className="error">{String((users.error ?? payroll.error) as Error)}</p>
+      {users.error || payroll.error || weeklySummary.error ? (
+        <p className="error">{String((users.error ?? payroll.error ?? weeklySummary.error) as Error)}</p>
       ) : null}
 
       <div className="card" style={{ marginBottom: "1.5rem", padding: "1.2rem", background: "var(--slate)" }}>
         <div style={{ fontSize: "0.65rem", letterSpacing: "0.12em", color: "var(--muted)", marginBottom: "0.75rem" }}>
-          COMMISSION PAYROLL
+          WEEKLY PAY SUMMARY
         </div>
-        <p style={{ fontSize: "0.65rem", color: "var(--text-dim)", marginBottom: "1rem", lineHeight: 1.45 }}>
-          Streams whose <strong>started at</strong> date falls in the range (inclusive). Net per stream is completed
-          earnings minus COGS; streams without completed earnings count as $0 net and are flagged below. Only users on{" "}
-          <strong>commission</strong> pay appear in the list; hourly workers are excluded from this calculator.
-        </p>
-        <div className="grid-form" style={{ display: "flex", flexWrap: "wrap", gap: "0.75rem", alignItems: "flex-end" }}>
-          <div className="form-group" style={{ minWidth: 200 }}>
-            <label className="form-label" htmlFor="pc-user">
-              User
-            </label>
-            <select
-              id="pc-user"
-              className="form-input"
-              value={commissionUserId}
-              onChange={(e) => setCommissionUserId(e.target.value)}
-            >
-              <option value="">— Select user —</option>
-              {commissionEligibleUsers.map((u) => (
-                <option key={u.id} value={u.id}>
-                  {userLabel(u)}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div className="form-group" style={{ minWidth: 140 }}>
-            <label className="form-label" htmlFor="pc-start">
-              Start (YYYY-MM-DD)
-            </label>
-            <input
-              id="pc-start"
-              className="form-input"
-              type="date"
-              value={commissionStart}
-              onChange={(e) => setCommissionStart(e.target.value)}
-            />
-          </div>
-          <div className="form-group" style={{ minWidth: 140 }}>
-            <label className="form-label" htmlFor="pc-end">
-              End (YYYY-MM-DD)
-            </label>
-            <input
-              id="pc-end"
-              className="form-input"
-              type="date"
-              value={commissionEnd}
-              onChange={(e) => setCommissionEnd(e.target.value)}
-            />
-          </div>
-          <button
-            type="button"
-            className="btn btn-gold"
-            disabled={!commissionUserId || !commissionStart || !commissionEnd || commissionPreview.isFetching}
-            onClick={() =>
-              setCommissionParams({
-                userId: commissionUserId,
-                start: commissionStart,
-                end: commissionEnd
-              })
-            }
-          >
-            Calculate
+        <div style={{ display: "flex", alignItems: "center", gap: "1rem", marginBottom: "1rem" }}>
+          <button type="button" className="btn btn-outline btn-sm" onClick={() => setWeekOffset((w) => w - 1)}>
+            ◀ Prev week
+          </button>
+          <span style={{ flex: 1, textAlign: "center", fontSize: "0.72rem", color: "var(--text-dim)" }}>{weekLabel}</span>
+          <button type="button" className="btn btn-outline btn-sm" onClick={() => setWeekOffset((w) => w + 1)}>
+            Next week ▶
           </button>
         </div>
-        {selectedCommissionUser ? (
-          <div style={{ fontSize: "0.65rem", color: "var(--muted)", marginTop: "0.75rem" }}>
-            Commission rate:{" "}
-            <strong style={{ color: "var(--gold)" }}>
-              {Number(selectedCommissionUser.commission_percent ?? 0).toFixed(1)}%
-            </strong>{" "}
-            (edit under User Management)
-          </div>
-        ) : null}
-        {commissionPreview.error ? (
-          <p className="error" style={{ marginTop: "0.75rem" }}>
-            {(commissionPreview.error as Error).message}
-          </p>
-        ) : null}
-        {commissionPreview.data ? (
-          <div style={{ marginTop: "1rem" }}>
-            <div className="stats-row" style={{ gridTemplateColumns: "repeat(3, 1fr)", marginBottom: "1rem" }}>
-              <div className="stat-box">
-                <div className="stat-lbl">Total net (streams)</div>
-                <div className="stat-val">
-                  $
-                  {commissionPreview.data.totalNet.toLocaleString("en-US", {
-                    minimumFractionDigits: 2,
-                    maximumFractionDigits: 2
-                  })}
-                </div>
-              </div>
-              <div className="stat-box">
-                <div className="stat-lbl">Commission ({commissionPreview.data.commissionPercent.toFixed(1)}%)</div>
-                <div className="stat-val">
-                  $
-                  {commissionPreview.data.commissionAmount.toLocaleString("en-US", {
-                    minimumFractionDigits: 2,
-                    maximumFractionDigits: 2
-                  })}
-                </div>
-              </div>
-              <div className="stat-box">
-                <div className="stat-lbl">Streams in range</div>
-                <div className="stat-val">{commissionPreview.data.streams.length}</div>
-              </div>
-            </div>
-            <div className="tbl-wrap">
-              <table className="tbl">
-                <thead>
+        <p style={{ fontSize: "0.62rem", color: "var(--muted)", marginBottom: "0.75rem" }}>
+          Range: <strong style={{ color: "var(--text)" }}>{from}</strong> to <strong style={{ color: "var(--text)" }}>{to}</strong>
+        </p>
+        {weeklySummary.isFetching ? (
+          <p style={{ fontSize: "0.65rem", color: "var(--muted)" }}>Loading…</p>
+        ) : (
+          <div className="tbl-wrap">
+            <table className="tbl">
+              <thead>
+                <tr>
+                  <th>User</th>
+                  <th>Role</th>
+                  <th>Pay</th>
+                  <th>Hours (wk)</th>
+                  <th>Hourly pay</th>
+                  <th>Commission pay</th>
+                  <th>Total</th>
+                </tr>
+              </thead>
+              <tbody>
+                {(weeklySummary.data?.users ?? []).length === 0 ? (
                   <tr>
-                    <th>Started</th>
-                    <th>Completed earnings</th>
-                    <th>COGS</th>
-                    <th>Net</th>
-                    <th>Note</th>
+                    <td colSpan={7} className="tbl-empty">
+                      No users
+                    </td>
                   </tr>
-                </thead>
-                <tbody>
-                  {commissionPreview.data.streams.length === 0 ? (
-                    <tr>
-                      <td colSpan={5} className="tbl-empty">
-                        No streams in this date range
-                      </td>
+                ) : (
+                  (weeklySummary.data?.users ?? []).map((r) => (
+                    <tr key={r.userId}>
+                      <td className="tbl-gold">{r.displayName?.trim() || r.email}</td>
+                      <td style={{ fontSize: "0.7rem" }}>{r.role}</td>
+                      <td style={{ fontSize: "0.7rem" }}>{r.payStructure}</td>
+                      <td>{r.hoursWorkedWeek.toFixed(2)}</td>
+                      <td>{money(r.hourlyPay)}</td>
+                      <td>{money(r.commissionPay)}</td>
+                      <td className="tbl-green">{money(r.totalPay)}</td>
                     </tr>
-                  ) : (
-                    commissionPreview.data.streams.map((row) => (
-                      <tr key={row.streamId}>
-                        <td>{new Date(row.startedAt).toLocaleString()}</td>
-                        <td>
-                          {row.completedEarnings != null
-                            ? `$${row.completedEarnings.toFixed(2)}`
-                            : "—"}
-                        </td>
-                        <td>${row.cogs.toFixed(2)}</td>
-                        <td className="tbl-green">${row.net.toFixed(2)}</td>
-                        <td style={{ fontSize: "0.62rem", color: "var(--muted)" }}>
-                          {row.missingCompletedEarnings ? "No completed earnings (net treated as $0)" : ""}
-                        </td>
-                      </tr>
-                    ))
-                  )}
-                </tbody>
-              </table>
-            </div>
+                  ))
+                )}
+              </tbody>
+            </table>
           </div>
-        ) : null}
+        )}
       </div>
 
       {PAYROLL_CSV_IMPORT_ENABLED ? (

@@ -9,11 +9,10 @@ export async function registerOpsRoutes(app: FastifyInstance) {
 
   app.post("/v1/schedules", { preHandler: requireRole("admin") }, async (req) => {
     const body = req.body as { date: string; startTime: string; streamerId: string };
-    await q("insert into schedules (date, start_time, streamer_id) values (?, ?, ?)", [
-      body.date,
-      body.startTime,
-      body.streamerId
-    ]);
+    await q(
+      "insert into schedules (date, start_time, streamer_id, entry_type, hours_worked) values (?, ?, ?, 'stream', null)",
+      [body.date, body.startTime, body.streamerId]
+    );
     return one("select * from schedules order by rowid desc limit 1");
   });
 

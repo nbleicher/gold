@@ -31,16 +31,29 @@ const createPayrollSchema = z.object({
   rows: z.number().int().nonnegative()
 });
 
-const createScheduleSchema = z.object({
-  date: z.string().min(10),
-  startTime: z.string().min(1),
-  streamerId: z.string().min(1)
-});
+const adminCreateScheduleBodySchema = z
+  .object({
+    date: z.string().min(10),
+    streamerId: z.string().min(1),
+    startTime: z.string().min(1).optional(),
+    hoursWorked: z.number().positive().optional()
+  })
+  .superRefine((data, ctx) => {
+    const hasTime = Boolean(data.startTime?.trim());
+    const hasHours = data.hoursWorked != null;
+    if (hasTime === hasHours) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Provide exactly one of: startTime (stream slot) or hoursWorked (labor entry)"
+      });
+    }
+  });
 
 const patchScheduleSchema = z.object({
   date: z.string().min(10).optional(),
   startTime: z.string().min(1).optional(),
-  streamerId: z.string().min(1).optional()
+  streamerId: z.string().min(1).optional(),
+  hoursWorked: z.number().positive().optional()
 });
 
 const reviewScheduleSchema = z.object({
@@ -120,6 +133,90 @@ async function computeCogsByItemIdForDbItems(items: StreamItemWithSpot[]): Promi
   }
 
   return cogsByItemId(items, batchById, orderBySticker, componentsByOrderId);
+}
+
+type CommissionStreamRowPreview = {
+  streamId: string;
+  startedAt: string;
+  completedEarnings: number | null;
+  cogs: number;
+  net: number;
+  missingCompletedEarnings: boolean;
+};
+
+async function computeCommissionMetricsForUser(
+  userId: string,
+  start: string,
+  end: string,
+  commissionPercentField: number
+): Promise<{
+  streams: CommissionStreamRowPreview[];
+  totalNet: number;
+  commissionAmount: number;
+  commissionPercent: number;
+}> {
+  const streams = await q<{
+    id: string;
+    started_at: string;
+    completed_earnings: number | null;
+  }>(
+    `select id, started_at, completed_earnings from streams
+     where user_id = ? and date(started_at) >= date(?) and date(started_at) <= date(?)
+     order by started_at desc`,
+    [userId, start, end]
+  );
+
+  const pct = Number(commissionPercentField);
+  const rate = (Number.isFinite(pct) ? pct : 0) / 100;
+
+  if (!streams.length) {
+    return {
+      streams: [],
+      totalNet: 0,
+      commissionAmount: 0,
+      commissionPercent: Number.isFinite(pct) ? pct : 0
+    };
+  }
+
+  const streamIds = streams.map((s) => s.id);
+  const ph = streamIds.map(() => "?").join(",");
+  const items = await q<StreamItemWithSpot>(
+    `select id, stream_id, sale_type, batch_id, weight_grams, sticker_code, spot_value from stream_items where stream_id in (${ph})`,
+    streamIds
+  );
+  const cogsMap = await computeCogsByItemIdForDbItems(items);
+  const cogsByStream = new Map<string, number>();
+  for (const it of items) {
+    const c = cogsMap.get(it.id) ?? 0;
+    cogsByStream.set(it.stream_id, (cogsByStream.get(it.stream_id) ?? 0) + c);
+  }
+
+  let totalNet = 0;
+  const rows = streams.map((st) => {
+    const cogs = cogsByStream.get(st.id) ?? 0;
+    const ce = st.completed_earnings;
+    const completed =
+      ce === null || ce === undefined || !Number.isFinite(Number(ce)) ? null : Number(ce);
+    const missingCompletedEarnings = completed === null;
+    const net = missingCompletedEarnings ? 0 : completed - cogs;
+    if (!missingCompletedEarnings) totalNet += net;
+    return {
+      streamId: st.id,
+      startedAt: st.started_at,
+      completedEarnings: completed,
+      cogs,
+      net,
+      missingCompletedEarnings
+    };
+  });
+
+  const commissionAmount = totalNet * rate;
+  return {
+    streams: rows,
+    totalNet,
+    commissionAmount,
+    commissionPercent: Number.isFinite(pct) ? pct : 0
+  };
 }
 
 export async function registerAdminRoutes(app: FastifyInstance) {
@@ -366,71 +463,74 @@ export async function registerAdminRoutes(app: FastifyInstance) {
       return req.server.httpErrors.badRequest("Commission preview only applies to users on commission pay");
     }
 
-    const streams = await q<{
-      id: string;
-      started_at: string;
-      completed_earnings: number | null;
-    }>(
-      `select id, started_at, completed_earnings from streams
-       where user_id = ? and date(started_at) >= date(?) and date(started_at) <= date(?)
-       order by started_at desc`,
-      [userId, start, end]
-    );
-
-    if (!streams.length) {
-      const pct = Number(user.commission_percent);
-      return {
-        userId,
-        commissionPercent: Number.isFinite(pct) ? pct : 0,
-        streams: [] as Array<Record<string, unknown>>,
-        totalNet: 0,
-        commissionAmount: 0
-      };
-    }
-
-    const streamIds = streams.map((s) => s.id);
-    const ph = streamIds.map(() => "?").join(",");
-    const items = await q<StreamItemWithSpot>(
-      `select id, stream_id, sale_type, batch_id, weight_grams, sticker_code, spot_value from stream_items where stream_id in (${ph})`,
-      streamIds
-    );
-    const cogsMap = await computeCogsByItemIdForDbItems(items);
-    const cogsByStream = new Map<string, number>();
-    for (const it of items) {
-      const c = cogsMap.get(it.id) ?? 0;
-      cogsByStream.set(it.stream_id, (cogsByStream.get(it.stream_id) ?? 0) + c);
-    }
-
-    const pct = Number(user.commission_percent);
-    const rate = (Number.isFinite(pct) ? pct : 0) / 100;
-
-    let totalNet = 0;
-    const rows = streams.map((st) => {
-      const cogs = cogsByStream.get(st.id) ?? 0;
-      const ce = st.completed_earnings;
-      const completed =
-        ce === null || ce === undefined || !Number.isFinite(Number(ce)) ? null : Number(ce);
-      const missingCompletedEarnings = completed === null;
-      const net = missingCompletedEarnings ? 0 : completed - cogs;
-      if (!missingCompletedEarnings) totalNet += net;
-      return {
-        streamId: st.id,
-        startedAt: st.started_at,
-        completedEarnings: completed,
-        cogs,
-        net,
-        missingCompletedEarnings
-      };
-    });
-
-    const commissionAmount = totalNet * rate;
+    const metrics = await computeCommissionMetricsForUser(userId, start, end, Number(user.commission_percent));
     return {
       userId,
-      commissionPercent: Number.isFinite(pct) ? pct : 0,
-      streams: rows,
-      totalNet,
-      commissionAmount
+      commissionPercent: metrics.commissionPercent,
+      streams: metrics.streams,
+      totalNet: metrics.totalNet,
+      commissionAmount: metrics.commissionAmount
     };
+  });
+
+  app.get("/v1/admin/payroll/weekly-summary", adminPre, async (req) => {
+    const parsed = z
+      .object({
+        from: z.string().min(10),
+        to: z.string().min(10)
+      })
+      .safeParse(req.query);
+    if (!parsed.success) {
+      return req.server.httpErrors.badRequest("from and to query params required (YYYY-MM-DD)");
+    }
+    const { from, to } = parsed.data;
+
+    const usersList = await q<{
+      id: string;
+      email: string;
+      display_name: string | null;
+      role: string;
+      pay_structure: string;
+      commission_percent: number;
+      hourly_rate: number;
+    }>(
+      `select id, email, display_name, role, pay_structure, commission_percent, hourly_rate
+       from users where purged_at is null order by email asc`
+    );
+
+    const rows = [];
+    for (const u of usersList) {
+      const hoursRow = await one<{ s: number | null }>(
+        `select sum(hours_worked) as s from schedules
+         where streamer_id = ? and entry_type = 'labor' and date >= ? and date <= ?`,
+        [u.id, from, to]
+      );
+      const hoursWorkedWeek = Number(hoursRow?.s ?? 0);
+      const hourlyRate = Number(u.hourly_rate ?? 0);
+      const hourlyPay = u.pay_structure === "hourly" ? hoursWorkedWeek * hourlyRate : 0;
+
+      let commissionPay = 0;
+      if (u.pay_structure === "commission") {
+        const m = await computeCommissionMetricsForUser(u.id, from, to, Number(u.commission_percent));
+        commissionPay = m.commissionAmount;
+      }
+
+      rows.push({
+        userId: u.id,
+        email: u.email,
+        displayName: u.display_name,
+        role: u.role,
+        payStructure: u.pay_structure,
+        commissionPercent: Number(u.commission_percent),
+        hourlyRate,
+        hoursWorkedWeek,
+        hourlyPay,
+        commissionPay,
+        totalPay: hourlyPay + commissionPay
+      });
+    }
+
+    return { from, to, users: rows };
   });
 
   app.get("/v1/admin/schedules", adminPre, async (req) => {
@@ -443,6 +543,8 @@ export async function registerAdminRoutes(app: FastifyInstance) {
       start_time: string;
       streamer_id: string;
       created_at: string;
+      entry_type: string;
+      hours_worked: number | null;
       status: "pending" | "approved" | "rejected";
       submitted_by: string | null;
       pending_submitted_at: string | null;
@@ -456,7 +558,7 @@ export async function registerAdminRoutes(app: FastifyInstance) {
       reviewed_by_email: string | null;
       reviewed_by_display_name: string | null;
     }>(
-      `select s.id, s.date, s.start_time, s.streamer_id, s.created_at, s.status, s.submitted_by, s.pending_submitted_at,
+      `select s.id, s.date, s.start_time, s.streamer_id, s.created_at, s.entry_type, s.hours_worked, s.status, s.submitted_by, s.pending_submitted_at,
               s.reviewed_at, s.reviewed_by, s.review_note,
               u.email as streamer_email, u.display_name as streamer_display_name,
               su.email as submitted_by_email, su.display_name as submitted_by_display_name,
@@ -476,18 +578,52 @@ export async function registerAdminRoutes(app: FastifyInstance) {
   });
 
   app.post("/v1/admin/schedules", adminPre, async (req) => {
-    const body = createScheduleSchema.parse(req.body);
-    const user = await one<{ id: string }>("select id from users where id = ?", [body.streamerId]);
-    if (!user) throw new Error("Streamer not found");
+    const body = adminCreateScheduleBodySchema.parse(req.body);
+    const assignee = await one<{ id: string; role: AppRole }>(
+      "select id, role from users where id = ? and purged_at is null",
+      [body.streamerId]
+    );
+    if (!assignee) throw new Error("User not found");
+
+    const actor = req.authUser?.sub ?? null;
+    const isLabor = body.hoursWorked != null;
+
+    if (isLabor) {
+      if (assignee.role !== "shipper" && assignee.role !== "bagger") {
+        throw new Error("Labor hours can only be assigned to shippers or baggers");
+      }
+      const hoursWorked = body.hoursWorked!;
+      const ins = await one<{ id: string }>(
+        `insert into schedules (date, start_time, streamer_id, status, submitted_by, pending_submitted_at, reviewed_at, reviewed_by, entry_type, hours_worked)
+         values (?, '00:00', ?, 'approved', ?, datetime('now'), datetime('now'), ?, 'labor', ?)
+         returning id`,
+        [body.date, body.streamerId, actor, actor, hoursWorked]
+      );
+      if (!ins) throw new Error("Schedule insert failed");
+      return one(
+        `select s.id, s.date, s.start_time, s.streamer_id, s.created_at, s.entry_type, s.hours_worked, s.status, s.submitted_by, s.pending_submitted_at,
+                s.reviewed_at, s.reviewed_by, s.review_note,
+                u.email as streamer_email, u.display_name as streamer_display_name
+         from schedules s
+         join users u on u.id = s.streamer_id
+         where s.id = ?`,
+        [ins.id]
+      );
+    }
+
+    if (assignee.role !== "admin" && assignee.role !== "streamer") {
+      throw new Error("Stream slots can only be assigned to admins or streamers");
+    }
+    const startTime = body.startTime!.trim();
     const ins = await one<{ id: string }>(
-      `insert into schedules (date, start_time, streamer_id, status, submitted_by, pending_submitted_at, reviewed_at, reviewed_by)
-       values (?, ?, ?, 'approved', ?, datetime('now'), datetime('now'), ?)
+      `insert into schedules (date, start_time, streamer_id, status, submitted_by, pending_submitted_at, reviewed_at, reviewed_by, entry_type, hours_worked)
+       values (?, ?, ?, 'approved', ?, datetime('now'), datetime('now'), ?, 'stream', null)
        returning id`,
-      [body.date, body.startTime, body.streamerId, req.authUser?.sub ?? null, req.authUser?.sub ?? null]
+      [body.date, startTime, body.streamerId, actor, actor]
     );
     if (!ins) throw new Error("Schedule insert failed");
     return one(
-      `select s.id, s.date, s.start_time, s.streamer_id, s.created_at, s.status, s.submitted_by, s.pending_submitted_at,
+      `select s.id, s.date, s.start_time, s.streamer_id, s.created_at, s.entry_type, s.hours_worked, s.status, s.submitted_by, s.pending_submitted_at,
               s.reviewed_at, s.reviewed_by, s.review_note,
               u.email as streamer_email, u.display_name as streamer_display_name
        from schedules s
@@ -502,27 +638,60 @@ export async function registerAdminRoutes(app: FastifyInstance) {
     const body = patchScheduleSchema.parse(req.body);
     const existing = await one<{ id: string }>("select id from schedules where id = ?", [id]);
     if (!existing) throw new Error("Schedule slot not found");
-    if (body.streamerId) {
-      const u = await one<{ id: string }>("select id from users where id = ?", [body.streamerId]);
-      if (!u) throw new Error("Streamer not found");
-    }
     const row = await one<{
       date: string;
       start_time: string;
       streamer_id: string;
-    }>("select date, start_time, streamer_id from schedules where id = ?", [id]);
+      entry_type: string;
+      hours_worked: number | null;
+    }>("select date, start_time, streamer_id, entry_type, hours_worked from schedules where id = ?", [id]);
     if (!row) throw new Error("Schedule slot not found");
-    const date = body.date ?? row.date;
-    const startTime = body.startTime ?? row.start_time;
-    const streamerId = body.streamerId ?? row.streamer_id;
-    await q("update schedules set date = ?, start_time = ?, streamer_id = ? where id = ?", [
-      date,
-      startTime,
-      streamerId,
-      id
-    ]);
+
+    if (body.streamerId) {
+      const u = await one<{ id: string; role: AppRole }>("select id, role from users where id = ? and purged_at is null", [
+        body.streamerId
+      ]);
+      if (!u) throw new Error("User not found");
+      if (row.entry_type === "labor") {
+        if (u.role !== "shipper" && u.role !== "bagger") {
+          throw new Error("Labor entries can only be assigned to shippers or baggers");
+        }
+      } else if (u.role !== "admin" && u.role !== "streamer") {
+        throw new Error("Stream slots can only be assigned to admins or streamers");
+      }
+    }
+
+    if (row.entry_type === "labor") {
+      if (body.startTime !== undefined) {
+        throw new Error("Cannot set start time on a labor entry");
+      }
+      const date = body.date ?? row.date;
+      const streamerId = body.streamerId ?? row.streamer_id;
+      const hours = body.hoursWorked ?? row.hours_worked;
+      if (hours === null || hours === undefined || !Number.isFinite(Number(hours)) || Number(hours) <= 0) {
+        throw new Error("hoursWorked must be a positive number for labor entries");
+      }
+      await q(
+        "update schedules set date = ?, start_time = '00:00', streamer_id = ?, hours_worked = ?, entry_type = 'labor' where id = ?",
+        [date, streamerId, Number(hours), id]
+      );
+    } else {
+      if (body.hoursWorked !== undefined) {
+        throw new Error("Cannot set hours worked on a stream entry");
+      }
+      const date = body.date ?? row.date;
+      const startTime = body.startTime ?? row.start_time;
+      const streamerId = body.streamerId ?? row.streamer_id;
+      await q("update schedules set date = ?, start_time = ?, streamer_id = ?, hours_worked = null, entry_type = 'stream' where id = ?", [
+        date,
+        startTime,
+        streamerId,
+        id
+      ]);
+    }
+
     return one(
-      `select s.id, s.date, s.start_time, s.streamer_id, s.created_at, s.status, s.submitted_by, s.pending_submitted_at,
+      `select s.id, s.date, s.start_time, s.streamer_id, s.created_at, s.entry_type, s.hours_worked, s.status, s.submitted_by, s.pending_submitted_at,
               s.reviewed_at, s.reviewed_by, s.review_note,
               u.email as streamer_email, u.display_name as streamer_display_name
        from schedules s
@@ -535,9 +704,15 @@ export async function registerAdminRoutes(app: FastifyInstance) {
   app.patch("/v1/admin/schedules/:id/review", adminPre, async (req) => {
     const { id } = req.params as { id: string };
     const body = reviewScheduleSchema.parse(req.body);
-    const existing = await one<{ id: string; status: string }>("select id, status from schedules where id = ?", [id]);
+    const existing = await one<{ id: string; status: string; entry_type: string }>(
+      "select id, status, entry_type from schedules where id = ?",
+      [id]
+    );
     if (!existing) {
       return req.server.httpErrors.notFound("Schedule slot not found");
+    }
+    if (existing.entry_type === "labor") {
+      return req.server.httpErrors.conflict("Labor entries cannot be reviewed");
     }
     if (existing.status !== "pending") {
       return req.server.httpErrors.conflict("Only pending schedules can be reviewed");
@@ -562,6 +737,8 @@ export async function registerAdminRoutes(app: FastifyInstance) {
       start_time: string;
       streamer_id: string;
       created_at: string;
+      entry_type: string;
+      hours_worked: number | null;
       status: "pending" | "approved" | "rejected";
       submitted_by: string | null;
       pending_submitted_at: string | null;
@@ -571,7 +748,7 @@ export async function registerAdminRoutes(app: FastifyInstance) {
       streamer_email: string;
       streamer_display_name: string | null;
     }>(
-      `select s.id, s.date, s.start_time, s.streamer_id, s.created_at, s.status, s.submitted_by, s.pending_submitted_at,
+      `select s.id, s.date, s.start_time, s.streamer_id, s.created_at, s.entry_type, s.hours_worked, s.status, s.submitted_by, s.pending_submitted_at,
               s.reviewed_at, s.reviewed_by, s.review_note, u.email as streamer_email, u.display_name as streamer_display_name
        from schedules s
        join users u on u.id = s.streamer_id
@@ -586,14 +763,14 @@ export async function registerAdminRoutes(app: FastifyInstance) {
     if (!userId) throw new Error("Unauthorized");
     const body = z.object({ date: z.string().min(10), startTime: z.string().min(1) }).parse(req.body);
     const ins = await one<{ id: string }>(
-      `insert into schedules (date, start_time, streamer_id, status, submitted_by, pending_submitted_at)
-       values (?, ?, ?, 'pending', ?, datetime('now'))
+      `insert into schedules (date, start_time, streamer_id, status, submitted_by, pending_submitted_at, entry_type, hours_worked)
+       values (?, ?, ?, 'pending', ?, datetime('now'), 'stream', null)
        returning id`,
       [body.date, body.startTime, userId, userId]
     );
     if (!ins) throw new Error("Schedule insert failed");
     return one(
-      `select s.id, s.date, s.start_time, s.streamer_id, s.created_at, s.status, s.submitted_by, s.pending_submitted_at,
+      `select s.id, s.date, s.start_time, s.streamer_id, s.created_at, s.entry_type, s.hours_worked, s.status, s.submitted_by, s.pending_submitted_at,
               s.reviewed_at, s.reviewed_by, s.review_note, u.email as streamer_email, u.display_name as streamer_display_name
        from schedules s
        join users u on u.id = s.streamer_id
@@ -607,11 +784,18 @@ export async function registerAdminRoutes(app: FastifyInstance) {
     if (!userId) throw new Error("Unauthorized");
     const { id } = req.params as { id: string };
     const body = z.object({ date: z.string().min(10).optional(), startTime: z.string().min(1).optional() }).parse(req.body);
-    const existing = await one<{ id: string; submitted_by: string | null; status: string; date: string; start_time: string }>(
-      "select id, submitted_by, status, date, start_time from schedules where id = ?",
-      [id]
-    );
+    const existing = await one<{
+      id: string;
+      submitted_by: string | null;
+      status: string;
+      date: string;
+      start_time: string;
+      entry_type: string;
+    }>("select id, submitted_by, status, date, start_time, entry_type from schedules where id = ?", [id]);
     if (!existing || existing.submitted_by !== userId) return req.server.httpErrors.notFound("Schedule slot not found");
+    if (existing.entry_type === "labor") {
+      return req.server.httpErrors.conflict("Labor entries cannot be edited here");
+    }
     if (existing.status !== "pending") return req.server.httpErrors.conflict("Only pending schedules can be edited");
     await q("update schedules set date = ?, start_time = ?, pending_submitted_at = datetime('now') where id = ?", [
       body.date ?? existing.date,
