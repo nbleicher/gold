@@ -74,10 +74,8 @@ const adminRegisterUserSchema = z.object({
   password: z.string().min(8, "Password must be at least 8 characters").optional(),
   displayName: z.string().trim().optional(),
   role: z.enum(APP_ROLES),
-  payStructure: z.enum(["commission", "hourly"]),
   commissionPercent: z.number().min(0).max(100).optional(),
-  hourlyRate: z.number().nonnegative().optional(),
-  requiresLogin: z.boolean()
+  hourlyRate: z.number().nonnegative().optional()
 });
 
 export async function registerAuthRoutes(app: FastifyInstance) {
@@ -108,13 +106,22 @@ export async function registerAuthRoutes(app: FastifyInstance) {
     await requireRole("admin")(req);
 
     const raw = adminRegisterUserSchema.parse(req.body);
-    let requiresLogin = raw.requiresLogin;
-    if (raw.role === "admin") requiresLogin = true;
-    if (raw.role === "shipper" || raw.role === "bagger") requiresLogin = false;
+    const requiresLogin = raw.role === "admin" || raw.role === "streamer";
 
-    const commissionPct =
-      raw.payStructure === "commission" ? Math.min(100, Math.max(0, raw.commissionPercent ?? 0)) : 0;
-    const hourly = raw.payStructure === "hourly" ? Math.max(0, raw.hourlyRate ?? 0) : 0;
+    let payStructure: "commission" | "hourly";
+    let commissionPct = 0;
+    let hourly = 0;
+    if (raw.role === "admin") {
+      payStructure = "commission";
+      commissionPct = 0;
+      hourly = 0;
+    } else if (raw.role === "streamer") {
+      payStructure = "commission";
+      commissionPct = Math.min(100, Math.max(0, raw.commissionPercent ?? 0));
+    } else {
+      payStructure = "hourly";
+      hourly = Math.max(0, raw.hourlyRate ?? 0);
+    }
 
     if (requiresLogin) {
       if (!raw.email) {
@@ -132,15 +139,7 @@ export async function registerAuthRoutes(app: FastifyInstance) {
           email, password_hash, role, display_name,
           commission_percent, requires_login, pay_structure, hourly_rate
         ) values (?, ?, ?, ?, ?, 1, ?, ?)`,
-        [
-          email,
-          passwordHash,
-          raw.role,
-          raw.displayName?.trim() || null,
-          commissionPct,
-          raw.payStructure,
-          hourly
-        ]
+        [email, passwordHash, raw.role, raw.displayName?.trim() || null, commissionPct, payStructure, hourly]
       );
       const row = await one<{ id: string; role: AppRole; display_name: string | null }>(
         "select id, role, display_name from users where email = ?",
@@ -163,7 +162,7 @@ export async function registerAuthRoutes(app: FastifyInstance) {
         email, password_hash, role, display_name,
         commission_percent, requires_login, pay_structure, hourly_rate
       ) values (?, ?, ?, ?, ?, 0, ?, ?)`,
-      [placeholderEmail, passwordHash, raw.role, dn, commissionPct, raw.payStructure, hourly]
+      [placeholderEmail, passwordHash, raw.role, dn, commissionPct, payStructure, hourly]
     );
     const row = await one<{ id: string; role: AppRole; display_name: string | null }>(
       "select id, role, display_name from users where email = ?",

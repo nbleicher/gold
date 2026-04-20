@@ -66,9 +66,8 @@ const patchCompletedEarningsSchema = z.object({
 });
 
 const patchUserPaySettingsSchema = z.object({
-  payStructure: z.enum(["commission", "hourly"]),
-  commissionPercent: z.number().min(0).max(100),
-  hourlyRate: z.number().nonnegative()
+  commissionPercent: z.number().min(0).max(100).optional(),
+  hourlyRate: z.number().nonnegative().optional()
 });
 
 const purgeUserConfirmSchema = z.object({
@@ -243,20 +242,47 @@ export async function registerAdminRoutes(app: FastifyInstance) {
   app.patch("/v1/admin/users/:id/pay-settings", adminPre, async (req) => {
     const { id } = req.params as { id: string };
     const body = patchUserPaySettingsSchema.parse(req.body);
-    const target = await one<{ id: string }>("select id from users where id = ? and purged_at is null", [id]);
+    const target = await one<{ id: string; role: AppRole }>(
+      "select id, role from users where id = ? and purged_at is null",
+      [id]
+    );
     if (!target) {
       return req.server.httpErrors.notFound("User not found");
     }
-    const commissionPct = body.payStructure === "commission" ? body.commissionPercent : 0;
-    const hourly = body.payStructure === "hourly" ? body.hourlyRate : 0;
+    if (target.role === "admin") {
+      return req.server.httpErrors.badRequest("Admins do not have payroll pay settings");
+    }
+
+    let payStructure: "commission" | "hourly";
+    let commissionPct: number;
+    let hourly: number;
+
+    if (target.role === "streamer") {
+      if (body.commissionPercent === undefined) {
+        return req.server.httpErrors.badRequest("commissionPercent is required for streamers");
+      }
+      payStructure = "commission";
+      commissionPct = Math.min(100, Math.max(0, body.commissionPercent));
+      hourly = 0;
+    } else if (target.role === "shipper" || target.role === "bagger") {
+      if (body.hourlyRate === undefined) {
+        return req.server.httpErrors.badRequest("hourlyRate is required for shippers and baggers");
+      }
+      payStructure = "hourly";
+      hourly = body.hourlyRate;
+      commissionPct = 0;
+    } else {
+      return req.server.httpErrors.badRequest("Unsupported role for pay settings");
+    }
+
     await q(
       "update users set pay_structure = ?, commission_percent = ?, hourly_rate = ? where id = ?",
-      [body.payStructure, commissionPct, hourly, id]
+      [payStructure, commissionPct, hourly, id]
     );
     return {
       ok: true,
       id,
-      payStructure: body.payStructure,
+      payStructure,
       commissionPercent: commissionPct,
       hourlyRate: hourly
     };

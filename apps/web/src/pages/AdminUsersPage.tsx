@@ -1,4 +1,4 @@
-import { FormEvent, useEffect, useState } from "react";
+import { FormEvent, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "../lib/api";
 import { useAuth } from "../state/auth";
@@ -19,8 +19,6 @@ type AdminUser = {
   requires_login: number;
 };
 
-type PayStructure = "commission" | "hourly";
-
 export function AdminUsersPage() {
   const qc = useQueryClient();
   const { profile } = useAuth();
@@ -28,15 +26,8 @@ export function AdminUsersPage() {
   const [password, setPassword] = useState("");
   const [displayName, setDisplayName] = useState("");
   const [role, setRole] = useState<AppRole>("streamer");
-  const [payStructure, setPayStructure] = useState<PayStructure>("commission");
   const [commissionPercent, setCommissionPercent] = useState("10");
   const [hourlyRate, setHourlyRate] = useState("15");
-  const [requiresLogin, setRequiresLogin] = useState(true);
-
-  useEffect(() => {
-    if (role === "admin") setRequiresLogin(true);
-    if (role === "shipper" || role === "bagger") setRequiresLogin(false);
-  }, [role]);
 
   const users = useQuery({
     queryKey: ["admin-users"],
@@ -49,13 +40,15 @@ export function AdminUsersPage() {
       const hr = Number(hourlyRate);
       const body: Record<string, unknown> = {
         displayName: displayName.trim() || undefined,
-        role,
-        payStructure,
-        commissionPercent: payStructure === "commission" && Number.isFinite(pct) ? pct : 0,
-        hourlyRate: payStructure === "hourly" && Number.isFinite(hr) ? hr : 0,
-        requiresLogin
+        role
       };
-      if (requiresLogin) {
+      if (role === "streamer" && Number.isFinite(pct)) {
+        body.commissionPercent = pct;
+      }
+      if ((role === "shipper" || role === "bagger") && Number.isFinite(hr)) {
+        body.hourlyRate = hr;
+      }
+      if (role === "admin" || role === "streamer") {
         body.email = email.trim();
         body.password = password;
       }
@@ -70,10 +63,8 @@ export function AdminUsersPage() {
       setPassword("");
       setDisplayName("");
       setRole("streamer");
-      setPayStructure("commission");
       setCommissionPercent("10");
       setHourlyRate("15");
-      setRequiresLogin(true);
     }
   });
 
@@ -90,20 +81,19 @@ export function AdminUsersPage() {
   const [purgeConfirm, setPurgeConfirm] = useState("");
 
   const [payEditId, setPayEditId] = useState<string | null>(null);
-  const [payEditStructure, setPayEditStructure] = useState<PayStructure>("commission");
   const [payEditCommission, setPayEditCommission] = useState("");
   const [payEditHourly, setPayEditHourly] = useState("");
 
   const patchPaySettings = useMutation({
-    mutationFn: (args: { id: string; payStructure: PayStructure; commissionPercent: number; hourlyRate: number }) =>
-      api<{ ok: boolean }>(`/v1/admin/users/${args.id}/pay-settings`, {
+    mutationFn: (args: { id: string; commissionPercent?: number; hourlyRate?: number }) => {
+      const body: Record<string, number> = {};
+      if (args.commissionPercent !== undefined) body.commissionPercent = args.commissionPercent;
+      if (args.hourlyRate !== undefined) body.hourlyRate = args.hourlyRate;
+      return api<{ ok: boolean }>(`/v1/admin/users/${args.id}/pay-settings`, {
         method: "PATCH",
-        body: JSON.stringify({
-          payStructure: args.payStructure,
-          commissionPercent: args.commissionPercent,
-          hourlyRate: args.hourlyRate
-        })
-      }),
+        body: JSON.stringify(body)
+      });
+    },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["admin-users"] });
       setPayEditId(null);
@@ -123,10 +113,12 @@ export function AdminUsersPage() {
     }
   });
 
+  const needsLoginCredentials = role === "admin" || role === "streamer";
+
   const onSubmit = (e: FormEvent) => {
     e.preventDefault();
     if (!displayName.trim()) return;
-    if (requiresLogin) {
+    if (needsLoginCredentials) {
       if (!email.trim() || !password.trim()) return;
     }
     createUser.mutate();
@@ -140,10 +132,12 @@ export function AdminUsersPage() {
     return u.email;
   };
 
-  const payLabel = (u: AdminUser) =>
-    u.pay_structure === "hourly"
+  const payLabel = (u: AdminUser) => {
+    if (u.role === "admin") return "—";
+    return u.pay_structure === "hourly"
       ? `$${Number(u.hourly_rate ?? 0).toFixed(2)}/hr`
       : `${Number(u.commission_percent ?? 0).toFixed(1)}%`;
+  };
 
   const loginBadge = (u: AdminUser) =>
     canLoginRow(u) ? (
@@ -195,33 +189,10 @@ export function AdminUsersPage() {
                 <option value="bagger">Bagger</option>
               </select>
             </div>
-            <div className="form-group" style={{ minWidth: 220, flex: "1 1 220px" }}>
-              <span className="form-label">Pay structure</span>
-              <div style={{ display: "flex", gap: "1rem", flexWrap: "wrap", marginTop: "0.35rem" }}>
-                <label style={{ display: "flex", alignItems: "center", gap: "0.35rem", fontSize: "0.75rem" }}>
-                  <input
-                    type="radio"
-                    name="au-pay"
-                    checked={payStructure === "commission"}
-                    onChange={() => setPayStructure("commission")}
-                  />
-                  Commission (%)
-                </label>
-                <label style={{ display: "flex", alignItems: "center", gap: "0.35rem", fontSize: "0.75rem" }}>
-                  <input
-                    type="radio"
-                    name="au-pay"
-                    checked={payStructure === "hourly"}
-                    onChange={() => setPayStructure("hourly")}
-                  />
-                  Hourly ($/hr)
-                </label>
-              </div>
-            </div>
-            {payStructure === "commission" ? (
+            {role === "streamer" ? (
               <div className="form-group" style={{ minWidth: 100 }}>
                 <label className="form-label" htmlFor="au-commission">
-                  %
+                  Commission %
                 </label>
                 <input
                   id="au-commission"
@@ -234,10 +205,11 @@ export function AdminUsersPage() {
                   onChange={(e) => setCommissionPercent(e.target.value)}
                 />
               </div>
-            ) : (
+            ) : null}
+            {role === "shipper" || role === "bagger" ? (
               <div className="form-group" style={{ minWidth: 100 }}>
                 <label className="form-label" htmlFor="au-hourly">
-                  Rate
+                  Hourly rate
                 </label>
                 <input
                   id="au-hourly"
@@ -249,32 +221,16 @@ export function AdminUsersPage() {
                   onChange={(e) => setHourlyRate(e.target.value)}
                 />
               </div>
-            )}
-          </div>
-
-          <div style={{ marginBottom: "0.75rem" }}>
-            <label style={{ display: "flex", alignItems: "center", gap: "0.5rem", fontSize: "0.75rem" }}>
-              <input
-                type="checkbox"
-                checked={requiresLogin}
-                disabled={role === "admin" || role === "shipper" || role === "bagger"}
-                onChange={(e) => setRequiresLogin(e.target.checked)}
-              />
-              Requires app login (email + password)
-            </label>
-            {role === "admin" ? (
-              <p style={{ fontSize: "0.62rem", color: "var(--muted)", margin: "0.35rem 0 0" }}>
-                Admins must always have login credentials.
-              </p>
-            ) : null}
-            {role === "shipper" || role === "bagger" ? (
-              <p style={{ fontSize: "0.62rem", color: "var(--muted)", margin: "0.35rem 0 0" }}>
-                Shippers and baggers are payroll-only and cannot sign in.
-              </p>
             ) : null}
           </div>
 
-          {requiresLogin ? (
+          {role === "shipper" || role === "bagger" ? (
+            <p style={{ fontSize: "0.62rem", color: "var(--muted)", margin: "0 0 0.75rem" }}>
+              Shippers and baggers are payroll-only and cannot sign in.
+            </p>
+          ) : null}
+
+          {needsLoginCredentials ? (
             <div
               className="grid-form"
               style={{ display: "flex", flexWrap: "wrap", gap: "0.75rem", alignItems: "flex-end", marginBottom: "0.75rem" }}
@@ -351,19 +307,11 @@ export function AdminUsersPage() {
                     <td style={{ fontSize: "0.72rem" }}>{accountLabel(u)}</td>
                     <td>{u.role}</td>
                     <td style={{ minWidth: "10rem", fontSize: "0.7rem" }}>
-                      {payEditId === u.id ? (
+                      {u.role === "admin" ? (
+                        <span>—</span>
+                      ) : payEditId === u.id ? (
                         <div style={{ display: "flex", flexDirection: "column", gap: "0.35rem" }}>
-                          <select
-                            className="form-input"
-                            style={{ padding: "0.25rem 0.4rem" }}
-                            value={payEditStructure}
-                            onChange={(e) => setPayEditStructure(e.target.value as PayStructure)}
-                            disabled={patchPaySettings.isPending}
-                          >
-                            <option value="commission">Commission</option>
-                            <option value="hourly">Hourly</option>
-                          </select>
-                          {payEditStructure === "commission" ? (
+                          {u.role === "streamer" ? (
                             <input
                               className="form-input"
                               type="number"
@@ -374,6 +322,7 @@ export function AdminUsersPage() {
                               value={payEditCommission}
                               onChange={(e) => setPayEditCommission(e.target.value)}
                               disabled={patchPaySettings.isPending}
+                              aria-label="Commission percent"
                             />
                           ) : (
                             <input
@@ -385,6 +334,7 @@ export function AdminUsersPage() {
                               value={payEditHourly}
                               onChange={(e) => setPayEditHourly(e.target.value)}
                               disabled={patchPaySettings.isPending}
+                              aria-label="Hourly rate"
                             />
                           )}
                           <div style={{ display: "flex", gap: "0.35rem" }}>
@@ -393,17 +343,15 @@ export function AdminUsersPage() {
                               className="btn btn-gold btn-sm"
                               disabled={patchPaySettings.isPending}
                               onClick={() => {
-                                const pct = Number(payEditCommission);
-                                const hr = Number(payEditHourly);
-                                if (payEditStructure === "commission" && (!Number.isFinite(pct) || pct < 0 || pct > 100))
-                                  return;
-                                if (payEditStructure === "hourly" && (!Number.isFinite(hr) || hr < 0)) return;
-                                patchPaySettings.mutate({
-                                  id: u.id,
-                                  payStructure: payEditStructure,
-                                  commissionPercent: payEditStructure === "commission" ? pct : 0,
-                                  hourlyRate: payEditStructure === "hourly" ? hr : 0
-                                });
+                                if (u.role === "streamer") {
+                                  const pct = Number(payEditCommission);
+                                  if (!Number.isFinite(pct) || pct < 0 || pct > 100) return;
+                                  patchPaySettings.mutate({ id: u.id, commissionPercent: pct });
+                                } else {
+                                  const hr = Number(payEditHourly);
+                                  if (!Number.isFinite(hr) || hr < 0) return;
+                                  patchPaySettings.mutate({ id: u.id, hourlyRate: hr });
+                                }
                               }}
                             >
                               Save
@@ -427,7 +375,6 @@ export function AdminUsersPage() {
                             disabled={patchPaySettings.isPending}
                             onClick={() => {
                               setPayEditId(u.id);
-                              setPayEditStructure(u.pay_structure === "hourly" ? "hourly" : "commission");
                               setPayEditCommission(String(Number(u.commission_percent ?? 0)));
                               setPayEditHourly(String(Number(u.hourly_rate ?? 0)));
                             }}
