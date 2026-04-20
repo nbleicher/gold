@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState, type Dispatch, type SetStateAction } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "../lib/api";
 
@@ -7,10 +7,18 @@ type AdminUser = {
   email: string;
   display_name: string | null;
   role: string;
+  is_active: number;
   commission_percent: number;
   pay_structure: string;
   hourly_rate: number;
   requires_login: number;
+};
+
+type ScheduleLaborRow = {
+  date: string;
+  streamer_id: string;
+  entry_type?: string;
+  hours_worked?: number | null;
 };
 
 type PayrollRow = {
@@ -79,16 +87,173 @@ function money(n: number) {
   return n.toLocaleString("en-US", { style: "currency", currency: "USD" });
 }
 
+const DAY_LABELS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+
+function cellKey(userId: string, date: string) {
+  return `${userId}|${date}`;
+}
+
+function AttendanceGrid({
+  hourlyWorkers,
+  weekDates,
+  weekDayYmds,
+  laborHoursMap,
+  cellDraft,
+  setCellDraft,
+  laborDayMutation,
+  userLabel
+}: {
+  hourlyWorkers: AdminUser[];
+  weekDates: Date[];
+  weekDayYmds: string[];
+  laborHoursMap: Map<string, number>;
+  cellDraft: Record<string, string>;
+  setCellDraft: Dispatch<SetStateAction<Record<string, string>>>;
+  laborDayMutation: {
+    mutate: (args: { userId: string; date: string; hours: number }, opts?: { onSuccess?: () => void }) => void;
+  };
+  userLabel: (u: AdminUser) => string;
+}) {
+  const rowHours = (userId: string) => {
+    let hours = 0;
+    for (const dateStr of weekDayYmds) {
+      const k = cellKey(userId, dateStr);
+      const d = cellDraft[k];
+      if (d !== undefined) {
+        const n = parseFloat(d);
+        if (Number.isFinite(n) && n >= 0) hours += n;
+      } else {
+        hours += laborHoursMap.get(k) ?? 0;
+      }
+    }
+    return hours;
+  };
+
+  const grandTotal = hourlyWorkers.reduce((acc, u) => acc + rowHours(u.id) * Number(u.hourly_rate ?? 0), 0);
+
+  return (
+    <div className="tbl-wrap" style={{ marginBottom: "1.25rem" }}>
+      <table className="tbl">
+        <thead>
+          <tr>
+            <th>Worker</th>
+            {weekDates.map((d, i) => (
+              <th key={weekDayYmds[i]} style={{ textAlign: "center", fontSize: "0.65rem" }}>
+                <div>{DAY_LABELS[i]}</div>
+                <div style={{ fontWeight: 400, color: "var(--muted)", fontSize: "0.58rem" }}>{d.getDate()}</div>
+              </th>
+            ))}
+            <th style={{ textAlign: "right" }}>Total $</th>
+          </tr>
+        </thead>
+        <tbody>
+          {hourlyWorkers.length === 0 ? (
+            <tr>
+              <td colSpan={9} className="tbl-empty">
+                No active hourly workers
+              </td>
+            </tr>
+          ) : (
+            <>
+              {hourlyWorkers.map((u) => {
+                const rate = Number(u.hourly_rate ?? 0);
+                const totalPay = rowHours(u.id) * rate;
+                return (
+                  <tr key={u.id}>
+                    <td className="tbl-gold" style={{ whiteSpace: "nowrap" }}>
+                      {userLabel(u)}
+                    </td>
+                    {weekDayYmds.map((dateStr) => {
+                      const k = cellKey(u.id, dateStr);
+                      const serverH = laborHoursMap.get(k) ?? 0;
+                      const draft = cellDraft[k];
+                      const value = draft !== undefined ? draft : serverH === 0 ? "" : String(serverH);
+                      return (
+                        <td key={dateStr} style={{ textAlign: "center", verticalAlign: "middle" }}>
+                          <input
+                            className="form-input"
+                            type="number"
+                            min={0}
+                            step={0.25}
+                            inputMode="decimal"
+                            aria-label={`Hours ${userLabel(u)} ${dateStr}`}
+                            style={{
+                              width: "3.5rem",
+                              padding: "0.2rem 0.35rem",
+                              fontSize: "0.72rem",
+                              textAlign: "center",
+                              margin: "0 auto"
+                            }}
+                            value={value}
+                            onChange={(e) => setCellDraft((prev) => ({ ...prev, [k]: e.target.value }))}
+                            onBlur={() => {
+                              const raw = cellDraft[k];
+                              const effective = raw !== undefined ? raw : serverH === 0 ? "" : String(serverH);
+                              let hours = parseFloat(String(effective).trim());
+                              if (!Number.isFinite(hours) || hours < 0) hours = 0;
+                              const prev = laborHoursMap.get(k) ?? 0;
+                              if (Math.abs(hours - prev) < 1e-6) {
+                                setCellDraft((d) => {
+                                  const n = { ...d };
+                                  delete n[k];
+                                  return n;
+                                });
+                                return;
+                              }
+                              laborDayMutation.mutate(
+                                { userId: u.id, date: dateStr, hours },
+                                {
+                                  onSuccess: () => {
+                                    setCellDraft((d) => {
+                                      const next = { ...d };
+                                      delete next[k];
+                                      return next;
+                                    });
+                                  }
+                                }
+                              );
+                            }}
+                          />
+                        </td>
+                      );
+                    })}
+                    <td className="tbl-green" style={{ textAlign: "right", fontWeight: 600 }}>
+                      {money(totalPay)}
+                    </td>
+                  </tr>
+                );
+              })}
+              <tr style={{ borderTop: "1px solid var(--border)" }}>
+                <td colSpan={8} style={{ fontSize: "0.7rem", color: "var(--muted)" }}>
+                  Totals
+                </td>
+                <td className="tbl-green" style={{ textAlign: "right", fontWeight: 600 }}>
+                  {money(grandTotal)}
+                </td>
+              </tr>
+            </>
+          )}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 export function PayrollPage() {
   const qc = useQueryClient();
   const [userId, setUserId] = useState("");
   const [preview, setPreview] = useState<PreviewState>(null);
   const [drag, setDrag] = useState(false);
   const [weekOffset, setWeekOffset] = useState(0);
+  const [cellDraft, setCellDraft] = useState<Record<string, string>>({});
 
   const weekDates = useMemo(() => getWeekDates(weekOffset), [weekOffset]);
   const from = localYmd(weekDates[0]);
   const to = localYmd(weekDates[6]);
+
+  useEffect(() => {
+    setCellDraft({});
+  }, [from, to]);
 
   const users = useQuery({
     queryKey: ["admin-users"],
@@ -100,6 +265,26 @@ export function PayrollPage() {
     queryFn: () => {
       const qs = new URLSearchParams({ from, to });
       return api<WeeklySummaryResponse>(`/v1/admin/payroll/weekly-summary?${qs.toString()}`);
+    }
+  });
+
+  const schedules = useQuery({
+    queryKey: ["admin-schedules", from, to, "all"],
+    queryFn: () =>
+      api<ScheduleLaborRow[]>(
+        `/v1/admin/schedules?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`
+      )
+  });
+
+  const laborDayMutation = useMutation({
+    mutationFn: (args: { userId: string; date: string; hours: number }) =>
+      api<{ ok: boolean }>("/v1/admin/payroll/labor-day", {
+        method: "PUT",
+        body: JSON.stringify(args)
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["payroll-weekly-summary", from, to] });
+      qc.invalidateQueries({ queryKey: ["admin-schedules"] });
     }
   });
 
@@ -148,24 +333,40 @@ export function PayrollPage() {
   const userLabel = (u: AdminUser) =>
     u.display_name?.trim() || (u.email.includes("@internal.invalid") ? `${u.id.slice(0, 8)}…` : u.email);
 
+  const weekDayYmds = useMemo(() => weekDates.map((d) => localYmd(d)), [weekDates]);
+
+  const hourlyWorkers = useMemo(
+    () => (users.data ?? []).filter((u) => u.pay_structure === "hourly" && Boolean(u.is_active)),
+    [users.data]
+  );
+
+  const laborHoursMap = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const s of schedules.data ?? []) {
+      if (s.entry_type !== "labor" || s.hours_worked == null) continue;
+      const k = cellKey(s.streamer_id, s.date);
+      m.set(k, (m.get(k) ?? 0) + Number(s.hours_worked));
+    }
+    return m;
+  }, [schedules.data]);
+
   const weekLabel = `${weekDates[0].toLocaleDateString("en-US", { month: "short", day: "numeric" })} — ${weekDates[6].toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}`;
 
   return (
     <section className="card">
       <h2>Payroll</h2>
       <p className="pg-sub" style={{ marginBottom: "1rem", fontSize: "0.65rem", color: "var(--text-dim)" }}>
-        Weekly pay from labor hours (hourly) and stream net profit (commission). Uses schedule labor entries and
-        streams in the selected week (Mon–Sun).
+        Hourly labor hours are entered in the weekly attendance grid below. Commission pay uses stream activity in the
+        selected week (Mon–Sun).
       </p>
 
-      {users.error || payroll.error || weeklySummary.error ? (
-        <p className="error">{String((users.error ?? payroll.error ?? weeklySummary.error) as Error)}</p>
+      {users.error || payroll.error || weeklySummary.error || schedules.error ? (
+        <p className="error">
+          {String((users.error ?? payroll.error ?? weeklySummary.error ?? schedules.error) as Error)}
+        </p>
       ) : null}
 
       <div className="card" style={{ marginBottom: "1.5rem", padding: "1.2rem", background: "var(--slate)" }}>
-        <div style={{ fontSize: "0.65rem", letterSpacing: "0.12em", color: "var(--muted)", marginBottom: "0.75rem" }}>
-          WEEKLY PAY SUMMARY
-        </div>
         <div style={{ display: "flex", alignItems: "center", gap: "1rem", marginBottom: "1rem" }}>
           <button type="button" className="btn btn-outline btn-sm" onClick={() => setWeekOffset((w) => w - 1)}>
             ◀ Prev week
@@ -175,9 +376,48 @@ export function PayrollPage() {
             Next week ▶
           </button>
         </div>
-        <p style={{ fontSize: "0.62rem", color: "var(--muted)", marginBottom: "0.75rem" }}>
+        <p style={{ fontSize: "0.62rem", color: "var(--muted)", marginBottom: "1.25rem" }}>
           Range: <strong style={{ color: "var(--text)" }}>{from}</strong> to <strong style={{ color: "var(--text)" }}>{to}</strong>
         </p>
+
+        <div style={{ fontSize: "0.65rem", letterSpacing: "0.12em", color: "var(--muted)", marginBottom: "0.75rem" }}>
+          WEEKLY ATTENDANCE
+        </div>
+        <p style={{ fontSize: "0.62rem", color: "var(--muted)", marginBottom: "0.75rem" }}>
+          Enter hours for hourly workers (shippers and baggers). Hours apply to this week only and feed the pay summary
+          below.
+        </p>
+        {laborDayMutation.error ? (
+          <p className="error" style={{ marginBottom: "0.5rem" }}>
+            {(laborDayMutation.error as Error).message}
+          </p>
+        ) : null}
+        {schedules.isFetching && !schedules.data ? (
+          <p style={{ fontSize: "0.65rem", color: "var(--muted)", marginBottom: "1.25rem" }}>Loading attendance…</p>
+        ) : (
+          <AttendanceGrid
+            hourlyWorkers={hourlyWorkers}
+            weekDates={weekDates}
+            weekDayYmds={weekDayYmds}
+            laborHoursMap={laborHoursMap}
+            cellDraft={cellDraft}
+            setCellDraft={setCellDraft}
+            laborDayMutation={laborDayMutation}
+            userLabel={userLabel}
+          />
+        )}
+
+        <div
+          style={{
+            fontSize: "0.65rem",
+            letterSpacing: "0.12em",
+            color: "var(--muted)",
+            marginBottom: "0.75rem",
+            marginTop: "1.5rem"
+          }}
+        >
+          WEEKLY PAY SUMMARY
+        </div>
         {weeklySummary.isFetching ? (
           <p style={{ fontSize: "0.65rem", color: "var(--muted)" }}>Loading…</p>
         ) : (

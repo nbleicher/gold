@@ -70,6 +70,12 @@ const patchUserPaySettingsSchema = z.object({
   hourlyRate: z.number().nonnegative().optional()
 });
 
+const putPayrollLaborDaySchema = z.object({
+  userId: z.string().min(1),
+  date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  hours: z.number().min(0)
+});
+
 const purgeUserConfirmSchema = z.object({
   confirm: z
     .string()
@@ -557,6 +563,38 @@ export async function registerAdminRoutes(app: FastifyInstance) {
     }
 
     return { from, to, users: rows };
+  });
+
+  app.put("/v1/admin/payroll/labor-day", adminPre, async (req) => {
+    const body = putPayrollLaborDaySchema.parse(req.body);
+    const actor = req.authUser?.sub ?? null;
+    const assignee = await one<{ id: string; role: AppRole }>(
+      "select id, role from users where id = ? and purged_at is null",
+      [body.userId]
+    );
+    if (!assignee) {
+      return req.server.httpErrors.notFound("User not found");
+    }
+    if (assignee.role !== "shipper" && assignee.role !== "bagger") {
+      return req.server.httpErrors.badRequest("Labor hours can only be set for shippers and baggers");
+    }
+
+    await withWriteTx(async (tx) => {
+      await txQ(tx, "delete from schedules where streamer_id = ? and date = ? and entry_type = 'labor'", [
+        body.userId,
+        body.date
+      ]);
+      if (body.hours > 0) {
+        await txQ(
+          tx,
+          `insert into schedules (date, start_time, streamer_id, status, submitted_by, pending_submitted_at, reviewed_at, reviewed_by, entry_type, hours_worked)
+           values (?, '00:00', ?, 'approved', ?, datetime('now'), datetime('now'), ?, 'labor', ?)`,
+          [body.date, body.userId, actor, actor, body.hours]
+        );
+      }
+    });
+
+    return { ok: true as const, userId: body.userId, date: body.date, hours: body.hours > 0 ? body.hours : 0 };
   });
 
   app.get("/v1/admin/schedules", adminPre, async (req) => {
