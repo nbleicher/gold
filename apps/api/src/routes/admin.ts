@@ -73,8 +73,18 @@ const patchUserPaySettingsSchema = z.object({
 const putPayrollLaborDaySchema = z.object({
   userId: z.string().min(1),
   date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
-  hours: z.number().min(0)
+  startTime: z.string().optional(),
+  endTime: z.string().optional()
 });
+
+function payrollMinutesFromHHMM(hhmm: string): number | null {
+  const m = /^(\d{2}):(\d{2})$/.exec(hhmm.trim());
+  if (!m) return null;
+  const h = Number(m[1]);
+  const min = Number(m[2]);
+  if (!Number.isInteger(h) || !Number.isInteger(min) || h < 0 || h > 23 || min < 0 || min > 59) return null;
+  return h * 60 + min;
+}
 
 const purgeUserConfirmSchema = z.object({
   confirm: z
@@ -579,22 +589,68 @@ export async function registerAdminRoutes(app: FastifyInstance) {
       return req.server.httpErrors.badRequest("Labor hours can only be set for shippers and baggers");
     }
 
+    const startRaw = (body.startTime ?? "").trim();
+    const endRaw = (body.endTime ?? "").trim();
+
+    if (!startRaw && !endRaw) {
+      await withWriteTx(async (tx) => {
+        await txQ(tx, "delete from schedules where streamer_id = ? and date = ? and entry_type = 'labor'", [
+          body.userId,
+          body.date
+        ]);
+      });
+      return {
+        ok: true as const,
+        userId: body.userId,
+        date: body.date,
+        startTime: null as string | null,
+        endTime: null as string | null,
+        hours: 0
+      };
+    }
+
+    if (!startRaw || !endRaw) {
+      return req.server.httpErrors.badRequest("startTime and endTime are both required to set a shift (or omit both to clear)");
+    }
+
+    const startM = payrollMinutesFromHHMM(startRaw);
+    const endM = payrollMinutesFromHHMM(endRaw);
+    if (startM === null || endM === null) {
+      return req.server.httpErrors.badRequest("Invalid time format (use HH:MM)");
+    }
+    if (endM <= startM) {
+      return req.server.httpErrors.badRequest("End time must be after start time on the same day");
+    }
+
+    const hours = (endM - startM) / 60;
+    if (hours <= 0 || !Number.isFinite(hours)) {
+      return req.server.httpErrors.badRequest("Computed hours must be positive");
+    }
+
+    const startNorm = `${String(Math.floor(startM / 60)).padStart(2, "0")}:${String(startM % 60).padStart(2, "0")}`;
+    const endNorm = `${String(Math.floor(endM / 60)).padStart(2, "0")}:${String(endM % 60).padStart(2, "0")}`;
+
     await withWriteTx(async (tx) => {
       await txQ(tx, "delete from schedules where streamer_id = ? and date = ? and entry_type = 'labor'", [
         body.userId,
         body.date
       ]);
-      if (body.hours > 0) {
-        await txQ(
-          tx,
-          `insert into schedules (date, start_time, streamer_id, status, submitted_by, pending_submitted_at, reviewed_at, reviewed_by, entry_type, hours_worked)
-           values (?, '00:00', ?, 'approved', ?, datetime('now'), datetime('now'), ?, 'labor', ?)`,
-          [body.date, body.userId, actor, actor, body.hours]
-        );
-      }
+      await txQ(
+        tx,
+        `insert into schedules (date, start_time, streamer_id, status, submitted_by, pending_submitted_at, reviewed_at, reviewed_by, entry_type, hours_worked)
+         values (?, ?, ?, 'approved', ?, datetime('now'), datetime('now'), ?, 'labor', ?)`,
+        [body.date, startNorm, body.userId, actor, actor, hours]
+      );
     });
 
-    return { ok: true as const, userId: body.userId, date: body.date, hours: body.hours > 0 ? body.hours : 0 };
+    return {
+      ok: true as const,
+      userId: body.userId,
+      date: body.date,
+      startTime: startNorm,
+      endTime: endNorm,
+      hours
+    };
   });
 
   app.get("/v1/admin/schedules", adminPre, async (req) => {

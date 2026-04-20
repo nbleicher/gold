@@ -17,6 +17,7 @@ type AdminUser = {
 type ScheduleLaborRow = {
   date: string;
   streamer_id: string;
+  start_time?: string;
   entry_type?: string;
   hours_worked?: number | null;
 };
@@ -89,15 +90,55 @@ function money(n: number) {
 
 const DAY_LABELS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 
+/** 15-minute steps for shift start/end dropdowns (value "" = unset). */
+const TIME_SELECT_OPTIONS: { value: string; label: string }[] = (() => {
+  const opts: { value: string; label: string }[] = [{ value: "", label: "—" }];
+  for (let mins = 0; mins < 24 * 60; mins += 15) {
+    const h = Math.floor(mins / 60);
+    const m = mins % 60;
+    const value = `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
+    opts.push({ value, label: value });
+  }
+  return opts;
+})();
+
+const TIME_QUARTERS = TIME_SELECT_OPTIONS.filter((o) => o.value !== "");
+
+function minutesFromHHMM(s: string): number {
+  const m = /^(\d{2}):(\d{2})$/.exec(s.trim());
+  if (!m) return NaN;
+  return Number(m[1]) * 60 + Number(m[2]);
+}
+
+/** Snap total minutes-from-midnight to nearest 15-min option (for display end from start + hours). */
+function snapMinutesToNearestQuarter(totalMinutes: number): string {
+  let best = TIME_QUARTERS[0]?.value ?? "00:00";
+  let bestD = Infinity;
+  for (const o of TIME_QUARTERS) {
+    const om = minutesFromHHMM(o.value);
+    if (!Number.isFinite(om)) continue;
+    const d = Math.abs(om - totalMinutes);
+    if (d < bestD) {
+      bestD = d;
+      best = o.value;
+    }
+  }
+  return best;
+}
+
 function cellKey(userId: string, date: string) {
   return `${userId}|${date}`;
 }
+
+type LaborShift = { start: string; end: string };
+type CellDraft = Record<string, LaborShift>;
 
 function AttendanceGrid({
   hourlyWorkers,
   weekDates,
   weekDayYmds,
   laborHoursMap,
+  laborShiftMap,
   cellDraft,
   setCellDraft,
   laborDayMutation,
@@ -107,29 +148,109 @@ function AttendanceGrid({
   weekDates: Date[];
   weekDayYmds: string[];
   laborHoursMap: Map<string, number>;
-  cellDraft: Record<string, string>;
-  setCellDraft: Dispatch<SetStateAction<Record<string, string>>>;
+  laborShiftMap: Map<string, LaborShift | null>;
+  cellDraft: CellDraft;
+  setCellDraft: Dispatch<SetStateAction<CellDraft>>;
   laborDayMutation: {
-    mutate: (args: { userId: string; date: string; hours: number }, opts?: { onSuccess?: () => void }) => void;
+    mutate: (
+      args: { userId: string; date: string; startTime?: string; endTime?: string },
+      opts?: { onSuccess?: () => void }
+    ) => void;
   };
   userLabel: (u: AdminUser) => string;
 }) {
-  const rowHours = (userId: string) => {
-    let hours = 0;
-    for (const dateStr of weekDayYmds) {
-      const k = cellKey(userId, dateStr);
-      const d = cellDraft[k];
-      if (d !== undefined) {
-        const n = parseFloat(d);
-        if (Number.isFinite(n) && n >= 0) hours += n;
-      } else {
-        hours += laborHoursMap.get(k) ?? 0;
+  const cellHours = (userId: string, dateStr: string) => {
+    const k = cellKey(userId, dateStr);
+    const draft = cellDraft[k];
+    const serverH = laborHoursMap.get(k) ?? 0;
+    if (draft) {
+      const st = draft.start.trim();
+      const en = draft.end.trim();
+      if (st && en) {
+        const sm = minutesFromHHMM(st);
+        const em = minutesFromHHMM(en);
+        if (Number.isFinite(sm) && Number.isFinite(em) && em > sm) return (em - sm) / 60;
       }
+      return serverH;
     }
-    return hours;
+    return serverH;
   };
 
+  const rowHours = (userId: string) =>
+    weekDayYmds.reduce((acc, dateStr) => acc + cellHours(userId, dateStr), 0);
+
   const grandTotal = hourlyWorkers.reduce((acc, u) => acc + rowHours(u.id) * Number(u.hourly_rate ?? 0), 0);
+
+  const persistCell = (userId: string, dateStr: string, next: LaborShift) => {
+    const k = cellKey(userId, dateStr);
+    const startTrim = next.start.trim();
+    const endTrim = next.end.trim();
+    const serverH = laborHoursMap.get(k) ?? 0;
+    const serverSh = laborShiftMap.get(k) ?? null;
+
+    if (!startTrim && !endTrim) {
+      if (serverH > 0) {
+        laborDayMutation.mutate(
+          { userId, date: dateStr, startTime: "", endTime: "" },
+          {
+            onSuccess: () => {
+              setCellDraft((d) => {
+                const copy = { ...d };
+                delete copy[k];
+                return copy;
+              });
+            }
+          }
+        );
+      } else {
+        setCellDraft((d) => {
+          const copy = { ...d };
+          delete copy[k];
+          return copy;
+        });
+      }
+      return;
+    }
+
+    if (!startTrim || !endTrim) return;
+
+    if (serverSh && serverSh.start === startTrim && serverSh.end === endTrim) {
+      setCellDraft((d) => {
+        const copy = { ...d };
+        delete copy[k];
+        return copy;
+      });
+      return;
+    }
+
+    laborDayMutation.mutate(
+      { userId, date: dateStr, startTime: startTrim, endTime: endTrim },
+      {
+        onSuccess: () => {
+          setCellDraft((d) => {
+            const copy = { ...d };
+            delete copy[k];
+            return copy;
+          });
+        }
+      }
+    );
+  };
+
+  const onShiftFieldChange = (userId: string, dateStr: string, field: keyof LaborShift, value: string) => {
+    const k = cellKey(userId, dateStr);
+    const serverSh = laborShiftMap.get(k) ?? null;
+    const base: LaborShift = {
+      start: serverSh?.start ?? "",
+      end: serverSh?.end ?? ""
+    };
+    setCellDraft((prev) => {
+      const cur = prev[k] ?? base;
+      const next = { ...cur, [field]: value };
+      queueMicrotask(() => persistCell(userId, dateStr, next));
+      return { ...prev, [k]: next };
+    });
+  };
 
   return (
     <div className="tbl-wrap" style={{ marginBottom: "1.25rem" }}>
@@ -165,55 +286,44 @@ function AttendanceGrid({
                     </td>
                     {weekDayYmds.map((dateStr) => {
                       const k = cellKey(u.id, dateStr);
-                      const serverH = laborHoursMap.get(k) ?? 0;
+                      const serverSh = laborShiftMap.get(k) ?? null;
                       const draft = cellDraft[k];
-                      const value = draft !== undefined ? draft : serverH === 0 ? "" : String(serverH);
+                      const startVal = draft?.start ?? serverSh?.start ?? "";
+                      const endVal = draft?.end ?? serverSh?.end ?? "";
+                      const h = cellHours(u.id, dateStr);
                       return (
-                        <td key={dateStr} style={{ textAlign: "center", verticalAlign: "middle" }}>
-                          <input
-                            className="form-input"
-                            type="number"
-                            min={0}
-                            step={0.25}
-                            inputMode="decimal"
-                            aria-label={`Hours ${userLabel(u)} ${dateStr}`}
-                            style={{
-                              width: "3.5rem",
-                              padding: "0.2rem 0.35rem",
-                              fontSize: "0.72rem",
-                              textAlign: "center",
-                              margin: "0 auto"
-                            }}
-                            value={value}
-                            onChange={(e) => setCellDraft((prev) => ({ ...prev, [k]: e.target.value }))}
-                            onBlur={() => {
-                              const raw = cellDraft[k];
-                              const effective = raw !== undefined ? raw : serverH === 0 ? "" : String(serverH);
-                              let hours = parseFloat(String(effective).trim());
-                              if (!Number.isFinite(hours) || hours < 0) hours = 0;
-                              const prev = laborHoursMap.get(k) ?? 0;
-                              if (Math.abs(hours - prev) < 1e-6) {
-                                setCellDraft((d) => {
-                                  const n = { ...d };
-                                  delete n[k];
-                                  return n;
-                                });
-                                return;
-                              }
-                              laborDayMutation.mutate(
-                                { userId: u.id, date: dateStr, hours },
-                                {
-                                  onSuccess: () => {
-                                    setCellDraft((d) => {
-                                      const next = { ...d };
-                                      delete next[k];
-                                      return next;
-                                    });
-                                  }
-                                }
-                              );
-                            }}
-                          />
+                        <td key={dateStr} style={{ textAlign: "center", verticalAlign: "middle", minWidth: "7.5rem" }}>
+                          <div style={{ display: "flex", flexDirection: "column", gap: "0.25rem", alignItems: "center" }}>
+                            <div style={{ display: "flex", gap: "0.2rem", alignItems: "center", flexWrap: "wrap", justifyContent: "center" }}>
+                              <select
+                                className="form-input"
+                                aria-label={`Start ${userLabel(u)} ${dateStr}`}
+                                style={{ padding: "0.15rem 0.2rem", fontSize: "0.65rem", minWidth: "3.25rem" }}
+                                value={startVal}
+                                onChange={(e) => onShiftFieldChange(u.id, dateStr, "start", e.target.value)}
+                              >
+                                {TIME_SELECT_OPTIONS.map((o) => (
+                                  <option key={`s-${o.value}`} value={o.value}>
+                                    {o.label}
+                                  </option>
+                                ))}
+                              </select>
+                              <select
+                                className="form-input"
+                                aria-label={`End ${userLabel(u)} ${dateStr}`}
+                                style={{ padding: "0.15rem 0.2rem", fontSize: "0.65rem", minWidth: "3.25rem" }}
+                                value={endVal}
+                                onChange={(e) => onShiftFieldChange(u.id, dateStr, "end", e.target.value)}
+                              >
+                                {TIME_SELECT_OPTIONS.map((o) => (
+                                  <option key={`e-${o.value}`} value={o.value}>
+                                    {o.label}
+                                  </option>
+                                ))}
+                              </select>
+                            </div>
+                            <span style={{ fontSize: "0.58rem", color: "var(--muted)" }}>{h > 0 ? `${h.toFixed(2)} h` : "—"}</span>
+                          </div>
                         </td>
                       );
                     })}
@@ -245,7 +355,7 @@ export function PayrollPage() {
   const [preview, setPreview] = useState<PreviewState>(null);
   const [drag, setDrag] = useState(false);
   const [weekOffset, setWeekOffset] = useState(0);
-  const [cellDraft, setCellDraft] = useState<Record<string, string>>({});
+  const [cellDraft, setCellDraft] = useState<CellDraft>({});
 
   const weekDates = useMemo(() => getWeekDates(weekOffset), [weekOffset]);
   const from = localYmd(weekDates[0]);
@@ -277,7 +387,7 @@ export function PayrollPage() {
   });
 
   const laborDayMutation = useMutation({
-    mutationFn: (args: { userId: string; date: string; hours: number }) =>
+    mutationFn: (args: { userId: string; date: string; startTime?: string; endTime?: string }) =>
       api<{ ok: boolean }>("/v1/admin/payroll/labor-day", {
         method: "PUT",
         body: JSON.stringify(args)
@@ -350,6 +460,32 @@ export function PayrollPage() {
     return m;
   }, [schedules.data]);
 
+  /** Display start/end from DB; end is snapped to 15-min grid from start + hours when start is not legacy 00:00. */
+  const laborShiftMap = useMemo(() => {
+    const m = new Map<string, LaborShift | null>();
+    const agg = new Map<string, { totalH: number; startTime: string | null }>();
+    for (const s of schedules.data ?? []) {
+      if (s.entry_type !== "labor" || s.hours_worked == null) continue;
+      const k = cellKey(s.streamer_id, s.date);
+      const st = (s.start_time ?? "").slice(0, 5);
+      const row = agg.get(k) ?? { totalH: 0, startTime: null as string | null };
+      row.totalH += Number(s.hours_worked);
+      if (st !== "00:00" && /^\d{2}:\d{2}$/.test(st)) row.startTime = st;
+      agg.set(k, row);
+    }
+    for (const [k, v] of agg) {
+      if (!v.startTime) {
+        m.set(k, null);
+        continue;
+      }
+      const startM = minutesFromHHMM(v.startTime);
+      const endRawM = startM + v.totalH * 60;
+      const endSnapped = snapMinutesToNearestQuarter(endRawM);
+      m.set(k, { start: v.startTime, end: endSnapped });
+    }
+    return m;
+  }, [schedules.data]);
+
   const weekLabel = `${weekDates[0].toLocaleDateString("en-US", { month: "short", day: "numeric" })} — ${weekDates[6].toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}`;
 
   return (
@@ -384,8 +520,8 @@ export function PayrollPage() {
           WEEKLY ATTENDANCE
         </div>
         <p style={{ fontSize: "0.62rem", color: "var(--muted)", marginBottom: "0.75rem" }}>
-          Enter hours for hourly workers (shippers and baggers). Hours apply to this week only and feed the pay summary
-          below.
+          For hourly workers (shippers and baggers), set start and end time per day (15-minute steps). Hours are computed
+          for the pay summary below. Legacy entries stored without a start time show totals only until you set times.
         </p>
         {laborDayMutation.error ? (
           <p className="error" style={{ marginBottom: "0.5rem" }}>
@@ -400,6 +536,7 @@ export function PayrollPage() {
             weekDates={weekDates}
             weekDayYmds={weekDayYmds}
             laborHoursMap={laborHoursMap}
+            laborShiftMap={laborShiftMap}
             cellDraft={cellDraft}
             setCellDraft={setCellDraft}
             laborDayMutation={laborDayMutation}
