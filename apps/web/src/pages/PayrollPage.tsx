@@ -90,6 +90,20 @@ function money(n: number) {
 
 const DAY_LABELS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 
+/** Display `HH:MM` (24h) as 12-hour labels, e.g. 2am, 1:15pm (values stay 24h for the API). */
+function formatTime12hLabel(hhmm: string): string {
+  const m = /^(\d{2}):(\d{2})$/.exec(hhmm.trim());
+  if (!m) return hhmm;
+  const h24 = Number(m[1]);
+  const min = Number(m[2]);
+  if (!Number.isInteger(h24) || !Number.isInteger(min)) return hhmm;
+  const period = h24 < 12 ? "am" : "pm";
+  let h12 = h24 % 12;
+  if (h12 === 0) h12 = 12;
+  if (min === 0) return `${h12}${period}`;
+  return `${h12}:${String(min).padStart(2, "0")}${period}`;
+}
+
 /** 15-minute steps for shift start/end dropdowns (value "" = unset). */
 const TIME_SELECT_OPTIONS: { value: string; label: string }[] = (() => {
   const opts: { value: string; label: string }[] = [{ value: "", label: "—" }];
@@ -97,7 +111,7 @@ const TIME_SELECT_OPTIONS: { value: string; label: string }[] = (() => {
     const h = Math.floor(mins / 60);
     const m = mins % 60;
     const value = `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
-    opts.push({ value, label: value });
+    opts.push({ value, label: formatTime12hLabel(value) });
   }
   return opts;
 })();
