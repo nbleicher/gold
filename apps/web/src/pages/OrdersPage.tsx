@@ -2,6 +2,7 @@ import { FormEvent, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "../lib/api";
 import { getTierIndex } from "../lib/tiers";
+import { printLabel } from "../utils/printLabel";
 
 type Batch = {
   id: string;
@@ -335,6 +336,14 @@ export function OrdersPage() {
                           }}
                         >
                           Remove
+                        </button>
+                        <button
+                          type="button"
+                          className="btn btn-outline btn-sm"
+                          title="Print label"
+                          onClick={() => printLabel(o.sticker_code, Number(o.actual_weight_grams))}
+                        >
+                          Print
                         </button>
                       </div>
                     ) : null}
