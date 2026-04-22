@@ -15,17 +15,25 @@
  * The server listens on http://127.0.0.1:4242
  *   POST /print   { "stickerCode": "A1C", "weightGrams": 0.85 }
  *   GET  /status  → { "printerFound": true }
+ *   GET  /health  → { "ok": true, "printerFound": bool, "python3Lzma": bool }
  */
 
 'use strict';
 
-const http       = require('http');
-const { execSync } = require('child_process');
-const os         = require('os');
-const path       = require('path');
-const fs         = require('fs');
-const HID        = require('node-hid');
-const { createCanvas } = require('canvas');
+const http = require('http');
+const { spawnSync } = require('child_process');
+
+let HID;
+let createCanvas;
+try {
+  HID = require('node-hid');
+  createCanvas = require('canvas').createCanvas;
+} catch (err) {
+  console.error('[label-server] Missing native dependency:', err.message);
+  console.error('Install:  npm install node-hid canvas');
+  console.error('macOS:    brew install pkg-config cairo pango libpng jpeg giflib librsvg');
+  process.exit(1);
+}
 
 // ─── Printer constants (T50M Pro) ────────────────────────────────────────────
 
@@ -153,24 +161,45 @@ function buildBuffer(bitmap) {
  * (FORMAT_ALONE — matches the captured printer protocol exactly).
  * Python 3 ships with macOS, so no extra dependency is needed here.
  */
+/**
+ * LZMA-compress via Python 3 stdin/stdout (no temp files — avoids races and shell quoting).
+ */
 function lzmaCompress(buffer) {
-  const tmpIn  = path.join(os.tmpdir(), `label_in_${process.pid}.bin`);
-  const tmpOut = path.join(os.tmpdir(), `label_out_${process.pid}.lzma`);
-  try {
-    fs.writeFileSync(tmpIn, buffer);
-    execSync(
-      `python3 -c "` +
-      `import lzma,sys; ` +
-      `d=open('${tmpIn}','rb').read(); ` +
-      `c=lzma.compress(d,format=lzma.FORMAT_ALONE,preset=1); ` +
-      `open('${tmpOut}','wb').write(c)"`,
-      { stdio: 'pipe' }
-    );
-    return fs.readFileSync(tmpOut);
-  } finally {
-    try { fs.unlinkSync(tmpIn);  } catch {}
-    try { fs.unlinkSync(tmpOut); } catch {}
+  const script =
+    'import lzma,sys;d=sys.stdin.buffer.read();sys.stdout.buffer.write(lzma.compress(d,format=lzma.FORMAT_ALONE,preset=1))';
+  const r = spawnSync('python3', ['-c', script], {
+    input: buffer,
+    maxBuffer: 12 * 1024 * 1024,
+    windowsHide: true,
+  });
+  if (r.error) {
+    throw new Error(`LZMA compress failed: ${r.error.message}`);
   }
+  if (r.status !== 0) {
+    const err = (r.stderr && r.stderr.toString()) || 'unknown error';
+    throw new Error(`python3 lzma failed (exit ${r.status}): ${err.trim()}`);
+  }
+  if (!r.stdout || r.stdout.length === 0) {
+    throw new Error('python3 lzma produced empty output');
+  }
+  return Buffer.from(r.stdout);
+}
+
+function assertPythonLzma() {
+  const r = spawnSync('python3', ['-c', 'import lzma'], { stdio: 'pipe', windowsHide: true });
+  if (r.error || r.status !== 0) {
+    console.error('[label-server] python3 with the lzma module is required for compression.');
+    if (r.stderr && r.stderr.length) console.error(r.stderr.toString());
+    process.exit(1);
+  }
+}
+
+/** Serialize HID print jobs so concurrent POSTs do not interleave. */
+let printJobTail = Promise.resolve();
+function runExclusivePrint(fn) {
+  const done = printJobTail.then(() => fn());
+  printJobTail = done.catch(() => {});
+  return done;
 }
 
 // ─── Main print function ──────────────────────────────────────────────────────
@@ -240,28 +269,50 @@ async function printLabel(stickerCode, weightGrams) {
 
 // ─── HTTP server ──────────────────────────────────────────────────────────────
 
-const server = http.createServer(async (req, res) => {
+const server = http.createServer((req, res) => {
   res.setHeader('Access-Control-Allow-Origin',  '*');
   res.setHeader('Access-Control-Allow-Methods', 'POST, GET, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+
+  let pathname = '/';
+  try {
+    pathname = new URL(req.url || '/', 'http://127.0.0.1').pathname;
+  } catch {
+    pathname = '/';
+  }
 
   if (req.method === 'OPTIONS') {
     res.writeHead(204); res.end(); return;
   }
 
   // POST /print
-  if (req.method === 'POST' && req.url === '/print') {
+  if (req.method === 'POST' && pathname === '/print') {
     let body = '';
     req.on('data', chunk => { body += chunk; });
     req.on('end', async () => {
       try {
-        const { stickerCode, weightGrams } = JSON.parse(body);
-        if (!stickerCode || weightGrams == null) {
+        let parsed;
+        try {
+          parsed = JSON.parse(body || '{}');
+        } catch {
           res.writeHead(400, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify({ error: 'Missing stickerCode or weightGrams' }));
+          res.end(JSON.stringify({ error: 'Invalid JSON body' }));
           return;
         }
-        await printLabel(String(stickerCode), parseFloat(weightGrams));
+        const { stickerCode, weightGrams } = parsed;
+        const code = stickerCode != null ? String(stickerCode).trim() : '';
+        const w = parseFloat(weightGrams);
+        if (!code) {
+          res.writeHead(400, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'Missing or empty stickerCode' }));
+          return;
+        }
+        if (!Number.isFinite(w) || w <= 0) {
+          res.writeHead(400, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'weightGrams must be a finite number > 0' }));
+          return;
+        }
+        await runExclusivePrint(() => printLabel(code, w));
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ ok: true }));
       } catch (err) {
@@ -273,24 +324,42 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  // GET /health — smoke check (no HID open)
+  if (req.method === 'GET' && pathname === '/health') {
+    const printerFound = HID.devices().some(d => d.vendorId === VENDOR_ID);
+    let python3Lzma = false;
+    try {
+      const r = spawnSync('python3', ['-c', 'import lzma'], { stdio: 'pipe', windowsHide: true });
+      python3Lzma = r.status === 0 && !r.error;
+    } catch {
+      python3Lzma = false;
+    }
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ ok: true, printerFound, python3Lzma }));
+    return;
+  }
+
   // GET /status
-  if (req.method === 'GET' && req.url === '/status') {
+  if (req.method === 'GET' && pathname === '/status') {
     const found = HID.devices().some(d => d.vendorId === VENDOR_ID);
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ printerFound: found }));
     return;
   }
 
-  res.writeHead(404); res.end();
+  res.writeHead(404, { 'Content-Type': 'application/json' });
+  res.end(JSON.stringify({ error: 'Not found' }));
 });
 
 const PORT = 4242;
+assertPythonLzma();
 server.listen(PORT, '127.0.0.1', () => {
   console.log(`\n╔══════════════════════════════════════╗`);
   console.log(`║  Gold Label Server  — port ${PORT}     ║`);
   console.log(`╚══════════════════════════════════════╝`);
   console.log(`POST /print  { stickerCode, weightGrams }`);
   console.log(`GET  /status`);
+  console.log(`GET  /health (smoke: printer + python3 lzma)`);
 
   const printer = HID.devices().find(d => d.vendorId === VENDOR_ID);
   if (printer) {

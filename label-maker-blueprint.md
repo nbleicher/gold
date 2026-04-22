@@ -49,10 +49,34 @@ npm install node-hid canvas
 
 ### 3. Start the label server
 ```bash
-node label-server.js
+npm run label-server
+# or: node label-server.js
 ```
 
 Keep this terminal open whenever you are doing inventory management. The server prints a confirmation if the T50M Pro is detected.
+
+### 4. Smoke-check the bridge (optional)
+
+With the server running:
+
+```bash
+curl -s http://127.0.0.1:4242/health
+```
+
+Expect JSON like `{ "ok": true, "printerFound": true/false, "python3Lzma": true }`.  
+`printerFound` only means the USB device was enumerated — it does not open HID until you print.
+
+**Down-server check:** With nothing listening on `4242`, the web app **Print** button should show an alert telling you to start the server (and notes HTTPS/mixed-content if applicable).
+
+---
+
+## Runtime vs protocol
+
+| Layer | What you need |
+|--------|----------------|
+| **Environment** | `node-hid`, `canvas` (+ Homebrew cairo stack), **Python 3** with stdlib `lzma` |
+| **Process** | `label-server.js` listening on `127.0.0.1:4242` |
+| **Wire format** | HID 64-byte packets, 32768-byte padded bitmap, LZMA ALONE — details below |
 
 ---
 
@@ -120,7 +144,7 @@ Offset  Size   Value         Description
 - **Properties:** `0x5d` (lc=3, lp=0, pb=2 — standard LZMA defaults)
 - **Dict size:** 8192 bytes
 - **Uncompressed size field:** 32768 (always, written in the LZMA header)
-- **Compression:** Python 3's built-in `lzma` module used (no extra dependency)
+- **Compression:** Python 3's built-in `lzma` module (`FORMAT_ALONE`), invoked via `python3 -c` with **stdin/stdout** (no temp files; avoids concurrent-print races)
 
 ---
 
