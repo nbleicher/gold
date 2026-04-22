@@ -1,204 +1,179 @@
 # Label Maker Integration — Implementation Blueprint
 
 **Project:** Gold Inventory Platform  
-**Printer:** Katasymbol T50M Pro (25mm tape)  
+**Printer:** Katasymbol T50M Pro (USB HID, VID 0x1820)  
 **Label Size:** 25mm × 16mm (fits on 1.25" × 1.25" dime bag, ~3mm margin each side)  
 **Trigger:** Manual "Print Label" button per bag order row  
 **Data printed:** Sticker code + weight in grams  
+**Status:** Fully implemented ✓
 
 ---
 
-## Files Changed
+## Architecture
 
 ```
-apps/web/src/
-├── utils/
-│   └── printLabel.ts          ← NEW
-├── pages/
-│   └── OrdersPage.tsx         ← MODIFY (add Print button to each row)
+Web app (Print button)
+        ↓
+fetch POST http://127.0.0.1:4242/print
+        ↓
+label-server.js  (runs locally on Mac)
+        ↓
+USB HID interrupt transfers (64 bytes/packet)
+        ↓
+Katasymbol T50M Pro
 ```
-
-No backend changes. No new npm packages. No database changes.
 
 ---
 
-## 1. `apps/web/src/utils/printLabel.ts` — New File
+## Files
 
-### Purpose
-
-Opens a hidden browser popup, injects a print-ready HTML document sized to the label dimensions, triggers the OS print dialog, then closes the popup.
-
-### Function Signature
-
-```ts
-export function printLabel(stickerCode: string, weightGrams: number): void
-```
-
-### Label Layout
-
-```
-┌─────────────────────────┐
-│                         │  25mm wide
-│          A1C            │  ← Sticker code — 18pt bold monospace, centered
-│        0.8500 g         │  ← Weight — 9pt, centered, always 4 decimal places
-│                         │
-└─────────────────────────┘
-          16mm tall
-```
-
-### Implementation
-
-```ts
-export function printLabel(stickerCode: string, weightGrams: number): void {
-  const formattedWeight = weightGrams.toFixed(4) + ' g';
-
-  const html = `
-    <!DOCTYPE html>
-    <html>
-      <head>
-        <style>
-          @page {
-            size: 25mm 16mm;
-            margin: 1.5mm;
-          }
-          * {
-            box-sizing: border-box;
-            margin: 0;
-            padding: 0;
-          }
-          body {
-            width: 22mm;
-            height: 13mm;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
-            overflow: hidden;
-          }
-          .sticker-code {
-            font-family: monospace;
-            font-size: 18pt;
-            font-weight: bold;
-            line-height: 1;
-            letter-spacing: 0.05em;
-          }
-          .weight {
-            font-family: monospace;
-            font-size: 9pt;
-            margin-top: 1mm;
-          }
-        </style>
-      </head>
-      <body>
-        <div class="sticker-code">${stickerCode}</div>
-        <div class="weight">${formattedWeight}</div>
-      </body>
-    </html>
-  `;
-
-  const popup = window.open('', '_blank', 'width=200,height=150');
-  if (!popup) {
-    alert('Please allow popups for this site to print labels.');
-    return;
-  }
-
-  popup.document.write(html);
-  popup.document.close();
-  popup.focus();
-  popup.print();
-  popup.close();
-}
-```
-
-### Weight Formatting Examples
-
-| Stored value | Printed as  |
-|--------------|-------------|
-| `0.85`       | `0.8500 g`  |
-| `1.2`        | `1.2000 g`  |
-| `0.1234`     | `0.1234 g`  |
-| `2.001`      | `2.0010 g`  |
+| File | Purpose |
+|------|---------|
+| `label-server.js` | Local Node.js print bridge — USB HID communication |
+| `apps/web/src/utils/printLabel.ts` | Frontend utility — calls the local server |
+| `apps/web/src/pages/OrdersPage.tsx` | Print button already wired to `printLabel()` |
 
 ---
 
-## 2. `apps/web/src/pages/OrdersPage.tsx` — Modifications
+## Setup (one-time)
 
-### Where to Add
-
-In the existing bag orders table, each row already renders: sticker code, metal, weight, tier, created date, sold status, and a delete button. Add a Print button at the end of each row, after the existing action buttons.
-
-### Import to Add
-
-```ts
-import { printLabel } from '../utils/printLabel';
+### 1. Install canvas system dependencies
+```bash
+brew install pkg-config cairo pango libpng jpeg giflib librsvg
 ```
 
-### Button to Add in Each Row
-
-```tsx
-{!order.sold_at && (
-  <button
-    onClick={() => printLabel(order.sticker_code, order.actual_weight_grams)}
-    className="btn-print"
-    title="Print label"
-  >
-    🖨 Print
-  </button>
-)}
+### 2. Install npm packages
+```bash
+npm install node-hid canvas
 ```
 
-### Rules
+### 3. Start the label server
+```bash
+node label-server.js
+```
 
-- Only shown on **unsold** bags — sold bags don't need new labels
-- All data needed (`sticker_code`, `actual_weight_grams`) already exists in the component via the existing `useQuery` fetch — no API call required
-- Style the button to match existing action buttons in OrdersPage
-
----
-
-## 3. One-Time Printer Setup (not code)
-
-This must be done once per machine before printing works.
-
-1. **Pair the printer** — macOS System Preferences → Printers & Scanners → Add Printer → select T50M Pro via Bluetooth or USB
-2. **Create a custom paper size** in the print dialog:
-   - Width: `25mm`
-   - Height: `16mm`
-   - All margins: `0mm` (the CSS handles margins internally)
-   - Save as: `"Gold Label 25x16"`
-3. **First print test** — click Print Label on any bag, select T50M Pro in the dialog, choose `"Gold Label 25x16"`, scale at `100%`
-4. **Set as default** — once confirmed, the browser will remember the last-used settings for that printer
+Keep this terminal open whenever you are doing inventory management. The server prints a confirmation if the T50M Pro is detected.
 
 ---
 
-## 4. Implementation Sequence
+## T50M Pro USB Protocol (fully reverse-engineered)
 
-| Step | Action | File |
-|------|--------|------|
-| 1 | Create `printLabel.ts` with full HTML/CSS popup logic | `utils/printLabel.ts` |
-| 2 | Test layout in browser console: `printLabel('A1C', 0.85)` | — |
-| 3 | Do a real test print, check sizing against the bag | — |
-| 4 | Adjust `@page` dimensions if needed (±1–2mm) | `utils/printLabel.ts` |
-| 5 | Add import + Print button to `OrdersPage.tsx` | `pages/OrdersPage.tsx` |
-| 6 | Confirm button only appears on unsold bags | — |
+### Connection
+- **VID:** `0x1820` (all SUPVAN/Katasymbol models)
+- **Interface:** USB HID, Interrupt endpoint
+- **Packet size:** 64 bytes per packet
+- **Report ID:** None (device uses report ID 0 — prefix all `node-hid` writes with `0x00`)
+
+### Command packet format (host → printer)
+All commands are 64 bytes, zero-padded:
+
+| Command | Bytes (hex) |
+|---------|-------------|
+| Status poll | `c0 40 00 00 11 00 08 00` + 56 zeros |
+| Pre-print | `c0 40 01 04 5c 00 08 00` + 56 zeros |
+| Execute/print | `c0 40 01 04 10 00 08 00 00 3c 00` + 53 zeros |
+
+### Status response (printer → host)
+`08 00 [status] [state] [device info...]`
+- Byte[2]: `0x04` = ready with paper, `0x00` = idle
+
+### Print sequence
+1. Send **status poll** → read response (verify printer ready)
+2. Render label as 1-bit bitmap
+3. Build 32768-byte buffer (header + bitmap + zero padding)
+4. LZMA compress (FORMAT_ALONE)
+5. Send **pre-print command** → read response
+6. Send compressed data as sequential 64-byte HID packets
+7. Send **execute command** → read response
 
 ---
 
-## 5. What This Does Not Require
+## Bitmap format (from Wireshark capture analysis)
 
-- No backend changes (zero API modifications)
-- No new npm packages (pure browser APIs only)
-- No barcode or QR code generation (sticker code is short and human-readable)
-- No database schema changes (all required fields already exist)
-- No custom printer driver or native binary
+### Buffer structure (32768 bytes total, always)
+```
+Offset  Size   Value         Description
+0       2      uint16 LE     Height in dots (e.g. 128 for 16mm at 203 DPI)
+2       2      uint16 LE     0x5002 (constant — unknown)
+4       2      uint16 LE     0x0054 (constant — unknown)
+6       2      uint16 LE     0x0030 = 48 (bytes per row = 384 dots wide)
+8       2      uint16 LE     0x0001 (constant)
+10      2      uint16 LE     0x0001 (constant)
+12      varies              Raw 1-bit bitmap (see below)
+12+N    ...    zeros         Padding to fill 32768 bytes
+```
+
+### Bitmap encoding
+- **Width:** always 384 dots (48 bytes/row) — the full T50M Pro print-head width
+- **Height:** dots = `round(mm × 203 / 25.4)` — e.g. 16mm → 128 dots
+- **Bit order:** MSB first (bit 7 of byte 0 = leftmost dot)
+- **Ink:** `1` = print dot, `0` = blank
+- **Row order:** top to bottom
+
+### Label dimensions
+- **Width:** 384 dots (48mm full print head) — text is centered
+- **Height:** 128 dots (16mm) for the 1.25" × 1.25" bag label
+- **Tape:** 25mm tape — text must fit within ~200 center dots to avoid edge cutoff
+
+### LZMA compression
+- **Format:** FORMAT_ALONE (the legacy `.lzma` format with 13-byte header)
+- **Properties:** `0x5d` (lc=3, lp=0, pb=2 — standard LZMA defaults)
+- **Dict size:** 8192 bytes
+- **Uncompressed size field:** 32768 (always, written in the LZMA header)
+- **Compression:** Python 3's built-in `lzma` module used (no extra dependency)
 
 ---
 
-## 6. Edge Cases to Handle
+## Label visual layout
 
-| Case | Handling |
-|------|----------|
-| Browser blocks popup | Show `alert()` instructing user to allow popups for this site |
-| Sticker code is long (e.g., "A13AA") | Monospace font + `letter-spacing` keeps it readable; test at max length |
-| Weight is whole number (e.g., `1`) | `.toFixed(4)` always pads to 4 decimals → `1.0000 g` |
-| User cancels print dialog | Popup closes naturally; no side effects |
-| Printer not set up as system printer | OS print dialog simply won't show it; user must complete one-time setup |
+```
+┌──────────────────────────────────────┐
+│                                      │  384 dots wide (48mm)
+│                                      │  (only ~200 center dots on 25mm tape)
+│              A1C                     │  ← 62pt bold monospace, centered
+│                                      │
+│           0.8500 g                   │  ← 26pt monospace, centered
+│                                      │
+└──────────────────────────────────────┘
+              128 dots tall (16mm)
+```
+
+---
+
+## Usage
+
+1. Connect T50M Pro via USB-C
+2. Run `node label-server.js` in project root
+3. Open the web app → Inventory Management → RECENT BAGS
+4. Click **Print** on any unsold bag
+5. Label prints immediately — no dialog
+
+---
+
+## Error handling
+
+| Error | Message shown | Fix |
+|-------|--------------|-----|
+| Server not running | Alert with instructions to run `node label-server.js` | Start the server |
+| Printer not connected | `T50M Pro not found` | Plug in USB |
+| No paper loaded | `Printer not ready (status 0x...)` | Load label tape |
+| Server crash | `Print failed: [error]` | Check terminal for details |
+
+---
+
+## Troubleshooting
+
+**`node-hid` can't find the device on macOS:**  
+macOS may require granting USB access. Run the server with `sudo node label-server.js` on first use, or add a udev-style IOKit entitlement.
+
+**`canvas` installation fails:**  
+Make sure Homebrew packages are installed first: `brew install pkg-config cairo pango libpng jpeg giflib librsvg`
+
+**Label text is cut off on tape edges:**  
+The print head is 384 dots (48mm) but 25mm tape only covers ~200 dots. The text in `label-server.js` is centered at `TAPE_WIDTH_DOTS / 2`. If content is clipped, reduce font sizes or narrow the rendered text width.
+
+**Label is too long/short:**  
+Adjust `LABEL_HEIGHT_MM` in `label-server.js` (currently `16`). Each 1mm = ~8 dots at 203 DPI.
+
+**Unknown header constants (`0x5002`, `0x0054`):**  
+These were captured from real print traffic and kept as-is. They appear to be fixed values in the Katasymbol firmware — changing them may cause the print to fail.
