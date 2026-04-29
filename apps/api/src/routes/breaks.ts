@@ -1,5 +1,5 @@
 import type { Transaction } from "@libsql/client";
-import type { FastifyInstance } from "fastify";
+import type { FastifyInstance, FastifyRequest } from "fastify";
 import { createBreakSchema, processBreakSpotSchema, updateBreakSchema } from "@gold/shared";
 import { one, q, txOne, txQ, withWriteTx } from "../db.js";
 import { requireAuth, requireRole } from "./auth.js";
@@ -9,7 +9,7 @@ const OZT_TO_GRAMS = 31.1034768;
 type Metal = "gold" | "silver";
 
 async function assertStreamAccess(
-  req: Parameters<FastifyInstance["get"]>[2],
+  req: FastifyRequest,
   streamId: string
 ): Promise<void> {
   const stream = await one<{ user_id: string; ended_at: string | null }>(
@@ -180,7 +180,7 @@ export async function registerBreakRoutes(app: FastifyInstance) {
         "select id from stream_breaks where stream_id = ? and ended_at is null",
         [streamId]
       );
-      if (active) return txOne("select * from stream_breaks where id = ?", [active.id]);
+      if (active) return txOne(tx, "select * from stream_breaks where id = ?", [active.id]);
 
       const brk = await txOne<{ id: string; status: string; sold_prize_spots: number }>(
         tx,
