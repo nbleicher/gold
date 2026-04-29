@@ -65,6 +65,16 @@ const patchCompletedEarningsSchema = z.object({
   completedEarnings: z.number().nonnegative()
 });
 
+/** Admin corrections: at least one field. endedAt null clears session end (reopens) if no other live stream for user. */
+const patchAdminStreamSchema = z
+  .object({
+    startedAt: z.string().min(1).optional(),
+    endedAt: z.union([z.string().min(1), z.null()]).optional()
+  })
+  .refine((d) => d.startedAt !== undefined || d.endedAt !== undefined, {
+    message: "Provide startedAt and/or endedAt"
+  });
+
 const patchUserPaySettingsSchema = z.object({
   commissionPercent: z.number().min(0).max(100).optional(),
   hourlyRate: z.number().nonnegative().optional()
@@ -1085,6 +1095,60 @@ export async function registerAdminRoutes(app: FastifyInstance) {
       return req.server.httpErrors.notFound("Stream not found");
     }
     await q("update streams set completed_earnings = ? where id = ?", [body.completedEarnings, id]);
+    return { ok: true };
+  });
+
+  app.patch("/v1/admin/streams/:id", adminPre, async (req) => {
+    const { id } = req.params as { id: string };
+    const body = patchAdminStreamSchema.parse(req.body);
+    const stream = await one<{
+      id: string;
+      user_id: string;
+      started_at: string;
+      ended_at: string | null;
+    }>("select id, user_id, started_at, ended_at from streams where id = ?", [id]);
+    if (!stream) {
+      return req.server.httpErrors.notFound("Stream not found");
+    }
+
+    const parseIso = (label: string, s: string): number => {
+      const ms = Date.parse(s);
+      if (!Number.isFinite(ms)) {
+        throw req.server.httpErrors.badRequest(`Invalid ${label}`);
+      }
+      return ms;
+    };
+
+    const nextStarted =
+      body.startedAt !== undefined ? new Date(parseIso("startedAt", body.startedAt)).toISOString() : stream.started_at;
+    const nextEnded =
+      body.endedAt !== undefined
+        ? body.endedAt === null
+          ? null
+          : new Date(parseIso("endedAt", body.endedAt)).toISOString()
+        : stream.ended_at;
+
+    if (nextEnded !== null) {
+      const sMs = Date.parse(nextStarted);
+      const eMs = Date.parse(nextEnded);
+      if (sMs >= eMs) {
+        return req.server.httpErrors.badRequest("startedAt must be before endedAt");
+      }
+    }
+
+    if (nextEnded === null && stream.ended_at !== null) {
+      const otherLive = await one<{ id: string }>(
+        "select id from streams where user_id = ? and ended_at is null and id != ? limit 1",
+        [stream.user_id, id]
+      );
+      if (otherLive) {
+        return req.server.httpErrors.conflict(
+          "Cannot clear ended_at: this user already has another stream without an end time"
+        );
+      }
+    }
+
+    await q("update streams set started_at = ?, ended_at = ? where id = ?", [nextStarted, nextEnded, id]);
     return { ok: true };
   });
 

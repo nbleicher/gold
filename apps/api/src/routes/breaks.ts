@@ -365,7 +365,8 @@ export async function registerBreakRoutes(app: FastifyInstance) {
         tx,
         `select sb.id, sb.stream_id, sb.break_id, sb.started_at, sb.ended_at, sb.ended_reason, sb.floor_spots,
                 sb.run_total_cost, sb.run_total_silver_grams,
-                b.name as break_name, b.remaining_silver_grams, b.sold_prize_spots
+                b.name as break_name, b.remaining_silver_grams, b.sold_prize_spots,
+                b.fixed_silver_spots as floor_spots_total
          from stream_breaks sb
          join breaks b on b.id = sb.break_id
          where sb.id = ?`,
@@ -405,10 +406,12 @@ export async function registerBreakRoutes(app: FastifyInstance) {
       remaining_silver_grams: number;
       sold_prize_spots: number;
       sold_spots: number;
+      floor_spots_total: number;
       prize_slot_count: number;
     }>(
       `select sb.id, sb.stream_id, sb.break_id, sb.started_at, sb.ended_at, sb.ended_reason, sb.floor_spots,
               b.name as break_name, b.remaining_silver_grams, b.sold_prize_spots, b.sold_spots,
+              b.fixed_silver_spots as floor_spots_total,
               (select count(*) from break_prize_slots ps where ps.break_id = sb.break_id) as prize_slot_count
        from stream_breaks sb
        join breaks b on b.id = sb.break_id

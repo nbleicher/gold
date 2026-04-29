@@ -43,6 +43,13 @@ function hostLabel(s: StreamLogStream) {
   return s.user_display_name?.trim() || s.user_email || "—";
 }
 
+function toDatetimeLocalValue(iso: string): string {
+  const d = new Date(iso);
+  if (!Number.isFinite(d.getTime())) return "";
+  const p = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`;
+}
+
 function summarizeStream(st: StreamLogStream) {
   const its = st.items ?? [];
   const itemsTotal = its.reduce((sum, i) => sum + Number(i.spot_value), 0);
@@ -68,6 +75,10 @@ export function StreamLogPage() {
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set());
   const [earningsEditingId, setEarningsEditingId] = useState<string | null>(null);
   const [earningsDraft, setEarningsDraft] = useState("");
+  const [sessionEditId, setSessionEditId] = useState<string | null>(null);
+  const [sessionStartedDraft, setSessionStartedDraft] = useState("");
+  const [sessionEndedDraft, setSessionEndedDraft] = useState("");
+  const [sessionClearEnd, setSessionClearEnd] = useState(false);
 
   const toggleExpanded = (streamId: string) => {
     setExpanded((prev) => {
@@ -104,6 +115,29 @@ export function StreamLogPage() {
     }
   });
 
+  const patchSessionMutation = useMutation({
+    mutationFn: ({
+      streamId,
+      body
+    }: {
+      streamId: string;
+      body: { startedAt?: string; endedAt?: string | null };
+    }) =>
+      api<{ ok: boolean }>(`/v1/admin/streams/${streamId}`, {
+        method: "PATCH",
+        body: JSON.stringify(body)
+      }),
+    onSuccess: () => {
+      setSessionEditId(null);
+      setSessionStartedDraft("");
+      setSessionEndedDraft("");
+      setSessionClearEnd(false);
+      void qc.invalidateQueries({ queryKey: ["admin-stream-log"] });
+      void qc.invalidateQueries({ queryKey: ["admin-profit-metrics"] });
+      void qc.invalidateQueries({ queryKey: ["streams"] });
+    }
+  });
+
   const completedEarningsMutation = useMutation({
     mutationFn: ({ streamId, completedEarnings }: { streamId: string; completedEarnings: number }) =>
       api<{ ok: boolean }>(`/v1/admin/streams/${streamId}/completed-earnings`, {
@@ -117,6 +151,14 @@ export function StreamLogPage() {
       void qc.invalidateQueries({ queryKey: ["admin-profit-metrics"] });
     }
   });
+
+  const openSessionEdit = (st: StreamLogStream) => {
+    setExpanded((prev) => new Set(prev).add(st.id));
+    setSessionEditId(st.id);
+    setSessionStartedDraft(toDatetimeLocalValue(st.started_at));
+    setSessionEndedDraft(st.ended_at ? toDatetimeLocalValue(st.ended_at) : "");
+    setSessionClearEnd(false);
+  };
 
   const requestDelete = (st: StreamLogStream) => {
     const ok = window.confirm(
@@ -149,6 +191,9 @@ export function StreamLogPage() {
       ) : null}
       {completedEarningsMutation.error ? (
         <p className="error">{(completedEarningsMutation.error as Error).message}</p>
+      ) : null}
+      {patchSessionMutation.error ? (
+        <p className="error">{(patchSessionMutation.error as Error).message}</p>
       ) : null}
 
       <div className="stats-row" style={{ gridTemplateColumns: "repeat(3, 1fr)", marginBottom: "1.5rem" }}>
@@ -312,14 +357,24 @@ export function StreamLogPage() {
                       )}
                     </td>
                     <td>
-                      <button
-                        type="button"
-                        className="btn btn-danger btn-sm"
-                        disabled={deleteMutation.isPending}
-                        onClick={() => requestDelete(st)}
-                      >
-                        Delete
-                      </button>
+                      <div style={{ display: "flex", flexDirection: "column", gap: "0.35rem", alignItems: "flex-start" }}>
+                        <button
+                          type="button"
+                          className="btn btn-outline btn-sm"
+                          disabled={patchSessionMutation.isPending}
+                          onClick={() => openSessionEdit(st)}
+                        >
+                          Edit session
+                        </button>
+                        <button
+                          type="button"
+                          className="btn btn-danger btn-sm"
+                          disabled={deleteMutation.isPending}
+                          onClick={() => requestDelete(st)}
+                        >
+                          Delete
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 );
@@ -327,6 +382,94 @@ export function StreamLogPage() {
                 const detailRow = (
                   <tr key={`${st.id}-detail`}>
                     <td colSpan={13} style={{ background: "var(--slate)", padding: "0.75rem 1rem" }}>
+                      {sessionEditId === st.id ? (
+                        <div
+                          style={{
+                            marginBottom: "1rem",
+                            padding: "0.65rem 0.75rem",
+                            background: "var(--surface-2, rgba(0,0,0,0.2))",
+                            borderRadius: "6px",
+                            fontSize: "0.7rem"
+                          }}
+                        >
+                          <strong style={{ display: "block", marginBottom: "0.5rem" }}>Edit session times</strong>
+                          <div style={{ display: "flex", flexWrap: "wrap", gap: "0.75rem", alignItems: "flex-end" }}>
+                            <label style={{ display: "flex", flexDirection: "column", gap: "0.25rem" }}>
+                              Started
+                              <input
+                                className="form-input"
+                                type="datetime-local"
+                                value={sessionStartedDraft}
+                                onChange={(e) => setSessionStartedDraft(e.target.value)}
+                                disabled={patchSessionMutation.isPending}
+                              />
+                            </label>
+                            <label style={{ display: "flex", flexDirection: "column", gap: "0.25rem" }}>
+                              Ended
+                              <input
+                                className="form-input"
+                                type="datetime-local"
+                                value={sessionEndedDraft}
+                                onChange={(e) => setSessionEndedDraft(e.target.value)}
+                                disabled={patchSessionMutation.isPending || sessionClearEnd}
+                              />
+                            </label>
+                          </div>
+                          {st.ended_at ? (
+                            <label
+                              style={{
+                                display: "flex",
+                                alignItems: "center",
+                                gap: "0.4rem",
+                                marginTop: "0.5rem",
+                                cursor: "pointer"
+                              }}
+                            >
+                              <input
+                                type="checkbox"
+                                checked={sessionClearEnd}
+                                onChange={(e) => setSessionClearEnd(e.target.checked)}
+                                disabled={patchSessionMutation.isPending}
+                              />
+                              Clear end time (mark session as still live)
+                            </label>
+                          ) : null}
+                          <div style={{ display: "flex", flexWrap: "wrap", gap: "0.35rem", marginTop: "0.5rem" }}>
+                            <button
+                              type="button"
+                              className="btn btn-gold btn-sm"
+                              disabled={patchSessionMutation.isPending || !sessionStartedDraft.trim()}
+                              onClick={() => {
+                                if (!sessionStartedDraft.trim()) return;
+                                const body: { startedAt: string; endedAt?: string | null } = {
+                                  startedAt: new Date(sessionStartedDraft).toISOString()
+                                };
+                                if (sessionClearEnd) {
+                                  body.endedAt = null;
+                                } else if (sessionEndedDraft.trim()) {
+                                  body.endedAt = new Date(sessionEndedDraft).toISOString();
+                                }
+                                patchSessionMutation.mutate({ streamId: st.id, body });
+                              }}
+                            >
+                              Save session
+                            </button>
+                            <button
+                              type="button"
+                              className="btn btn-outline btn-sm"
+                              disabled={patchSessionMutation.isPending}
+                              onClick={() => {
+                                setSessionEditId(null);
+                                setSessionStartedDraft("");
+                                setSessionEndedDraft("");
+                                setSessionClearEnd(false);
+                              }}
+                            >
+                              Cancel
+                            </button>
+                          </div>
+                        </div>
+                      ) : null}
                       <div style={{ fontSize: "0.65rem", color: "var(--muted)", marginBottom: "0.5rem" }}>
                         Session line items — remove to reverse inventory (grams return to batches)
                       </div>

@@ -37,6 +37,8 @@ type ActiveBreakResponse = {
     sold_spots: number;
     remaining_silver_grams: number;
     floor_spots: number;
+    /** Total floor silver spots on this break (denominator for "left out of N"). */
+    floor_spots_total: number;
     prize_slot_count: number;
   } | null;
   spots: Array<{
@@ -255,6 +257,7 @@ export function StreamsPage() {
   );
 
   const prizeTotal = activeBreak.data?.streamBreak?.prize_slot_count ?? 10;
+  const selectedBreakFloorTotal = breaks.data?.find((x) => x.id === selectedBreakId)?.fixed_silver_spots;
   const startDisabled = !user || startMutation.isPending || activeStreamId !== null;
 
   return (
@@ -333,15 +336,26 @@ export function StreamsPage() {
               <label style={{ fontSize: "0.7rem", color: "var(--muted)", display: "flex", flexDirection: "column", gap: "0.25rem" }}>
                 Floor spots left (when you start this run)
                 <span style={{ fontWeight: 400, opacity: 0.9 }}>
-                  Enter how many floor spots remain — e.g. 14 if 14 of 50 are left.
+                  Enter how many are left; total floor spots for this break come from the template.
                 </span>
-                <input
-                  className="form-input"
-                  type="number"
-                  min={0}
-                  value={floorSpotsLeftInput}
-                  onChange={(e) => setFloorSpotsLeftInput(e.target.value)}
-                />
+                <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: "0.4rem" }}>
+                  <input
+                    className="form-input"
+                    type="number"
+                    min={0}
+                    value={floorSpotsLeftInput}
+                    onChange={(e) => setFloorSpotsLeftInput(e.target.value)}
+                    style={{ maxWidth: "5.5rem" }}
+                    aria-label="Floor spots left"
+                  />
+                  <span style={{ fontSize: "0.75rem", color: "var(--text)" }}>
+                    out of{" "}
+                    <strong>
+                      {selectedBreakFloorTotal != null ? selectedBreakFloorTotal : "—"}
+                    </strong>{" "}
+                    floor spots
+                  </span>
+                </div>
               </label>
               <button
                 type="button"
@@ -357,7 +371,11 @@ export function StreamsPage() {
                 <strong>{activeBreak.data.streamBreak.break_name}</strong> · prizes sold{" "}
                 {activeBreak.data.streamBreak.sold_prize_spots}/{prizeTotal} · remaining silver{" "}
                 {Number(activeBreak.data.streamBreak.remaining_silver_grams).toFixed(2)}g · floor spots left at run
-                start: <strong>{activeBreak.data.streamBreak.floor_spots}</strong>
+                start:{" "}
+                <strong>
+                  {activeBreak.data.streamBreak.floor_spots} out of{" "}
+                  {activeBreak.data.streamBreak.floor_spots_total ?? "—"}
+                </strong>
               </div>
               <div className="grid-form">
                 <input value={nextSpotNumber == null ? "Complete" : `Spot ${nextSpotNumber}`} readOnly />
