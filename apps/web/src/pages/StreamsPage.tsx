@@ -68,7 +68,8 @@ export function StreamsPage() {
   const [activeStreamId, setActiveStreamId] = useState<string | null>(null);
   const [isStartCardOpen, setIsStartCardOpen] = useState(false);
   const [selectedBreakId, setSelectedBreakId] = useState("");
-  const [floorSpotsInput, setFloorSpotsInput] = useState("40");
+  /** How many floor spots remain when starting this run (streamer-entered snapshot for tracking). */
+  const [floorSpotsLeftInput, setFloorSpotsLeftInput] = useState("40");
   const [outcomeType, setOutcomeType] = useState<"silver" | "prize">("silver");
   const [selectedPrizeSlotId, setSelectedPrizeSlotId] = useState("");
 
@@ -120,7 +121,7 @@ export function StreamsPage() {
   useEffect(() => {
     const b = breaks.data?.find((x) => x.id === selectedBreakId);
     if (b?.fixed_silver_spots != null) {
-      setFloorSpotsInput(String(b.fixed_silver_spots));
+      setFloorSpotsLeftInput(String(b.fixed_silver_spots));
     }
   }, [selectedBreakId, breaks.data]);
 
@@ -144,7 +145,7 @@ export function StreamsPage() {
 
   const startBreakMutation = useMutation({
     mutationFn: () => {
-      const floorSpots = Math.max(0, Math.floor(Number(floorSpotsInput) || 0));
+      const floorSpots = Math.max(0, Math.floor(Number(floorSpotsLeftInput) || 0));
       return api(`/v1/streams/${activeStreamId}/breaks/start`, {
         method: "POST",
         body: JSON.stringify({
@@ -330,13 +331,16 @@ export function StreamsPage() {
                 ))}
               </select>
               <label style={{ fontSize: "0.7rem", color: "var(--muted)", display: "flex", flexDirection: "column", gap: "0.25rem" }}>
-                Floor spots (this run, for tracking)
+                Floor spots left (when you start this run)
+                <span style={{ fontWeight: 400, opacity: 0.9 }}>
+                  Enter how many floor spots remain — e.g. 14 if 14 of 50 are left.
+                </span>
                 <input
                   className="form-input"
                   type="number"
                   min={0}
-                  value={floorSpotsInput}
-                  onChange={(e) => setFloorSpotsInput(e.target.value)}
+                  value={floorSpotsLeftInput}
+                  onChange={(e) => setFloorSpotsLeftInput(e.target.value)}
                 />
               </label>
               <button
@@ -352,8 +356,8 @@ export function StreamsPage() {
               <div style={{ fontSize: "0.7rem", marginBottom: "0.35rem" }}>
                 <strong>{activeBreak.data.streamBreak.break_name}</strong> · prizes sold{" "}
                 {activeBreak.data.streamBreak.sold_prize_spots}/{prizeTotal} · remaining silver{" "}
-                {Number(activeBreak.data.streamBreak.remaining_silver_grams).toFixed(2)}g · this run floor spots{" "}
-                <strong>{activeBreak.data.streamBreak.floor_spots}</strong>
+                {Number(activeBreak.data.streamBreak.remaining_silver_grams).toFixed(2)}g · floor spots left at run
+                start: <strong>{activeBreak.data.streamBreak.floor_spots}</strong>
               </div>
               <div className="grid-form">
                 <input value={nextSpotNumber == null ? "Complete" : `Spot ${nextSpotNumber}`} readOnly />

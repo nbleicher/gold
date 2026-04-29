@@ -323,6 +323,8 @@ export async function registerBreakRoutes(app: FastifyInstance) {
     const parsed = startStreamBreakSchema.safeParse(req.body ?? {});
     if (!parsed.success) return req.server.httpErrors.badRequest("Invalid start break payload");
     const { breakId, floorSpots } = parsed.data;
+    /** Persisted on stream_breaks.floor_spots: how many floor spots the streamer said were left at run start. */
+    const floorSpotsLeftAtRunStart = floorSpots;
 
     return withWriteTx(async (tx) => {
       const active = await txOne<{ id: string; break_id: string }>(
@@ -346,7 +348,7 @@ export async function registerBreakRoutes(app: FastifyInstance) {
       await txQ(
         tx,
         "insert into stream_breaks (stream_id, break_id, floor_spots) values (?, ?, ?)",
-        [streamId, instanceId, floorSpots]
+        [streamId, instanceId, floorSpotsLeftAtRunStart]
       );
       await txQ(tx, "update breaks set status = 'active', updated_at = datetime('now') where id = ?", [
         instanceId

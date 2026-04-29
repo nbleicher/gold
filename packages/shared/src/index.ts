@@ -105,6 +105,7 @@ export const updateBreakSchema = z
   .superRefine(breakGeometryRefine);
 export type UpdateBreakInput = z.infer<typeof updateBreakSchema>;
 
+/** floorSpots = floor spots remaining when the run starts (streamer snapshot for tracking; not auto-updated). */
 export const startStreamBreakSchema = z.object({
   breakId: batchIdSchema,
   floorSpots: z.number().int().min(0).max(500)
