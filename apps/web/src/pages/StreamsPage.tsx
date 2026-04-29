@@ -344,7 +344,7 @@ export function StreamsPage() {
                   <thead>
                     <tr>
                       <th>Type</th>
-                      <th>Name</th>
+                      <th>Spot #</th>
                       <th>Metal</th>
                       <th>Weight (g)</th>
                       <th>Spot value</th>

@@ -357,7 +357,7 @@ export async function registerBreakRoutes(app: FastifyInstance) {
          values (?, 'raw', ?, ?, ?, ?, ?, null, ?, ?)`,
         [
           streamId,
-          `${brk.name} · Spot ${nextSpot.spot_number} · ${body.outcomeType === "prize" ? "Prize" : "Silver"}`,
+          `Spot #${nextSpot.spot_number}`,
           metal,
           grams,
           spotCost,

@@ -12,6 +12,8 @@ type StreamItem = {
   spot_price: number;
   sticker_code: string | null;
   batch_id: string | null;
+  break_id: string | null;
+  break_spot_id: string | null;
   batch_name: string | null;
   cogs: number;
 };
@@ -46,11 +48,14 @@ function summarizeStream(st: StreamLogStream) {
   const metals = [...new Set(its.map((i) => i.metal || "gold"))];
   const metal = metals.length > 1 ? "mixed" : metals[0] || "gold";
   const avgSpot = its.length ? its.reduce((sum, i) => sum + Number(i.spot_price), 0) / its.length : 0;
+  const breakN = its.filter((i) => Boolean(i.break_id)).length;
   const stN = its.filter((i) => i.sale_type === "sticker").length;
-  const rw = its.filter((i) => i.sale_type === "raw").length;
-  const leg = its.length - stN - rw;
+  const rawOther = its.filter((i) => i.sale_type === "raw" && !i.break_id).length;
+  const leg = its.length - breakN - stN - rawOther;
   const mix =
-    leg > 0 ? `${stN} sticker · ${rw} raw · ${leg} other` : `${stN} sticker · ${rw} raw`;
+    leg > 0
+      ? `${breakN} break · ${stN} legacy sticker · ${rawOther} raw · ${leg} other`
+      : `${breakN} break · ${stN} legacy sticker · ${rawOther} raw`;
   const rawB = `G: ${st.gold_batch_name} · S: ${st.silver_batch_name}`;
   return { itemsTotal, metal, avgSpot, mix, rawB, count: its.length };
 }
@@ -112,7 +117,7 @@ export function StreamLogPage() {
 
   const requestDelete = (st: StreamLogStream) => {
     const ok = window.confirm(
-      "Delete this stream session and all logged sales? Raw metal will be returned to batches and sticker bags will be marked unsold."
+      "Delete this stream session and all logged line items? Raw metal returns to batches; legacy sticker sales clear sold flags on matching bags."
     );
     if (!ok) return;
     deleteMutation.mutate(st.id);
@@ -320,7 +325,7 @@ export function StreamLogPage() {
                   <tr key={`${st.id}-detail`}>
                     <td colSpan={13} style={{ background: "var(--slate)", padding: "0.75rem 1rem" }}>
                       <div style={{ fontSize: "0.65rem", color: "var(--muted)", marginBottom: "0.5rem" }}>
-                        Session line items — remove to reverse inventory / unsell sticker
+                        Session line items — remove to reverse inventory (grams return to batches)
                       </div>
                       {items.length === 0 ? (
                         <span style={{ fontSize: "0.7rem", color: "var(--muted)" }}>No items</span>
@@ -330,7 +335,7 @@ export function StreamLogPage() {
                             <thead>
                               <tr>
                                 <th>Type</th>
-                                <th>Sticker / name</th>
+                                <th>Spot #</th>
                                 <th>Metal</th>
                                 <th>Weight (g)</th>
                                 <th>Spot value</th>
@@ -342,7 +347,7 @@ export function StreamLogPage() {
                               {items.map((it) => (
                                 <tr key={it.id}>
                                   <td>{it.sale_type}</td>
-                                  <td>{it.sale_type === "sticker" ? it.sticker_code ?? it.name : it.name}</td>
+                                  <td>{it.name}</td>
                                   <td>{it.metal}</td>
                                   <td>{Number(it.weight_grams).toFixed(4)}</td>
                                   <td className="tbl-green">${Number(it.spot_value).toFixed(2)}</td>
@@ -353,7 +358,7 @@ export function StreamLogPage() {
                                       className="btn btn-danger btn-sm"
                                       disabled={deleteItemMutation.isPending}
                                       onClick={() => {
-                                        if (!window.confirm("Remove this sale and reverse stock / sticker status?"))
+                                        if (!window.confirm("Remove this line item and reverse inventory?"))
                                           return;
                                         deleteItemMutation.mutate(it.id);
                                       }}
