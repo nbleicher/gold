@@ -8,6 +8,7 @@
   ],
   "scripts": {
     "label-server": "node label-server.js",
+    "label-server:pack-win": "powershell -ExecutionPolicy Bypass -File packaging/label-bridge-win/scripts/build-release.ps1",
     "dev:web": "npm --workspace @gold/web run dev",
     "dev:api": "npm --workspace @gold/api run dev",
     "build": "npm --workspace @gold/shared run build && npm --workspace @gold/api run build && npm --workspace @gold/web run build",

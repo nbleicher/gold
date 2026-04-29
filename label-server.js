@@ -2,11 +2,12 @@
 /**
  * label-server.js — Katasymbol T50M Pro USB Print Bridge
  *
- * Runs locally on the Mac. Accepts print jobs from the Gold web app
- * and sends them directly to the T50M Pro over USB HID.
+ * Runs locally on the workstation (macOS or Windows). Accepts print jobs from
+ * the Gold web app and sends them to the T50M Pro over USB HID.
  *
  * Setup (one-time):
- *   brew install pkg-config cairo pango libpng jpeg giflib librsvg
+ *   macOS: brew install pkg-config cairo pango libpng jpeg giflib librsvg
+ *   Windows: Visual Studio Build Tools (C++), Python 3 on PATH
  *   npm install node-hid canvas
  *
  * Run:
@@ -23,6 +24,66 @@
 const http = require('http');
 const { spawnSync } = require('child_process');
 
+// ─── Python 3 (stdlib lzma) — cross-platform resolution ───────────────────────
+
+const PYTHON_LZMA_CHECK = 'import lzma';
+
+/** @type {{ command: string, prefixArgs: string[] } | null | undefined} undefined = not yet probed */
+let cachedPythonSpawn = undefined;
+
+const PYTHON_CANDIDATES = [
+  { command: 'python3', prefixArgs: [] },
+  { command: 'py', prefixArgs: ['-3'] },
+  { command: 'python', prefixArgs: [] },
+];
+
+function probePythonLzma(command, prefixArgs) {
+  const args = [...prefixArgs, '-c', PYTHON_LZMA_CHECK];
+  const r = spawnSync(command, args, { stdio: 'pipe', windowsHide: true });
+  return !r.error && r.status === 0;
+}
+
+/**
+ * Find a Python 3 interpreter with stdlib lzma. Order: python3 → py -3 → python.
+ * Result is cached for the process lifetime.
+ * @returns {{ command: string, prefixArgs: string[] } | null}
+ */
+function getPythonSpawn() {
+  if (cachedPythonSpawn !== undefined) {
+    return cachedPythonSpawn;
+  }
+  for (const { command, prefixArgs } of PYTHON_CANDIDATES) {
+    try {
+      if (probePythonLzma(command, prefixArgs)) {
+        cachedPythonSpawn = { command, prefixArgs };
+        const label = prefixArgs.length ? `${command} ${prefixArgs.join(' ')}` : command;
+        console.log(`[label-server] Using Python for LZMA: ${label}`);
+        return cachedPythonSpawn;
+      }
+    } catch {
+      /* ENOENT etc. */
+    }
+  }
+  cachedPythonSpawn = null;
+  return null;
+}
+
+function spawnPythonScript(script, spawnOptions) {
+  const py = getPythonSpawn();
+  if (!py) {
+    throw new Error(
+      'Python 3 with lzma not found. Tried (in order): python3, py -3, python. ' +
+        'Install Python 3 from python.org (Windows: enable “Add to PATH”) or ensure py launcher is available.'
+    );
+  }
+  const args = [...py.prefixArgs, '-c', script];
+  return spawnSync(py.command, args, spawnOptions);
+}
+
+function pythonLzmaAvailable() {
+  return getPythonSpawn() !== null;
+}
+
 let HID;
 let createCanvas;
 try {
@@ -32,6 +93,7 @@ try {
   console.error('[label-server] Missing native dependency:', err.message);
   console.error('Install:  npm install node-hid canvas');
   console.error('macOS:    brew install pkg-config cairo pango libpng jpeg giflib librsvg');
+  console.error('Windows:  install “Desktop development with C++” (VS Build Tools) for canvas/node-hid');
   process.exit(1);
 }
 
@@ -157,17 +219,13 @@ function buildBuffer(bitmap) {
 }
 
 /**
- * LZMA-compress the 32768-byte buffer using Python 3's built-in lzma module
- * (FORMAT_ALONE — matches the captured printer protocol exactly).
- * Python 3 ships with macOS, so no extra dependency is needed here.
- */
-/**
  * LZMA-compress via Python 3 stdin/stdout (no temp files — avoids races and shell quoting).
+ * Uses the same Python resolution as startup and /health (python3 → py -3 → python).
  */
 function lzmaCompress(buffer) {
   const script =
     'import lzma,sys;d=sys.stdin.buffer.read();sys.stdout.buffer.write(lzma.compress(d,format=lzma.FORMAT_ALONE,preset=1))';
-  const r = spawnSync('python3', ['-c', script], {
+  const r = spawnPythonScript(script, {
     input: buffer,
     maxBuffer: 12 * 1024 * 1024,
     windowsHide: true,
@@ -177,19 +235,20 @@ function lzmaCompress(buffer) {
   }
   if (r.status !== 0) {
     const err = (r.stderr && r.stderr.toString()) || 'unknown error';
-    throw new Error(`python3 lzma failed (exit ${r.status}): ${err.trim()}`);
+    throw new Error(`Python lzma failed (exit ${r.status}): ${err.trim()}`);
   }
   if (!r.stdout || r.stdout.length === 0) {
-    throw new Error('python3 lzma produced empty output');
+    throw new Error('Python lzma produced empty output');
   }
   return Buffer.from(r.stdout);
 }
 
 function assertPythonLzma() {
-  const r = spawnSync('python3', ['-c', 'import lzma'], { stdio: 'pipe', windowsHide: true });
-  if (r.error || r.status !== 0) {
-    console.error('[label-server] python3 with the lzma module is required for compression.');
-    if (r.stderr && r.stderr.length) console.error(r.stderr.toString());
+  cachedPythonSpawn = undefined;
+  if (!getPythonSpawn()) {
+    console.error('[label-server] Python 3 with the lzma module is required for compression.');
+    console.error('Tried (in order): python3, py -3, python');
+    console.error('Install Python 3 (Windows: python.org installer, check “Add python.exe to PATH”).');
     process.exit(1);
   }
 }
@@ -327,13 +386,7 @@ const server = http.createServer((req, res) => {
   // GET /health — smoke check (no HID open)
   if (req.method === 'GET' && pathname === '/health') {
     const printerFound = HID.devices().some(d => d.vendorId === VENDOR_ID);
-    let python3Lzma = false;
-    try {
-      const r = spawnSync('python3', ['-c', 'import lzma'], { stdio: 'pipe', windowsHide: true });
-      python3Lzma = r.status === 0 && !r.error;
-    } catch {
-      python3Lzma = false;
-    }
+    const python3Lzma = pythonLzmaAvailable();
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ ok: true, printerFound, python3Lzma }));
     return;

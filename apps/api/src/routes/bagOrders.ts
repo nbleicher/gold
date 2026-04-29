@@ -28,6 +28,12 @@ export async function registerBagOrderRoutes(app: FastifyInstance) {
   });
 
   app.post("/v1/bag-orders", { preHandler: requireRole("admin") }, async (req, reply) => {
+    return reply.status(410).send({
+      error: "Bag creation is deprecated. Use break management instead."
+    });
+  });
+
+  app.post("/v1/bag-orders/_legacy-create", { preHandler: requireRole("admin") }, async (req, reply) => {
     const parsed = createBagOrderSchema.safeParse(req.body);
     if (!parsed.success) {
       return reply.status(400).send({
@@ -109,14 +115,7 @@ export async function registerBagOrderRoutes(app: FastifyInstance) {
   });
 
   app.patch("/v1/bag-orders/:id/mark-sold", { preHandler: requireRole("admin") }, async (req) => {
-    const { id } = req.params as { id: string };
-    const existing = await one<{ sold_at: string | null }>("select sold_at from bag_orders where id = ?", [id]);
-    if (!existing) throw new Error("Bag order not found");
-    if (existing.sold_at) {
-      return one("select * from bag_orders where id = ?", [id]);
-    }
-    await q("update bag_orders set sold_at = datetime('now') where id = ?", [id]);
-    return one("select * from bag_orders where id = ?", [id]);
+    return req.server.httpErrors.gone("Bag sale mutation is deprecated. Use break stream flow.");
   });
 
   app.delete("/v1/bag-orders/:id", { preHandler: requireRole("admin") }, async (req) => {

@@ -5,7 +5,7 @@ import { LoginPage } from "./pages/LoginPage";
 import { DashboardPage } from "./pages/DashboardPage";
 import { StreamsPage } from "./pages/StreamsPage";
 import { InventoryMgmtPage } from "./pages/InventoryMgmtPage";
-import { OrdersPage } from "./pages/OrdersPage";
+import { BreaksPage } from "./pages/BreaksPage";
 import { AdminUsersPage } from "./pages/AdminUsersPage";
 import { SchedulePage } from "./pages/SchedulePage";
 import { ExpensesPage } from "./pages/ExpensesPage";
@@ -17,7 +17,7 @@ const ADMIN_SECTION_PATHS = [
   "/admin/dashboard",
   "/admin/expenses",
   "/admin/inventory-management",
-  "/admin/orders",
+  "/admin/breaks",
   "/admin/payroll",
   "/admin/users",
   "/admin/stream-log"
@@ -161,8 +161,8 @@ function Shell() {
                 >
               Batch Management
                 </NavLink>
-                <NavLink to="/admin/orders" className={navTabClass} onClick={() => setMobileNavOpen(false)}>
-                  Inventory Management
+                <NavLink to="/admin/breaks" className={navTabClass} onClick={() => setMobileNavOpen(false)}>
+                  Break Management
                 </NavLink>
                 <NavLink to="/admin/payroll" className={navTabClass} onClick={() => setMobileNavOpen(false)}>
                   Payroll
@@ -206,8 +206,8 @@ function Shell() {
             <NavLink to="/admin/inventory-management" className={navSubTabClass}>
               Batch Management
             </NavLink>
-            <NavLink to="/admin/orders" className={navSubTabClass}>
-              Inventory Management
+            <NavLink to="/admin/breaks" className={navSubTabClass}>
+              Break Management
             </NavLink>
             <NavLink to="/admin/payroll" className={navSubTabClass}>
               Payroll
@@ -242,7 +242,7 @@ function Shell() {
               path="/admin/dashboard"
               element={isAdmin ? <AdminDashboardPage /> : <Navigate to="/" replace />}
             />
-            <Route path="/admin/orders" element={isAdmin ? <OrdersPage /> : <Navigate to="/" replace />} />
+            <Route path="/admin/breaks" element={isAdmin ? <BreaksPage /> : <Navigate to="/" replace />} />
             <Route
               path="/admin/inventory-management"
               element={isAdmin ? <InventoryMgmtPage /> : <Navigate to="/" replace />}

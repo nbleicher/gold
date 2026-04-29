@@ -7,8 +7,6 @@ type Stream = {
   id: string;
   started_at: string;
   ended_at: string | null;
-  gold_batch_id: string | null;
-  silver_batch_id: string | null;
 };
 
 type StreamItemRow = {
@@ -18,33 +16,50 @@ type StreamItemRow = {
   metal: string;
   weight_grams: number;
   spot_value: number;
-  spot_price: number;
-  sticker_code: string | null;
-  batch_id: string | null;
 };
 
-type StreamBatchRow = {
+type BreakRow = {
   id: string;
-  metal: "gold" | "silver";
-  batch_name: string | null;
-  remaining_grams: number;
+  name: string;
+  status: "draft" | "active" | "completed";
+  sold_prize_spots: number;
 };
 
-function rawSaleBatchLabel(it: StreamItemRow, batches: StreamBatchRow[] | undefined): string {
-  if (it.sale_type !== "raw" || !it.batch_id) return "—";
-  const name = batches?.find((b) => b.id === it.batch_id)?.batch_name?.trim();
-  if (name) return name;
-  return `${it.batch_id.slice(0, 8)}…`;
-}
+type ActiveBreakResponse = {
+  streamBreak: {
+    id: string;
+    break_id: string;
+    break_name: string;
+    sold_prize_spots: number;
+    sold_spots: number;
+    remaining_silver_grams: number;
+  } | null;
+  spots: Array<{
+    id: string;
+    spot_number: number;
+    outcome_type: "silver" | "prize" | null;
+    processed_at: string | null;
+    prize_slot_id: string | null;
+  }>;
+  prizeSlots: Array<{
+    id: string;
+    slot_number: number;
+    slot_type: "normal" | "mega";
+    metal: "gold" | "silver";
+    grams: number;
+    cost: number;
+    is_consumed: number;
+  }>;
+};
 
 export function StreamsPage() {
   const qc = useQueryClient();
   const { user } = useAuth();
   const [activeStreamId, setActiveStreamId] = useState<string | null>(null);
   const [isStartCardOpen, setIsStartCardOpen] = useState(false);
-  const [stickerCode, setStickerCode] = useState("");
-  const [rawMetal, setRawMetal] = useState<"gold" | "silver">("gold");
-  const [rawWeight, setRawWeight] = useState("");
+  const [selectedBreakId, setSelectedBreakId] = useState("");
+  const [outcomeType, setOutcomeType] = useState<"silver" | "prize">("silver");
+  const [selectedPrizeSlotId, setSelectedPrizeSlotId] = useState("");
 
   const streams = useQuery({
     queryKey: ["streams", user?.id],
@@ -68,41 +83,20 @@ export function StreamsPage() {
     }
   }, [user?.id, streams.isSuccess, streams.data]);
 
-  const activeStream = useMemo(
-    () => streams.data?.find((s) => s.id === activeStreamId) ?? null,
-    [streams.data, activeStreamId]
-  );
-
-  const streamBatches = useQuery({
-    queryKey: ["stream-batches", activeStreamId],
-    queryFn: () => api<StreamBatchRow[]>(`/v1/streams/${activeStreamId}/batches`),
-    enabled: !!activeStreamId
-  });
-
-  const { canRawGold, canRawSilver } = useMemo(() => {
-    const rows = streamBatches.data;
-    const fetched = streamBatches.isFetched;
-    if (!fetched) {
-      return { canRawGold: true, canRawSilver: true };
-    }
-    if (rows && rows.length > 0) {
-      return {
-        canRawGold: rows.some((b) => b.metal === "gold" && Number(b.remaining_grams) > 0),
-        canRawSilver: rows.some((b) => b.metal === "silver" && Number(b.remaining_grams) > 0)
-      };
-    }
-    return {
-      canRawGold: Boolean(activeStream?.gold_batch_id),
-      canRawSilver: Boolean(activeStream?.silver_batch_id)
-    };
-  }, [streamBatches.data, streamBatches.isFetched, activeStream]);
-
-  const rawBlocked =
-    (rawMetal === "gold" && !canRawGold) || (rawMetal === "silver" && !canRawSilver);
-
   const streamItems = useQuery({
     queryKey: ["stream-items", activeStreamId],
     queryFn: () => api<StreamItemRow[]>(`/v1/streams/${activeStreamId}/items`),
+    enabled: !!activeStreamId
+  });
+
+  const breaks = useQuery({
+    queryKey: ["breaks"],
+    queryFn: () => api<BreakRow[]>("/v1/breaks")
+  });
+
+  const activeBreak = useQuery({
+    queryKey: ["active-stream-break", activeStreamId],
+    queryFn: () => api<ActiveBreakResponse>(`/v1/streams/${activeStreamId}/break`),
     enabled: !!activeStreamId
   });
 
@@ -111,9 +105,7 @@ export function StreamsPage() {
       api<Stream>("/v1/streams/start", {
         method: "POST",
         body: JSON.stringify({
-          userId: user?.id,
-          goldBatchId: null,
-          silverBatchId: null
+          userId: user?.id
         })
       }),
     onSuccess: (stream) => {
@@ -121,42 +113,35 @@ export function StreamsPage() {
       setIsStartCardOpen(false);
       void qc.invalidateQueries({ queryKey: ["streams", user?.id] });
       void qc.invalidateQueries({ queryKey: ["stream-items", stream.id] });
-      void qc.invalidateQueries({ queryKey: ["stream-batches", stream.id] });
+      void qc.invalidateQueries({ queryKey: ["active-stream-break", stream.id] });
     }
   });
 
-  const stickerMutation = useMutation({
+  const startBreakMutation = useMutation({
     mutationFn: () =>
-      api("/v1/streams/sticker-sale", {
+      api(`/v1/streams/${activeStreamId}/breaks/start`, {
         method: "POST",
         body: JSON.stringify({
-          streamId: activeStreamId,
-          stickerCode: stickerCode.trim()
+          breakId: selectedBreakId
         })
       }),
     onSuccess: () => {
-      setStickerCode("");
-      void qc.invalidateQueries({ queryKey: ["stream-items", activeStreamId] });
-      void qc.invalidateQueries({ queryKey: ["bag-orders"] });
-      void qc.invalidateQueries({ queryKey: ["admin-profit-metrics"] });
-      void qc.invalidateQueries({ queryKey: ["admin-stream-log"] });
+      void qc.invalidateQueries({ queryKey: ["active-stream-break", activeStreamId] });
     }
   });
 
-  const rawMutation = useMutation({
+  const processSpotMutation = useMutation({
     mutationFn: () =>
-      api("/v1/streams/raw-sale", {
+      api(`/v1/streams/${activeStreamId}/breaks/${activeBreak.data?.streamBreak?.id}/process-spot`, {
         method: "POST",
         body: JSON.stringify({
-          streamId: activeStreamId,
-          metal: rawMetal,
-          weightGrams: Number(rawWeight)
+          outcomeType,
+          prizeSlotId: outcomeType === "prize" ? selectedPrizeSlotId : undefined
         })
       }),
     onSuccess: () => {
-      setRawWeight("");
       void qc.invalidateQueries({ queryKey: ["stream-items", activeStreamId] });
-      void qc.invalidateQueries({ queryKey: ["stream-batches", activeStreamId] });
+      void qc.invalidateQueries({ queryKey: ["active-stream-break", activeStreamId] });
       void qc.invalidateQueries({ queryKey: ["batches"] });
       void qc.invalidateQueries({ queryKey: ["admin-profit-metrics"] });
       void qc.invalidateQueries({ queryKey: ["admin-stream-log"] });
@@ -168,9 +153,8 @@ export function StreamsPage() {
       api<{ ok: boolean }>(`/v1/streams/items/${itemId}`, { method: "DELETE" }),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ["stream-items", activeStreamId] });
-      void qc.invalidateQueries({ queryKey: ["stream-batches", activeStreamId] });
+      void qc.invalidateQueries({ queryKey: ["active-stream-break", activeStreamId] });
       void qc.invalidateQueries({ queryKey: ["batches"] });
-      void qc.invalidateQueries({ queryKey: ["bag-orders"] });
       void qc.invalidateQueries({ queryKey: ["admin-profit-metrics"] });
       void qc.invalidateQueries({ queryKey: ["admin-stream-log"] });
     }
@@ -197,7 +181,7 @@ export function StreamsPage() {
       }
       void qc.invalidateQueries({ queryKey: ["streams", user?.id] });
       void qc.removeQueries({ queryKey: ["stream-items", streamId] });
-      void qc.removeQueries({ queryKey: ["stream-batches", streamId] });
+      void qc.removeQueries({ queryKey: ["active-stream-break", streamId] });
       void qc.invalidateQueries({ queryKey: ["admin-profit-metrics"] });
       void qc.invalidateQueries({ queryKey: ["admin-stream-log"] });
     }
@@ -215,15 +199,14 @@ export function StreamsPage() {
     endMutation.mutate(streamId);
   };
 
-  const onAddSticker = () => {
-    stickerMutation.mutate();
-  };
-
-  const onAddRaw = () => {
-    const w = Number(rawWeight);
-    if (!(w > 0)) return;
-    rawMutation.mutate();
-  };
+  const nextSpotNumber = useMemo(
+    () => activeBreak.data?.spots?.find((spot) => !spot.processed_at)?.spot_number ?? null,
+    [activeBreak.data?.spots]
+  );
+  const availablePrizeSlots = useMemo(
+    () => (activeBreak.data?.prizeSlots ?? []).filter((slot) => Number(slot.is_consumed) !== 1),
+    [activeBreak.data?.prizeSlots]
+  );
 
   const startDisabled = !user || startMutation.isPending || activeStreamId !== null;
 
@@ -272,66 +255,76 @@ export function StreamsPage() {
             <span className="stream-live-label">LIVE</span>
           </div>
           <p style={{ fontSize: "0.65rem", color: "var(--muted)", marginBottom: "0.75rem" }}>
-            Session active · add sales below
+            Session active · run break spots below
           </p>
-          <div className="grid-form">
-            <input
-              value={stickerCode}
-              onChange={(e) => setStickerCode(e.target.value)}
-              placeholder="sticker code"
-              disabled={endMutation.isPending}
-            />
-            <button
-              type="button"
-              onClick={onAddSticker}
-              disabled={
-                stickerMutation.isPending ||
-                endMutation.isPending ||
-                stickerCode.trim().length < 2
-              }
-            >
-              Add sticker sale
-            </button>
-            <select
-              value={rawMetal}
-              onChange={(e) => setRawMetal(e.target.value as "gold" | "silver")}
-              disabled={endMutation.isPending}
-            >
-              <option value="gold">Gold</option>
-              <option value="silver">Silver</option>
-            </select>
-            <input
-              value={rawWeight}
-              onChange={(e) => setRawWeight(e.target.value)}
-              placeholder="raw grams"
-              type="number"
-              min={0}
-              step="0.0001"
-              disabled={endMutation.isPending || rawBlocked}
-            />
-            <button
-              type="button"
-              onClick={onAddRaw}
-              disabled={
-                rawMutation.isPending || endMutation.isPending || rawBlocked || !(Number(rawWeight) > 0)
-              }
-            >
-              Add raw sale
-            </button>
-          </div>
-          {rawBlocked ? (
-            <p style={{ fontSize: "0.62rem", color: "var(--muted)", marginTop: "0.5rem", marginBottom: 0 }}>
-              No {rawMetal} batch in this session with remaining stock for a raw pull — sticker sales still work.
+          {!activeBreak.data?.streamBreak ? (
+            <div className="grid-form">
+              <select value={selectedBreakId} onChange={(e) => setSelectedBreakId(e.target.value)}>
+                <option value="">Select break</option>
+                {(breaks.data ?? [])
+                  .filter((row) => row.status !== "completed")
+                  .map((row) => (
+                    <option key={row.id} value={row.id}>
+                      {row.name} · prizes sold {row.sold_prize_spots}/10
+                    </option>
+                  ))}
+              </select>
+              <button
+                type="button"
+                onClick={() => startBreakMutation.mutate()}
+                disabled={!selectedBreakId || startBreakMutation.isPending}
+              >
+                Add new break
+              </button>
+            </div>
+          ) : (
+            <div style={{ marginBottom: "0.75rem" }}>
+              <div style={{ fontSize: "0.7rem", marginBottom: "0.35rem" }}>
+                <strong>{activeBreak.data.streamBreak.break_name}</strong> · prizes sold{" "}
+                {activeBreak.data.streamBreak.sold_prize_spots}/10 · remaining silver{" "}
+                {Number(activeBreak.data.streamBreak.remaining_silver_grams).toFixed(2)}g
+              </div>
+              <div className="grid-form">
+                <input value={nextSpotNumber == null ? "Complete" : `Spot ${nextSpotNumber}`} readOnly />
+                <select
+                  value={outcomeType}
+                  onChange={(e) => setOutcomeType(e.target.value as "silver" | "prize")}
+                >
+                  <option value="silver">Silver (1g)</option>
+                  <option value="prize">Prize</option>
+                </select>
+                {outcomeType === "prize" ? (
+                  <select value={selectedPrizeSlotId} onChange={(e) => setSelectedPrizeSlotId(e.target.value)}>
+                    <option value="">Select prize slot</option>
+                    {availablePrizeSlots.map((slot) => (
+                      <option key={slot.id} value={slot.id}>
+                        Slot {slot.slot_number} {slot.slot_type} · {slot.grams}g {slot.metal}
+                      </option>
+                    ))}
+                  </select>
+                ) : null}
+                <button
+                  type="button"
+                  onClick={() => processSpotMutation.mutate()}
+                  disabled={
+                    processSpotMutation.isPending ||
+                    nextSpotNumber == null ||
+                    (outcomeType === "prize" && !selectedPrizeSlotId)
+                  }
+                >
+                  Process spot
+                </button>
+              </div>
+            </div>
+          )}
+          {startBreakMutation.isError ? (
+            <p className="error" style={{ marginTop: "0.5rem", fontSize: "0.75rem" }}>
+              {(startBreakMutation.error as Error).message}
             </p>
           ) : null}
-          {stickerMutation.isError ? (
+          {processSpotMutation.isError ? (
             <p className="error" style={{ marginTop: "0.5rem", fontSize: "0.75rem" }}>
-              {(stickerMutation.error as Error).message}
-            </p>
-          ) : null}
-          {rawMutation.isError ? (
-            <p className="error" style={{ marginTop: "0.5rem", fontSize: "0.75rem" }}>
-              {(rawMutation.error as Error).message}
+              {(processSpotMutation.error as Error).message}
             </p>
           ) : null}
 
@@ -344,16 +337,15 @@ export function StreamsPage() {
             ) : streamItems.error ? (
               <p className="error">{(streamItems.error as Error).message}</p>
             ) : itemCount === 0 ? (
-              <p style={{ fontSize: "0.7rem", color: "var(--muted)" }}>No sales yet — add a sticker or raw sale above.</p>
+              <p style={{ fontSize: "0.7rem", color: "var(--muted)" }}>No spots processed yet.</p>
             ) : (
               <div className="tbl-wrap">
                 <table className="tbl">
                   <thead>
                     <tr>
                       <th>Type</th>
-                      <th>Sticker / name</th>
+                      <th>Name</th>
                       <th>Metal</th>
-                      <th>Batch</th>
                       <th>Weight (g)</th>
                       <th>Spot value</th>
                       <th aria-label="Remove" />
@@ -363,9 +355,8 @@ export function StreamsPage() {
                     {streamItems.data!.map((it) => (
                       <tr key={it.id}>
                         <td>{it.sale_type}</td>
-                        <td>{it.sale_type === "sticker" ? it.sticker_code ?? it.name : it.name}</td>
+                        <td>{it.name}</td>
                         <td>{it.metal}</td>
-                        <td style={{ fontSize: "0.7rem" }}>{rawSaleBatchLabel(it, streamBatches.data)}</td>
                         <td>{Number(it.weight_grams).toFixed(4)}</td>
                         <td className="tbl-green">${Number(it.spot_value).toFixed(2)}</td>
                         <td>

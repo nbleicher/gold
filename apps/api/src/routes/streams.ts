@@ -138,6 +138,10 @@ export async function registerStreamRoutes(app: FastifyInstance) {
   });
 
   app.post("/v1/streams/sticker-sale", { preHandler: requireAuth }, async (req) => {
+    return req.server.httpErrors.gone("Sticker sales are deprecated. Use break spot flow.");
+  });
+
+  app.post("/v1/streams/_legacy-sticker-sale", { preHandler: requireAuth }, async (req) => {
     const parsed = createStickerSaleSchema.safeParse(req.body);
     if (!parsed.success) {
       return req.server.httpErrors.badRequest("Invalid sticker sale payload");

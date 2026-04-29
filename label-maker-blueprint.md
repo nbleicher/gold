@@ -16,7 +16,7 @@ Web app (Print button)
         ↓
 fetch POST http://127.0.0.1:4242/print
         ↓
-label-server.js  (runs locally on Mac)
+label-server.js  (runs locally on the workstation)
         ↓
 USB HID interrupt transfers (64 bytes/packet)
         ↓
@@ -30,6 +30,7 @@ Katasymbol T50M Pro
 | File | Purpose |
 |------|---------|
 | `label-server.js` | Local Node.js print bridge — USB HID communication |
+| `packaging/label-bridge-win/` | **Windows** portable zip + Inno Setup sources for IT deployment |
 | `apps/web/src/utils/printLabel.ts` | Frontend utility — calls the local server |
 | `apps/web/src/pages/OrdersPage.tsx` | Print button already wired to `printLabel()` |
 
@@ -70,11 +71,25 @@ Expect JSON like `{ "ok": true, "printerFound": true/false, "python3Lzma": true 
 
 ---
 
+## Windows deployment (portable zip + optional Setup.exe)
+
+The bridge is the same [`label-server.js`](label-server.js); Windows PCs need **native builds** of `canvas` and `node-hid` plus **Python 3** on PATH (the server tries `python3`, then `py -3`, then `python` for stdlib `lzma`).
+
+**Maintainer (one Windows x64 machine with Visual Studio Build Tools):**
+
+1. Read [`packaging/label-bridge-win/README.md`](packaging/label-bridge-win/README.md).
+2. From the repo root, run `npm run label-server:pack-win` (or invoke `packaging/label-bridge-win/scripts/build-release.ps1` in PowerShell). This runs `npm ci` in `packaging/label-bridge-win`, copies [`label-server.js`](label-server.js) and `node_modules`, downloads the Node **win-x64** zip matching [`.node-version`](packaging/label-bridge-win/.node-version), and writes `packaging/label-bridge-win/output/GoldLabelBridge-win-x64.zip`.
+3. Optional installer: compile [`packaging/label-bridge-win/installer/GoldLabelBridge.iss`](packaging/label-bridge-win/installer/GoldLabelBridge.iss) with **Inno Setup 6** (`ISCC.exe`) to produce `GoldLabelBridge-Setup.exe` under `packaging/label-bridge-win/output/`.
+
+**End user:** Install from `Setup.exe` or unzip the portable folder, install **Python 3** if prompted by `README-USER.txt`, then run **Start Gold Label Bridge.bat**. Smoke: `http://127.0.0.1:4242/health`.
+
+---
+
 ## Runtime vs protocol
 
 | Layer | What you need |
 |--------|----------------|
-| **Environment** | `node-hid`, `canvas` (+ Homebrew cairo stack), **Python 3** with stdlib `lzma` |
+| **Environment** | `node-hid`, `canvas` (macOS: Homebrew cairo stack; Windows: MSVC build tools), **Python 3** with stdlib `lzma` on PATH (`python3`, `py -3`, or `python`) |
 | **Process** | `label-server.js` listening on `127.0.0.1:4242` |
 | **Wire format** | HID 64-byte packets, 32768-byte padded bitmap, LZMA ALONE — details below |
 

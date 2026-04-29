@@ -27,7 +27,7 @@ export async function registerInventoryRoutes(app: FastifyInstance) {
       date: string;
       metal: "gold" | "silver";
       grams: number;
-      purchaseSpot: number;
+      purchaseSpot?: number | null;
       totalCost: number;
     };
     const countRow = await one<{ n: number }>(
@@ -60,7 +60,9 @@ export async function registerInventoryRoutes(app: FastifyInstance) {
         body.metal,
         body.grams,
         body.grams,
-        body.purchaseSpot,
+        body.purchaseSpot == null || !Number.isFinite(Number(body.purchaseSpot))
+          ? null
+          : Number(body.purchaseSpot),
         body.totalCost,
         batchNumber,
         batchName,

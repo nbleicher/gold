@@ -5,6 +5,7 @@ import { ZodError } from "zod";
 import { env } from "./env.js";
 import { registerInventoryRoutes } from "./routes/inventory.js";
 import { registerBagOrderRoutes } from "./routes/bagOrders.js";
+import { registerBreakRoutes } from "./routes/breaks.js";
 import { registerStreamRoutes } from "./routes/streams.js";
 import { registerSpotRoutes } from "./routes/spot.js";
 import { registerAuthRoutes } from "./routes/auth.js";
@@ -26,6 +27,7 @@ app.get("/metrics", async () => ({
 
 await registerInventoryRoutes(app);
 await registerBagOrderRoutes(app);
+await registerBreakRoutes(app);
 await registerStreamRoutes(app);
 await registerSpotRoutes(app);
 await registerAuthRoutes(app);

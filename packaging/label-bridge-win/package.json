@@ -1,0 +1,10 @@
+{
+  "name": "@gold/label-bridge-win",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Windows-only native deps bundle for label-server.js (build on x64 Windows)",
+  "dependencies": {
+    "canvas": "^2.11.2",
+    "node-hid": "^3.1.1"
+  }
+}

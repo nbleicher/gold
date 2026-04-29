@@ -8,7 +8,7 @@ type Batch = {
   metal: "gold" | "silver";
   grams: number;
   remaining_grams: number;
-  purchase_spot: number;
+  purchase_spot: number | null;
   total_cost: number;
   batch_number: number | null;
   batch_name: string | null;
@@ -45,7 +45,7 @@ export function InventoryMgmtPage() {
           date,
           metal,
           grams: Number(grams),
-          purchaseSpot: Number(spot),
+          purchaseSpot: spot.trim() ? Number(spot) : null,
           totalCost: Number(cost)
         })
       }),
@@ -221,7 +221,7 @@ export function InventoryMgmtPage() {
                         <td>{b.metal[0].toUpperCase() + b.metal.slice(1)}</td>
                         <td>{Number(b.grams).toFixed(4)}</td>
                         <td className="tbl-green">{Number(b.remaining_grams).toFixed(4)}</td>
-                        <td>${Number(b.purchase_spot).toFixed(2)}</td>
+                        <td>{b.purchase_spot == null ? "—" : `$${Number(b.purchase_spot).toFixed(2)}`}</td>
                         <td className="tbl-green">${Number(b.total_cost).toFixed(2)}</td>
                         <td>
                           <button
@@ -314,7 +314,6 @@ export function InventoryMgmtPage() {
                 placeholder="0.00"
                 value={spot}
                 onChange={(e) => setSpot(e.target.value)}
-                required
               />
             </div>
             <div className="form-group">
