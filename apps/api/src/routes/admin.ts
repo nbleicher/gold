@@ -196,7 +196,7 @@ async function computeCommissionMetricsForUser(
   const streamIds = streams.map((s) => s.id);
   const ph = streamIds.map(() => "?").join(",");
   const items = await q<StreamItemWithSpot>(
-    `select id, stream_id, sale_type, batch_id, weight_grams, sticker_code, spot_value from stream_items where stream_id in (${ph})`,
+    `select id, stream_id, sale_type, batch_id, weight_grams, sticker_code, spot_value, break_id from stream_items where stream_id in (${ph})`,
     streamIds
   );
   const cogsMap = await computeCogsByItemIdForDbItems(items);
@@ -462,7 +462,7 @@ export async function registerAdminRoutes(app: FastifyInstance) {
 
   app.get("/v1/admin/profit-metrics", adminPre, async () => {
     const items = await q<StreamItemWithSpot>(
-      "select id, stream_id, sale_type, batch_id, weight_grams, sticker_code, spot_value from stream_items"
+      "select id, stream_id, sale_type, batch_id, weight_grams, sticker_code, spot_value, break_id from stream_items"
     );
     const cogsMap = await computeCogsByItemIdForDbItems(items);
     const totalCogs = totalCogsFromMap(cogsMap);
@@ -982,6 +982,8 @@ export async function registerAdminRoutes(app: FastifyInstance) {
       spot_price: number;
       sticker_code: string | null;
       batch_id: string | null;
+      break_id: string | null;
+      break_spot_id: string | null;
     }>(`select * from stream_items where stream_id in (${ph})`, streamIds);
 
     const itemsForCogs: StreamItemWithSpot[] = items.map((it) => ({
@@ -991,7 +993,8 @@ export async function registerAdminRoutes(app: FastifyInstance) {
       batch_id: it.batch_id,
       weight_grams: Number(it.weight_grams),
       sticker_code: it.sticker_code,
-      spot_value: Number(it.spot_value)
+      spot_value: Number(it.spot_value),
+      break_id: it.break_id ?? null
     }));
     const cogsByItemId = await computeCogsByItemIdForDbItems(itemsForCogs);
     const cogsByStreamId = new Map<string, number>();
@@ -1030,6 +1033,20 @@ export async function registerAdminRoutes(app: FastifyInstance) {
       itemsByStream.set(it.stream_id, list);
     }
 
+    const breakSilverRows = await q<{ stream_id: string; g: number }>(
+      `select si.stream_id, coalesce(sum(si.weight_grams), 0) as g
+       from stream_items si
+       inner join break_spots bs on bs.id = si.break_spot_id
+       where si.stream_id in (${ph})
+         and si.break_id is not null
+         and bs.outcome_type = 'silver'
+       group by si.stream_id`,
+      streamIds
+    );
+    const breakFloorSilverGramsByStream = new Map<string, number>(
+      breakSilverRows.map((r) => [r.stream_id, Number(r.g)])
+    );
+
     return {
       streams: streams.map((s) => {
         const ce = s.completed_earnings;
@@ -1038,6 +1055,7 @@ export async function registerAdminRoutes(app: FastifyInstance) {
         const ceNum = Number.isFinite(completed_earnings) ? completed_earnings : null;
         const items_cogs_total = cogsByStreamId.get(s.id) ?? 0;
         const items_spot_total = spotByStreamId.get(s.id) ?? 0;
+        const items_break_floor_silver_grams = breakFloorSilverGramsByStream.get(s.id) ?? 0;
         const net_profit =
           ceNum !== null && Number.isFinite(items_cogs_total) ? ceNum - items_cogs_total : null;
         return {
@@ -1045,6 +1063,7 @@ export async function registerAdminRoutes(app: FastifyInstance) {
           completed_earnings: ceNum,
           items_spot_total,
           items_cogs_total,
+          items_break_floor_silver_grams,
           net_profit,
           gold_batch_name: s.gold_batch_id ? batchNameById[s.gold_batch_id] ?? "—" : "—",
           silver_batch_name: s.silver_batch_id ? batchNameById[s.silver_batch_id] ?? "—" : "—",

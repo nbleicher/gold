@@ -8,6 +8,22 @@ import {
   type StreamItemCogsInput
 } from "./streamCogs.js";
 
+test("break raw line uses spot_value as COGS when batch_id is null", () => {
+  const batchById = buildBatchMap([]);
+  const item: StreamItemCogsInput = {
+    id: "ib",
+    stream_id: "s1",
+    sale_type: "raw",
+    batch_id: null,
+    weight_grams: 1,
+    sticker_code: null,
+    break_id: "brk1",
+    spot_value: 2.5
+  };
+  const c = cogsForItem(item, batchById, new Map(), new Map());
+  assert.equal(c, 2.5);
+});
+
 test("raw sale COGS is proportional to batch cost per gram", () => {
   const batchById = buildBatchMap([{ id: "b1", total_cost: 310, grams: 31.1035 }]);
   const item: StreamItemCogsInput = {

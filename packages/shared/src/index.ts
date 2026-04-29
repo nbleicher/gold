@@ -53,52 +53,61 @@ export const createStickerSaleSchema = z.object({
 export type CreateStickerSaleInput = z.infer<typeof createStickerSaleSchema>;
 
 export const breakPrizeSlotInputSchema = z.object({
-  slotNumber: z.number().int().min(1).max(10),
-  slotType: z.enum(["normal", "mega"]),
+  slotNumber: z.number().int().min(1).max(100),
+  slotType: z.enum(["normal", "mega", "prize"]),
   metal: z.enum(["gold", "silver"]),
   grams: z.number().positive(),
   cost: z.number().nonnegative()
 });
 export type BreakPrizeSlotInput = z.infer<typeof breakPrizeSlotInputSchema>;
 
-export const createBreakSchema = z.object({
-  name: z.string().min(1).max(120),
-  prizeSlots: z
-    .array(breakPrizeSlotInputSchema)
-    .length(10)
-    .superRefine((slots, ctx) => {
-      const numbers = new Set<number>();
-      let megaCount = 0;
-      let normalCount = 0;
-      for (const slot of slots) {
-        if (numbers.has(slot.slotNumber)) {
-          ctx.addIssue({
-            code: z.ZodIssueCode.custom,
-            message: `Duplicate slotNumber ${slot.slotNumber}`
-          });
-        }
-        numbers.add(slot.slotNumber);
-        if (slot.slotType === "mega") megaCount += 1;
-        if (slot.slotType === "normal") normalCount += 1;
-      }
-      if (megaCount !== 1 || normalCount !== 9) {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          message: "Break must include 9 normal prize slots and 1 mega slot"
-        });
-      }
-    })
-});
+const breakGeometryRefine = (
+  input: { totalSpots: number; floorSilverSpots: number; prizeSlots: { slotNumber: number }[] },
+  ctx: z.RefinementCtx
+) => {
+  const { totalSpots, floorSilverSpots, prizeSlots } = input;
+  if (floorSilverSpots + prizeSlots.length !== totalSpots) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "floorSilverSpots plus prize slot count must equal totalSpots"
+    });
+  }
+  const numbers = new Set<number>();
+  for (const slot of prizeSlots) {
+    if (numbers.has(slot.slotNumber)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: `Duplicate slotNumber ${slot.slotNumber}`
+      });
+    }
+    numbers.add(slot.slotNumber);
+  }
+};
+
+export const createBreakSchema = z
+  .object({
+    name: z.string().min(1).max(120),
+    totalSpots: z.number().int().min(2).max(200),
+    floorSilverSpots: z.number().int().min(0).max(200),
+    prizeSlots: z.array(breakPrizeSlotInputSchema).min(1).max(100)
+  })
+  .superRefine(breakGeometryRefine);
 export type CreateBreakInput = z.infer<typeof createBreakSchema>;
 
-export const updateBreakSchema = createBreakSchema.extend({
-  status: z.enum(["draft", "active", "completed"]).optional()
-});
+export const updateBreakSchema = z
+  .object({
+    name: z.string().min(1).max(120),
+    totalSpots: z.number().int().min(2).max(200),
+    floorSilverSpots: z.number().int().min(0).max(200),
+    prizeSlots: z.array(breakPrizeSlotInputSchema).min(1).max(100),
+    status: z.enum(["draft", "active", "completed"]).optional()
+  })
+  .superRefine(breakGeometryRefine);
 export type UpdateBreakInput = z.infer<typeof updateBreakSchema>;
 
 export const startStreamBreakSchema = z.object({
-  streamId: streamIdSchema,
-  breakId: batchIdSchema
+  breakId: batchIdSchema,
+  floorSpots: z.number().int().min(0).max(500)
 });
 export type StartStreamBreakInput = z.infer<typeof startStreamBreakSchema>;
 

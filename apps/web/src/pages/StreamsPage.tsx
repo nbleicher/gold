@@ -22,7 +22,10 @@ type BreakRow = {
   id: string;
   name: string;
   status: "draft" | "active" | "completed";
+  total_spots?: number;
+  fixed_silver_spots?: number;
   sold_prize_spots: number;
+  prize_slot_count?: number;
 };
 
 type ActiveBreakResponse = {
@@ -33,6 +36,8 @@ type ActiveBreakResponse = {
     sold_prize_spots: number;
     sold_spots: number;
     remaining_silver_grams: number;
+    floor_spots: number;
+    prize_slot_count: number;
   } | null;
   spots: Array<{
     id: string;
@@ -44,12 +49,17 @@ type ActiveBreakResponse = {
   prizeSlots: Array<{
     id: string;
     slot_number: number;
-    slot_type: "normal" | "mega";
+    slot_type: "normal" | "mega" | "prize";
     metal: "gold" | "silver";
     grams: number;
     cost: number;
     is_consumed: number;
   }>;
+};
+
+type BreakStats = {
+  totalBreakCost: number;
+  totalFloorSilverGrams: number;
 };
 
 export function StreamsPage() {
@@ -58,6 +68,7 @@ export function StreamsPage() {
   const [activeStreamId, setActiveStreamId] = useState<string | null>(null);
   const [isStartCardOpen, setIsStartCardOpen] = useState(false);
   const [selectedBreakId, setSelectedBreakId] = useState("");
+  const [floorSpotsInput, setFloorSpotsInput] = useState("40");
   const [outcomeType, setOutcomeType] = useState<"silver" | "prize">("silver");
   const [selectedPrizeSlotId, setSelectedPrizeSlotId] = useState("");
 
@@ -100,6 +111,19 @@ export function StreamsPage() {
     enabled: !!activeStreamId
   });
 
+  const breakStats = useQuery({
+    queryKey: ["stream-break-stats", activeStreamId],
+    queryFn: () => api<BreakStats>(`/v1/streams/${activeStreamId}/break-stats`),
+    enabled: !!activeStreamId
+  });
+
+  useEffect(() => {
+    const b = breaks.data?.find((x) => x.id === selectedBreakId);
+    if (b?.fixed_silver_spots != null) {
+      setFloorSpotsInput(String(b.fixed_silver_spots));
+    }
+  }, [selectedBreakId, breaks.data]);
+
   const startMutation = useMutation({
     mutationFn: () =>
       api<Stream>("/v1/streams/start", {
@@ -114,19 +138,37 @@ export function StreamsPage() {
       void qc.invalidateQueries({ queryKey: ["streams", user?.id] });
       void qc.invalidateQueries({ queryKey: ["stream-items", stream.id] });
       void qc.invalidateQueries({ queryKey: ["active-stream-break", stream.id] });
+      void qc.invalidateQueries({ queryKey: ["stream-break-stats", stream.id] });
     }
   });
 
   const startBreakMutation = useMutation({
-    mutationFn: () =>
-      api(`/v1/streams/${activeStreamId}/breaks/start`, {
+    mutationFn: () => {
+      const floorSpots = Math.max(0, Math.floor(Number(floorSpotsInput) || 0));
+      return api(`/v1/streams/${activeStreamId}/breaks/start`, {
         method: "POST",
         body: JSON.stringify({
-          breakId: selectedBreakId
+          breakId: selectedBreakId,
+          floorSpots
         })
+      });
+    },
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["active-stream-break", activeStreamId] });
+      void qc.invalidateQueries({ queryKey: ["stream-break-stats", activeStreamId] });
+    }
+  });
+
+  const endBreakMutation = useMutation({
+    mutationFn: (streamBreakId: string) =>
+      api<{ ok: boolean }>(`/v1/streams/${activeStreamId}/breaks/${streamBreakId}/end`, {
+        method: "POST",
+        body: JSON.stringify({})
       }),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ["active-stream-break", activeStreamId] });
+      void qc.invalidateQueries({ queryKey: ["stream-break-stats", activeStreamId] });
+      void qc.invalidateQueries({ queryKey: ["stream-items", activeStreamId] });
     }
   });
 
@@ -142,6 +184,7 @@ export function StreamsPage() {
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ["stream-items", activeStreamId] });
       void qc.invalidateQueries({ queryKey: ["active-stream-break", activeStreamId] });
+      void qc.invalidateQueries({ queryKey: ["stream-break-stats", activeStreamId] });
       void qc.invalidateQueries({ queryKey: ["batches"] });
       void qc.invalidateQueries({ queryKey: ["admin-profit-metrics"] });
       void qc.invalidateQueries({ queryKey: ["admin-stream-log"] });
@@ -154,6 +197,7 @@ export function StreamsPage() {
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ["stream-items", activeStreamId] });
       void qc.invalidateQueries({ queryKey: ["active-stream-break", activeStreamId] });
+      void qc.invalidateQueries({ queryKey: ["stream-break-stats", activeStreamId] });
       void qc.invalidateQueries({ queryKey: ["batches"] });
       void qc.invalidateQueries({ queryKey: ["admin-profit-metrics"] });
       void qc.invalidateQueries({ queryKey: ["admin-stream-log"] });
@@ -182,6 +226,7 @@ export function StreamsPage() {
       void qc.invalidateQueries({ queryKey: ["streams", user?.id] });
       void qc.removeQueries({ queryKey: ["stream-items", streamId] });
       void qc.removeQueries({ queryKey: ["active-stream-break", streamId] });
+      void qc.removeQueries({ queryKey: ["stream-break-stats", streamId] });
       void qc.invalidateQueries({ queryKey: ["admin-profit-metrics"] });
       void qc.invalidateQueries({ queryKey: ["admin-stream-log"] });
     }
@@ -208,6 +253,7 @@ export function StreamsPage() {
     [activeBreak.data?.prizeSlots]
   );
 
+  const prizeTotal = activeBreak.data?.streamBreak?.prize_slot_count ?? 10;
   const startDisabled = !user || startMutation.isPending || activeStreamId !== null;
 
   return (
@@ -257,32 +303,57 @@ export function StreamsPage() {
           <p style={{ fontSize: "0.65rem", color: "var(--muted)", marginBottom: "0.75rem" }}>
             Session active · run break spots below
           </p>
+
+          {breakStats.data ? (
+            <div
+              style={{
+                fontSize: "0.7rem",
+                marginBottom: "0.75rem",
+                padding: "0.5rem",
+                background: "var(--surface-2, rgba(0,0,0,0.15))",
+                borderRadius: "6px"
+              }}
+            >
+              <strong>Session break totals</strong> · break COGS ${breakStats.data.totalBreakCost.toFixed(2)} · floor
+              silver sold {breakStats.data.totalFloorSilverGrams.toFixed(4)}g
+            </div>
+          ) : null}
+
           {!activeBreak.data?.streamBreak ? (
             <div className="grid-form">
               <select value={selectedBreakId} onChange={(e) => setSelectedBreakId(e.target.value)}>
                 <option value="">Select break</option>
-                {(breaks.data ?? [])
-                  .filter((row) => row.status !== "completed")
-                  .map((row) => (
-                    <option key={row.id} value={row.id}>
-                      {row.name} · prizes sold {row.sold_prize_spots}/10
-                    </option>
-                  ))}
+                {(breaks.data ?? []).map((row) => (
+                  <option key={row.id} value={row.id}>
+                    {row.name} · {row.total_spots ?? "?"} spots · {row.prize_slot_count ?? "?"} prizes
+                  </option>
+                ))}
               </select>
+              <label style={{ fontSize: "0.7rem", color: "var(--muted)", display: "flex", flexDirection: "column", gap: "0.25rem" }}>
+                Floor spots (this run, for tracking)
+                <input
+                  className="form-input"
+                  type="number"
+                  min={0}
+                  value={floorSpotsInput}
+                  onChange={(e) => setFloorSpotsInput(e.target.value)}
+                />
+              </label>
               <button
                 type="button"
                 onClick={() => startBreakMutation.mutate()}
                 disabled={!selectedBreakId || startBreakMutation.isPending}
               >
-                Add new break
+                Start break run
               </button>
             </div>
           ) : (
             <div style={{ marginBottom: "0.75rem" }}>
               <div style={{ fontSize: "0.7rem", marginBottom: "0.35rem" }}>
                 <strong>{activeBreak.data.streamBreak.break_name}</strong> · prizes sold{" "}
-                {activeBreak.data.streamBreak.sold_prize_spots}/10 · remaining silver{" "}
-                {Number(activeBreak.data.streamBreak.remaining_silver_grams).toFixed(2)}g
+                {activeBreak.data.streamBreak.sold_prize_spots}/{prizeTotal} · remaining silver{" "}
+                {Number(activeBreak.data.streamBreak.remaining_silver_grams).toFixed(2)}g · this run floor spots{" "}
+                <strong>{activeBreak.data.streamBreak.floor_spots}</strong>
               </div>
               <div className="grid-form">
                 <input value={nextSpotNumber == null ? "Complete" : `Spot ${nextSpotNumber}`} readOnly />
@@ -314,12 +385,29 @@ export function StreamsPage() {
                 >
                   Process spot
                 </button>
+                <button
+                  type="button"
+                  className="btn btn-outline"
+                  disabled={endBreakMutation.isPending || !activeBreak.data.streamBreak?.id}
+                  onClick={() => {
+                    if (!activeBreak.data?.streamBreak?.id) return;
+                    if (!window.confirm("End this break run now? You can start another break afterward.")) return;
+                    endBreakMutation.mutate(activeBreak.data.streamBreak.id);
+                  }}
+                >
+                  Next break
+                </button>
               </div>
             </div>
           )}
           {startBreakMutation.isError ? (
             <p className="error" style={{ marginTop: "0.5rem", fontSize: "0.75rem" }}>
               {(startBreakMutation.error as Error).message}
+            </p>
+          ) : null}
+          {endBreakMutation.isError ? (
+            <p className="error" style={{ marginTop: "0.5rem", fontSize: "0.75rem" }}>
+              {(endBreakMutation.error as Error).message}
             </p>
           ) : null}
           {processSpotMutation.isError ? (

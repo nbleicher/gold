@@ -28,6 +28,7 @@ type StreamLogStream = {
   completed_earnings: number | null;
   items_spot_total: number;
   items_cogs_total: number;
+  items_break_floor_silver_grams?: number;
   net_profit: number | null;
   user_email: string | null;
   user_display_name: string | null;
@@ -52,10 +53,12 @@ function summarizeStream(st: StreamLogStream) {
   const stN = its.filter((i) => i.sale_type === "sticker").length;
   const rawOther = its.filter((i) => i.sale_type === "raw" && !i.break_id).length;
   const leg = its.length - breakN - stN - rawOther;
+  const floorG = Number(st.items_break_floor_silver_grams ?? 0);
+  const silverNote = floorG > 0 ? ` · floor Ag ${floorG.toFixed(2)}g` : "";
   const mix =
     leg > 0
-      ? `${breakN} break · ${stN} legacy sticker · ${rawOther} raw · ${leg} other`
-      : `${breakN} break · ${stN} legacy sticker · ${rawOther} raw`;
+      ? `${breakN} break${silverNote} · ${stN} legacy sticker · ${rawOther} raw · ${leg} other`
+      : `${breakN} break${silverNote} · ${stN} legacy sticker · ${rawOther} raw`;
   const rawB = `G: ${st.gold_batch_name} · S: ${st.silver_batch_name}`;
   return { itemsTotal, metal, avgSpot, mix, rawB, count: its.length };
 }

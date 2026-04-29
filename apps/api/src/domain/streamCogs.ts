@@ -7,6 +7,9 @@ export type StreamItemCogsInput = {
   batch_id: string | null;
   weight_grams: number;
   sticker_code: string | null;
+  /** Present for break-derived raw lines (batch_id null); COGS = inventory cost stored as spot_value. */
+  break_id?: string | null;
+  spot_value?: number;
 };
 
 export type BagOrderRow = {
@@ -40,7 +43,11 @@ export function cogsForItem(
 ): number {
   if (item.sale_type === "raw") {
     const b = item.batch_id ? batchById.get(item.batch_id) : undefined;
-    return cogsFromBatchGrams(b, item.weight_grams);
+    if (b) return cogsFromBatchGrams(b, item.weight_grams);
+    if (item.break_id && item.spot_value != null && Number(item.spot_value) >= 0) {
+      return Number(item.spot_value);
+    }
+    return 0;
   }
   if (item.sale_type === "sticker") {
     const code = (item.sticker_code ?? "").trim().toUpperCase();

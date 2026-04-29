@@ -62,10 +62,11 @@ export async function registerDashboardRoutes(app: FastifyInstance) {
       spot_value: number;
       weight_grams: number;
       batch_id: string | null;
+      break_id: string | null;
       total_cost: number | null;
       grams: number | null;
     }>(
-      `select i.spot_value, i.weight_grams, i.batch_id, b.total_cost, b.grams
+      `select i.spot_value, i.weight_grams, i.batch_id, i.break_id, b.total_cost, b.grams
        from stream_items i
        left join inventory_batches b on b.id = i.batch_id
        where i.stream_id = ?`,
@@ -78,6 +79,10 @@ export async function registerDashboardRoutes(app: FastifyInstance) {
       const sv = Number(r.spot_value);
       const w = Number(r.weight_grams);
       totalSpotValue += sv;
+      if (r.break_id) {
+        estimatedProfit += 0;
+        continue;
+      }
       const g = r.grams != null ? Number(r.grams) : 0;
       const tc = r.total_cost != null ? Number(r.total_cost) : 0;
       const costPerGram = g > 0 ? tc / g : 0;
