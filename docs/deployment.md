@@ -3,7 +3,8 @@
 ## Turso
 
 1. Create Turso database and auth token.
-2. Apply SQL migrations in `turso/migrations`:
+2. Apply SQL migrations in `turso/migrations` **in numeric order** through the latest file (see folder listing). **`013_break_multi_run.sql`** replaces the break-related tables with the current app schema (drops `breaks`, `break_prize_slots`, `break_spots`, `stream_breaks` and recreates them; clears `stream_items` break FKs). Run **after `012_breaks_and_pool.sql`**. Safe to re-run to repair a broken or partial break schema; it **deletes all break data**.
+
    - `001_init.sql`
    - `002_seed_admin_template.sql` (after replacing placeholders)
 

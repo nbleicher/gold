@@ -1,12 +1,46 @@
--- Multi-run stream breaks, flexible break geometry, prize slot type "prize", break templates vs run instances.
+-- =============================================================================
+-- BREAK SCHEMA (single file) — run after 012_breaks_and_pool.sql
+-- =============================================================================
+--
+-- Turso / sqlite3:
+--   turso db shell YOUR_DB < turso/migrations/013_break_multi_run.sql
+--
+-- This script DROPS and RECREATES: breaks, break_prize_slots, break_spots, stream_breaks.
+-- All break templates, spots, prize slots, and stream↔break links are removed.
+-- stream_items.break_id / break_spot_id are cleared first so FKs allow drops.
+--
+-- Optional: only clear rows without dropping (keeps table shell) — usually not enough
+-- if you see "no such table: break_prize_slots"; then you need this full script.
+--   UPDATE stream_items SET break_id = NULL, break_spot_id = NULL;
+--   DELETE FROM stream_breaks;
+--   DELETE FROM break_spots;
+--   DELETE FROM break_prize_slots;
+--   DELETE FROM breaks;
+--
+-- =============================================================================
 
 PRAGMA foreign_keys = OFF;
 
+-- Staging tables from failed partial runs
+DROP TABLE IF EXISTS stream_breaks_new;
+DROP TABLE IF EXISTS break_spots_new;
+DROP TABLE IF EXISTS break_prize_slots_new;
+DROP TABLE IF EXISTS breaks_new;
+
+-- Clear line items pointing at break rows, then drop in child → parent order
+UPDATE stream_items SET break_id = NULL, break_spot_id = NULL
+WHERE break_id IS NOT NULL OR break_spot_id IS NOT NULL;
+
+DROP TABLE IF EXISTS stream_breaks;
+DROP TABLE IF EXISTS break_spots;
+DROP TABLE IF EXISTS break_prize_slots;
+DROP TABLE IF EXISTS breaks;
+
 -- ---------------------------------------------------------------------------
--- breaks: relax spot counts; template flag for clone workflow
+-- breaks
 -- ---------------------------------------------------------------------------
-CREATE TABLE IF NOT EXISTS breaks_new (
-  id TEXT PRIMARY KEY,
+CREATE TABLE breaks (
+  id TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(16)))),
   name TEXT NOT NULL,
   status TEXT NOT NULL DEFAULT 'draft' CHECK (status IN ('draft', 'active', 'completed')),
   total_spots INTEGER NOT NULL CHECK (total_spots >= 2 AND total_spots <= 200),
@@ -17,27 +51,15 @@ CREATE TABLE IF NOT EXISTS breaks_new (
   remaining_silver_grams REAL NOT NULL CHECK (remaining_silver_grams >= 0),
   is_template INTEGER NOT NULL DEFAULT 1 CHECK (is_template IN (0, 1)),
   cloned_from_id TEXT REFERENCES breaks(id) ON DELETE SET NULL,
-  created_at TEXT NOT NULL,
-  updated_at TEXT NOT NULL
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
-INSERT INTO breaks_new (
-  id, name, status, total_spots, fixed_silver_spots, sold_spots, sold_prize_spots,
-  total_silver_budget_grams, remaining_silver_grams, is_template, cloned_from_id, created_at, updated_at
-)
-SELECT
-  id, name, status, total_spots, fixed_silver_spots, sold_spots, sold_prize_spots,
-  total_silver_budget_grams, remaining_silver_grams, 1, NULL, created_at, updated_at
-FROM breaks;
-
-DROP TABLE breaks;
-ALTER TABLE breaks_new RENAME TO breaks;
-
 -- ---------------------------------------------------------------------------
--- break_prize_slots: slot_type includes prize; more slots per break
+-- break_prize_slots
 -- ---------------------------------------------------------------------------
-CREATE TABLE IF NOT EXISTS break_prize_slots_new (
-  id TEXT PRIMARY KEY,
+CREATE TABLE break_prize_slots (
+  id TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(16)))),
   break_id TEXT NOT NULL REFERENCES breaks(id) ON DELETE CASCADE,
   slot_number INTEGER NOT NULL CHECK (slot_number >= 1 AND slot_number <= 100),
   slot_type TEXT NOT NULL CHECK (slot_type IN ('normal', 'mega', 'prize')),
@@ -46,26 +68,16 @@ CREATE TABLE IF NOT EXISTS break_prize_slots_new (
   cost REAL NOT NULL DEFAULT 0 CHECK (cost >= 0),
   is_consumed INTEGER NOT NULL DEFAULT 0 CHECK (is_consumed IN (0, 1)),
   consumed_at TEXT,
-  created_at TEXT NOT NULL,
-  updated_at TEXT NOT NULL,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at TEXT NOT NULL DEFAULT (datetime('now')),
   UNIQUE (break_id, slot_number)
 );
 
-INSERT INTO break_prize_slots_new (
-  id, break_id, slot_number, slot_type, metal, grams, cost, is_consumed, consumed_at, created_at, updated_at
-)
-SELECT
-  id, break_id, slot_number, slot_type, metal, grams, cost, is_consumed, consumed_at, created_at, updated_at
-FROM break_prize_slots;
-
-DROP TABLE break_prize_slots;
-ALTER TABLE break_prize_slots_new RENAME TO break_prize_slots;
-
 -- ---------------------------------------------------------------------------
--- break_spots: allow up to 200 spots per break
+-- break_spots
 -- ---------------------------------------------------------------------------
-CREATE TABLE IF NOT EXISTS break_spots_new (
-  id TEXT PRIMARY KEY,
+CREATE TABLE break_spots (
+  id TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(16)))),
   break_id TEXT NOT NULL REFERENCES breaks(id) ON DELETE CASCADE,
   spot_number INTEGER NOT NULL CHECK (spot_number >= 1 AND spot_number <= 200),
   outcome_type TEXT CHECK (outcome_type IN ('silver', 'prize')),
@@ -74,25 +86,15 @@ CREATE TABLE IF NOT EXISTS break_spots_new (
   grams REAL,
   cost REAL,
   processed_at TEXT,
-  created_at TEXT NOT NULL,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
   UNIQUE (break_id, spot_number),
   UNIQUE (prize_slot_id)
 );
 
-INSERT INTO break_spots_new (
-  id, break_id, spot_number, outcome_type, prize_slot_id, metal, grams, cost, processed_at, created_at
-)
-SELECT
-  id, break_id, spot_number, outcome_type, prize_slot_id, metal, grams, cost, processed_at, created_at
-FROM break_spots;
-
-DROP TABLE break_spots;
-ALTER TABLE break_spots_new RENAME TO break_spots;
-
 -- ---------------------------------------------------------------------------
--- stream_breaks: multiple rows per stream; per-run floor + rollup columns
+-- stream_breaks (multiple runs per stream; no UNIQUE(stream_id))
 -- ---------------------------------------------------------------------------
-CREATE TABLE IF NOT EXISTS stream_breaks_new (
+CREATE TABLE stream_breaks (
   id TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(16)))),
   stream_id TEXT NOT NULL REFERENCES streams(id) ON DELETE CASCADE,
   break_id TEXT NOT NULL REFERENCES breaks(id) ON DELETE CASCADE,
@@ -103,13 +105,6 @@ CREATE TABLE IF NOT EXISTS stream_breaks_new (
   run_total_cost REAL CHECK (run_total_cost IS NULL OR run_total_cost >= 0),
   run_total_silver_grams REAL CHECK (run_total_silver_grams IS NULL OR run_total_silver_grams >= 0)
 );
-
-INSERT INTO stream_breaks_new (id, stream_id, break_id, started_at, ended_at, ended_reason, floor_spots, run_total_cost, run_total_silver_grams)
-SELECT id, stream_id, break_id, started_at, ended_at, ended_reason, 40, NULL, NULL
-FROM stream_breaks;
-
-DROP TABLE stream_breaks;
-ALTER TABLE stream_breaks_new RENAME TO stream_breaks;
 
 CREATE INDEX IF NOT EXISTS idx_stream_breaks_stream_started ON stream_breaks (stream_id, started_at DESC);
 

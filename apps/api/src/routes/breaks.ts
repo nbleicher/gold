@@ -289,6 +289,34 @@ export async function registerBreakRoutes(app: FastifyInstance) {
     });
   });
 
+  app.delete("/v1/breaks/:id", { preHandler: requireRole("admin") }, async (req) => {
+    const { id } = req.params as { id: string };
+    return withWriteTx(async (tx) => {
+      const existing = await txOne<{ id: string; sold_spots: number; is_template: number }>(
+        tx,
+        "select id, sold_spots, is_template from breaks where id = ?",
+        [id]
+      );
+      if (!existing) throw req.server.httpErrors.notFound("Break not found");
+      if (Number(existing.is_template) !== 1) {
+        throw req.server.httpErrors.conflict("Only template breaks can be deleted");
+      }
+      if (Number(existing.sold_spots) > 0) {
+        throw req.server.httpErrors.conflict("Cannot delete break after spots are sold");
+      }
+      await txQ(
+        tx,
+        `update stream_items
+         set break_id = null, break_spot_id = null
+         where break_id = ?
+            or break_spot_id in (select id from break_spots where break_id = ?)`,
+        [id, id]
+      );
+      await txQ(tx, "delete from breaks where id = ?", [id]);
+      return { ok: true };
+    });
+  });
+
   app.post("/v1/streams/:id/breaks/start", { preHandler: requireAuth }, async (req) => {
     const { id: streamId } = req.params as { id: string };
     await assertStreamAccess(req, streamId);

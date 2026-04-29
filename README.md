@@ -20,7 +20,7 @@ This repository migrates the legacy static `goldstream-app.html` app to:
    - `npm install`
 2. Create `.env` from `.env.example`.
 3. Apply Turso migrations:
-   - run SQL files in `turso/migrations` in order.
+   - run SQL files in `turso/migrations` **in numeric order** through the latest. For breaks/streams run **`013_break_multi_run.sql`** after **`012`** (see file header: it drops and recreates all break tables).
 4. Start API:
    - `npm run dev:api`
 5. Start web:
@@ -30,6 +30,7 @@ This repository migrates the legacy static `goldstream-app.html` app to:
 
 - [ ] Insert first admin user (bcrypt hash) using `turso/migrations/002_seed_admin_template.sql`.
 - [ ] Apply `turso/migrations/003_bag_orders_sold_at.sql` on **production** Turso (`bag_orders.sold_at`). Without it, admin stream delete and sticker flows can fail with SQL errors.
+- [ ] Apply `turso/migrations/013_break_multi_run.sql` on **production** Turso after **`012`** (replaces break tables; see script header). Required for current breaks/stream APIs.
 - [ ] Export localStorage from legacy app into `legacy-export.json`.
 - [ ] Run `npm run import:legacy -- ./legacy-export.json`.
 - [ ] Validate reconciliation counts in script output.
