@@ -20,6 +20,12 @@ type AdminUser = {
   requires_login: number;
 };
 
+/** API rows may omit or null username at runtime; never call string methods on raw `u.username`. */
+function safeUsername(u: AdminUser): string {
+  const raw = u.username;
+  return typeof raw === "string" ? raw : "";
+}
+
 export function AdminUsersPage() {
   const qc = useQueryClient();
   const { profile } = useAuth();
@@ -129,8 +135,10 @@ export function AdminUsersPage() {
 
   const accountLabel = (u: AdminUser) => {
     if (!canLoginRow(u)) return "—";
-    if (u.username.startsWith("nologin_") || u.username.startsWith("purged_")) return "—";
-    return u.username;
+    const name = safeUsername(u);
+    if (!name) return "—";
+    if (name.startsWith("nologin_") || name.startsWith("purged_")) return "—";
+    return name;
   };
 
   const payLabel = (u: AdminUser) => {
@@ -404,7 +412,7 @@ export function AdminUsersPage() {
                           disabled={deactivateUser.isPending || reactivateUser.isPending || isSelf}
                           title={isSelf ? "You cannot deactivate your own account" : undefined}
                           onClick={() => {
-                            if (!confirm(`Deactivate ${u.display_name?.trim() || u.username}?`)) return;
+                            if (!confirm(`Deactivate ${u.display_name?.trim() || safeUsername(u) || "—"}?`)) return;
                             deactivateUser.mutate(u.id);
                           }}
                         >
@@ -479,7 +487,7 @@ export function AdminUsersPage() {
             <p style={{ fontSize: "0.72rem", color: "var(--text-dim)", marginBottom: "1rem", lineHeight: 1.5 }}>
               This removes{" "}
               <strong style={{ color: "var(--text)" }}>
-                {purgeTarget.display_name?.trim() || purgeTarget.username}
+                {purgeTarget.display_name?.trim() || safeUsername(purgeTarget) || "—"}
               </strong>{" "}
               from the user list and blocks sign-in. Streams, sales, schedules, and other data they entered are not
               deleted.

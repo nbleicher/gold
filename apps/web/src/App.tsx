@@ -51,17 +51,18 @@ const navSubTabClass = ({ isActive }: { isActive: boolean }) => `nav-tab nav-tab
 
 function Shell() {
   const location = useLocation();
+  const pathname = typeof location.pathname === "string" ? location.pathname : "";
   const { profile, signOut } = useAuth();
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const isAdmin = profile?.role === "admin";
   const userLabel = profile?.displayName?.trim() || profile?.username || "—";
-  const adminSectionActive = location.pathname.startsWith("/admin/");
+  const adminSectionActive = pathname.startsWith("/admin/");
   const showAdminSubnav = isAdmin && adminSectionActive;
-  const streamsSectionActive = location.pathname === "/streams";
+  const streamsSectionActive = pathname === "/streams";
 
   useEffect(() => {
     setMobileNavOpen(false);
-  }, [location.pathname]);
+  }, [pathname]);
 
   useEffect(() => {
     if (!mobileNavOpen) return;
