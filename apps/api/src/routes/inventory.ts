@@ -1,13 +1,20 @@
 import type { FastifyInstance } from "fastify";
+import { performance } from "node:perf_hooks";
 import { one, q } from "../db.js";
 import { requireAuth, requireRole } from "./auth.js";
 
-async function suggestStickerLetter(metal: "gold" | "silver"): Promise<string> {
-  const rows = await q<{ sticker_batch_letter: string }>(
-    "select sticker_batch_letter from inventory_batches where metal = ?",
-    [metal]
-  );
-  const used = new Set(rows.map((r) => String(r.sticker_batch_letter).toUpperCase()));
+function msSince(t0: number): number {
+  return Math.round((performance.now() - t0) * 100) / 100;
+}
+
+function suggestStickerLetterFromUsedLetters(usedLettersCsv: string | null): string {
+  const used = new Set<string>();
+  if (usedLettersCsv) {
+    for (const part of usedLettersCsv.split(",")) {
+      const L = String(part).trim().toUpperCase().slice(0, 1);
+      if (L) used.add(L);
+    }
+  }
   for (let c = 65; c <= 90; c++) {
     const L = String.fromCharCode(c);
     if (!used.has(L)) return L;
@@ -23,6 +30,7 @@ export async function registerInventoryRoutes(app: FastifyInstance) {
   });
 
   app.post("/v1/inventory/batches", { preHandler: requireRole("admin") }, async (req) => {
+    const t0 = performance.now();
     const body = req.body as {
       date: string;
       metal: "gold" | "silver";
@@ -30,16 +38,22 @@ export async function registerInventoryRoutes(app: FastifyInstance) {
       purchaseSpot?: number | null;
       totalCost: number;
     };
-    const countRow = await one<{ n: number }>(
-      "select count(*) as n from inventory_batches where metal = ?",
-      [body.metal]
+
+    const plan = await one<{ n: number; used_letters: string | null }>(
+      `select
+         (select count(*) from inventory_batches where metal = ?) as n,
+         (select group_concat(upper(sticker_batch_letter), ',') from inventory_batches where metal = ?) as used_letters`,
+      [body.metal, body.metal]
     );
-    const batchNumber = Number(countRow?.n ?? 0) + 1;
+    const planMs = msSince(t0);
+
+    const batchNumber = Number(plan?.n ?? 0) + 1;
     const label = body.metal === "gold" ? "Gold" : "Silver";
     const batchName = `${label} Batch #${batchNumber}`;
-    const stickerBatchLetter = await suggestStickerLetter(body.metal);
+    const stickerBatchLetter = suggestStickerLetterFromUsedLetters(plan?.used_letters ?? null);
 
-    return one<{
+    const tIns = performance.now();
+    const row = await one<{
       id: string;
       date: string;
       metal: string;
@@ -69,6 +83,17 @@ export async function registerInventoryRoutes(app: FastifyInstance) {
         stickerBatchLetter
       ]
     );
+    const insertMs = msSince(tIns);
+    req.log.info(
+      {
+        route: "POST /v1/inventory/batches",
+        planMs,
+        insertMs,
+        totalMs: msSince(t0)
+      },
+      "inventory batch create timing"
+    );
+    return row;
   });
 
   app.patch("/v1/inventory/batches/:id/code", { preHandler: requireRole("admin") }, async (req) => {

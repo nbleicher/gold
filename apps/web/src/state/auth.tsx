@@ -5,7 +5,7 @@ export type AppRole = "admin" | "streamer" | "shipper" | "bagger";
 
 type AppUser = {
   id: string;
-  email: string;
+  username: string;
   role: AppRole;
   displayName: string | null;
 };
@@ -14,7 +14,7 @@ type AuthContextValue = {
   user: AppUser | null;
   profile: AppUser | null;
   loading: boolean;
-  signIn: (email: string, password: string) => Promise<void>;
+  signIn: (username: string, password: string) => Promise<void>;
   signOut: () => Promise<void>;
 };
 
@@ -48,10 +48,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       user: profile,
       profile,
       loading,
-      signIn: async (email, password) => {
+      signIn: async (username, password) => {
         const res = await api<{ token: string; user: AppUser }>("/v1/auth/login", {
           method: "POST",
-          body: JSON.stringify({ email, password })
+          body: JSON.stringify({ username: username.trim().toLowerCase(), password })
         });
         setAuthToken(res.token);
         setProfile(res.user);

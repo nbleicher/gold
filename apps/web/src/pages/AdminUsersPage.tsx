@@ -7,6 +7,7 @@ type AppRole = "admin" | "streamer" | "shipper" | "bagger";
 
 type AdminUser = {
   id: string;
+  username: string;
   email: string;
   display_name: string | null;
   role: AppRole;
@@ -22,7 +23,7 @@ type AdminUser = {
 export function AdminUsersPage() {
   const qc = useQueryClient();
   const { profile } = useAuth();
-  const [email, setEmail] = useState("");
+  const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [displayName, setDisplayName] = useState("");
   const [role, setRole] = useState<AppRole>("streamer");
@@ -49,7 +50,7 @@ export function AdminUsersPage() {
         body.hourlyRate = hr;
       }
       if (role === "admin" || role === "streamer") {
-        body.email = email.trim();
+        body.username = username.trim().toLowerCase();
         body.password = password;
       }
       return api<{ id: string; role: AppRole; displayName: string | null }>("/v1/auth/register", {
@@ -59,7 +60,7 @@ export function AdminUsersPage() {
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["admin-users"] });
-      setEmail("");
+      setUsername("");
       setPassword("");
       setDisplayName("");
       setRole("streamer");
@@ -119,7 +120,7 @@ export function AdminUsersPage() {
     e.preventDefault();
     if (!displayName.trim()) return;
     if (needsLoginCredentials) {
-      if (!email.trim() || !password.trim()) return;
+      if (!username.trim() || !password.trim()) return;
     }
     createUser.mutate();
   };
@@ -128,8 +129,8 @@ export function AdminUsersPage() {
 
   const accountLabel = (u: AdminUser) => {
     if (!canLoginRow(u)) return "—";
-    if (u.email.includes("@internal.invalid")) return "—";
-    return u.email;
+    if (u.username.startsWith("nologin_") || u.username.startsWith("purged_")) return "—";
+    return u.username;
   };
 
   const payLabel = (u: AdminUser) => {
@@ -236,16 +237,16 @@ export function AdminUsersPage() {
               style={{ display: "flex", flexWrap: "wrap", gap: "0.75rem", alignItems: "flex-end", marginBottom: "0.75rem" }}
             >
               <div className="form-group" style={{ minWidth: 220, flex: "2 1 240px" }}>
-                <label className="form-label" htmlFor="au-email">
-                  Email
+                <label className="form-label" htmlFor="au-username">
+                  Username
                 </label>
                 <input
-                  id="au-email"
+                  id="au-username"
                   className="form-input"
-                  type="email"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  placeholder="user@example.com"
+                  type="text"
+                  value={username}
+                  onChange={(e) => setUsername(e.target.value)}
+                  placeholder="nbleicher"
                   autoComplete="off"
                 />
               </div>
@@ -403,7 +404,7 @@ export function AdminUsersPage() {
                           disabled={deactivateUser.isPending || reactivateUser.isPending || isSelf}
                           title={isSelf ? "You cannot deactivate your own account" : undefined}
                           onClick={() => {
-                            if (!confirm(`Deactivate ${u.display_name?.trim() || u.email}?`)) return;
+                            if (!confirm(`Deactivate ${u.display_name?.trim() || u.username}?`)) return;
                             deactivateUser.mutate(u.id);
                           }}
                         >
@@ -478,7 +479,7 @@ export function AdminUsersPage() {
             <p style={{ fontSize: "0.72rem", color: "var(--text-dim)", marginBottom: "1rem", lineHeight: 1.5 }}>
               This removes{" "}
               <strong style={{ color: "var(--text)" }}>
-                {purgeTarget.display_name?.trim() || purgeTarget.email}
+                {purgeTarget.display_name?.trim() || purgeTarget.username}
               </strong>{" "}
               from the user list and blocks sign-in. Streams, sales, schedules, and other data they entered are not
               deleted.

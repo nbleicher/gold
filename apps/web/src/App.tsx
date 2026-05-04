@@ -63,7 +63,7 @@ function Shell() {
   const { profile, signOut } = useAuth();
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const isAdmin = profile?.role === "admin";
-  const userLabel = profile?.displayName?.trim() || profile?.email || "—";
+  const userLabel = profile?.displayName?.trim() || profile?.username || "—";
   const adminSectionActive = ADMIN_SECTION_PATHS.includes(
     location.pathname as (typeof ADMIN_SECTION_PATHS)[number]
   );
@@ -126,7 +126,7 @@ function Shell() {
         </nav>
         <div className="header-right">
           {isAdmin ? <span className="admin-badge">Admin</span> : null}
-          <span className="user-pill" title={profile?.email ?? ""}>
+          <span className="user-pill" title={profile?.username ?? ""}>
             {userLabel}
           </span>
           <button type="button" className="logout-btn" onClick={() => void signOut()}>

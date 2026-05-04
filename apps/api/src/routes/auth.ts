@@ -1,15 +1,29 @@
 import type { FastifyInstance } from "fastify";
 import bcrypt from "bcrypt";
 import jwt from "jsonwebtoken";
+import { performance } from "node:perf_hooks";
 import { randomBytes } from "node:crypto";
 import { z } from "zod";
 import { env } from "../env.js";
-import { one, q } from "../db.js";
+import { one } from "../db.js";
 
 export const APP_ROLES = ["admin", "streamer", "shipper", "bagger"] as const;
 export type AppRole = (typeof APP_ROLES)[number];
 
-export type JwtPayload = { sub: string; role: AppRole; email: string };
+export type JwtPayload = { sub: string; role: AppRole; username: string };
+
+/** Synthetic email to satisfy `users.email NOT NULL UNIQUE` for username-based accounts. */
+export function loginEmailFromUsername(username: string): string {
+  return `${username.toLowerCase()}@login.internal`;
+}
+
+const usernameSchema = z
+  .string()
+  .trim()
+  .toLowerCase()
+  .min(3, "Username must be at least 3 characters")
+  .max(32, "Username must be at most 32 characters")
+  .regex(/^[a-z0-9_]+$/, "Username may only contain letters, numbers, and underscores");
 
 declare module "fastify" {
   interface FastifyRequest {
@@ -19,13 +33,13 @@ declare module "fastify" {
 
 async function loadAuthUserFromDb(userId: string): Promise<JwtPayload> {
   const row = await one<{
-    email: string;
+    username: string;
     role: AppRole;
     requires_login: number;
     is_active: number;
     purged_at: string | null;
   }>(
-    "select email, role, requires_login, is_active, purged_at from users where id = ?",
+    "select username, role, requires_login, is_active, purged_at from users where id = ?",
     [userId]
   );
   if (!row || !row.is_active || row.purged_at) {
@@ -37,7 +51,7 @@ async function loadAuthUserFromDb(userId: string): Promise<JwtPayload> {
   if (row.role !== "admin" && row.role !== "streamer") {
     throw new Error("Unauthorized");
   }
-  return { sub: userId, role: row.role, email: row.email };
+  return { sub: userId, role: row.role, username: row.username };
 }
 
 export async function requireAuth(request: import("fastify").FastifyRequest) {
@@ -64,13 +78,13 @@ export function requireRole(role: "admin" | "user") {
 }
 
 const firstBootstrapRegisterSchema = z.object({
-  email: z.string().trim().toLowerCase().email(),
+  username: usernameSchema,
   password: z.string().min(8, "Password must be at least 8 characters"),
   displayName: z.string().trim().optional()
 });
 
 const adminRegisterUserSchema = z.object({
-  email: z.string().trim().toLowerCase().email().optional(),
+  username: usernameSchema.optional(),
   password: z.string().min(8, "Password must be at least 8 characters").optional(),
   displayName: z.string().trim().optional(),
   role: z.enum(APP_ROLES),
@@ -78,27 +92,38 @@ const adminRegisterUserSchema = z.object({
   hourlyRate: z.number().nonnegative().optional()
 });
 
+function msSince(t0: number): number {
+  return Math.round((performance.now() - t0) * 100) / 100;
+}
+
 export async function registerAuthRoutes(app: FastifyInstance) {
   app.post("/v1/auth/register", async (req) => {
+    const reqStart = performance.now();
     const countRow = await one<{ count: number }>("select count(*) as count from users");
     const hasUsers = Number(countRow?.count ?? 0) > 0;
 
     if (!hasUsers) {
       const body = firstBootstrapRegisterSchema.parse(req.body);
-      const email = body.email;
-      const exists = await one<{ id: string }>("select id from users where email = ?", [email]);
-      if (exists) throw new Error("Email already exists");
+      const username = body.username;
+      const exists = await one<{ id: string }>("select id from users where username = ?", [username]);
+      if (exists) throw new Error("Username already exists");
+      const tHash = performance.now();
       const passwordHash = await bcrypt.hash(body.password, 12);
-      await q(
-        `insert into users (
-          email, password_hash, role, display_name,
-          commission_percent, requires_login, pay_structure, hourly_rate
-        ) values (?, ?, 'admin', ?, 0, 1, 'commission', 0)`,
-        [email, passwordHash, body.displayName?.trim() || null]
-      );
+      const bcryptMs = msSince(tHash);
+      const email = loginEmailFromUsername(username);
+      const tDb = performance.now();
       const row = await one<{ id: string; role: AppRole; display_name: string | null }>(
-        "select id, role, display_name from users where email = ?",
-        [email]
+        `insert into users (
+          username, email, password_hash, role, display_name,
+          commission_percent, requires_login, pay_structure, hourly_rate
+        ) values (?, ?, ?, 'admin', ?, 0, 1, 'commission', 0)
+        returning id, role, display_name`,
+        [username, email, passwordHash, body.displayName?.trim() || null]
+      );
+      const dbMs = msSince(tDb);
+      req.log.info(
+        { route: "POST /v1/auth/register", bootstrap: true, bcryptMs, dbMs, totalMs: msSince(reqStart) },
+        "register timing"
       );
       return { id: row?.id, role: row?.role, displayName: row?.display_name ?? null };
     }
@@ -124,26 +149,41 @@ export async function registerAuthRoutes(app: FastifyInstance) {
     }
 
     if (requiresLogin) {
-      if (!raw.email) {
-        throw new Error("Email is required when login is enabled");
+      if (!raw.username) {
+        throw new Error("Username is required when login is enabled");
       }
       if (!raw.password) {
         throw new Error("Password is required when login is enabled");
       }
-      const email = raw.email;
-      const exists = await one<{ id: string }>("select id from users where email = ?", [email]);
-      if (exists) throw new Error("Email already exists");
+      const username = raw.username;
+      const exists = await one<{ id: string }>("select id from users where username = ?", [username]);
+      if (exists) throw new Error("Username already exists");
+      const tHash = performance.now();
       const passwordHash = await bcrypt.hash(raw.password, 12);
-      await q(
-        `insert into users (
-          email, password_hash, role, display_name,
-          commission_percent, requires_login, pay_structure, hourly_rate
-        ) values (?, ?, ?, ?, ?, 1, ?, ?)`,
-        [email, passwordHash, raw.role, raw.displayName?.trim() || null, commissionPct, payStructure, hourly]
-      );
+      const bcryptMs = msSince(tHash);
+      const email = loginEmailFromUsername(username);
+      const tDb = performance.now();
       const row = await one<{ id: string; role: AppRole; display_name: string | null }>(
-        "select id, role, display_name from users where email = ?",
-        [email]
+        `insert into users (
+          username, email, password_hash, role, display_name,
+          commission_percent, requires_login, pay_structure, hourly_rate
+        ) values (?, ?, ?, ?, ?, ?, 1, ?, ?)
+        returning id, role, display_name`,
+        [
+          username,
+          email,
+          passwordHash,
+          raw.role,
+          raw.displayName?.trim() || null,
+          commissionPct,
+          payStructure,
+          hourly
+        ]
+      );
+      const dbMs = msSince(tDb);
+      req.log.info(
+        { route: "POST /v1/auth/register", bcryptMs, dbMs, totalMs: msSince(reqStart) },
+        "register timing"
       );
       return { id: row?.id, role: row?.role, displayName: row?.display_name ?? null };
     }
@@ -153,20 +193,26 @@ export async function registerAuthRoutes(app: FastifyInstance) {
       throw new Error("Display name is required for users without login");
     }
 
-    const placeholderEmail = `no-login+${randomBytes(16).toString("hex")}@internal.invalid`;
+    const placeholderUsername = `nologin_${randomBytes(8).toString("hex")}`;
+    const placeholderEmail = `${placeholderUsername}@internal.invalid`;
     const randomSecret = randomBytes(32).toString("hex");
+    const tHash = performance.now();
     const passwordHash = await bcrypt.hash(randomSecret, 12);
+    const bcryptMs = msSince(tHash);
 
-    await q(
-      `insert into users (
-        email, password_hash, role, display_name,
-        commission_percent, requires_login, pay_structure, hourly_rate
-      ) values (?, ?, ?, ?, ?, 0, ?, ?)`,
-      [placeholderEmail, passwordHash, raw.role, dn, commissionPct, payStructure, hourly]
-    );
+    const tDb = performance.now();
     const row = await one<{ id: string; role: AppRole; display_name: string | null }>(
-      "select id, role, display_name from users where email = ?",
-      [placeholderEmail]
+      `insert into users (
+        username, email, password_hash, role, display_name,
+        commission_percent, requires_login, pay_structure, hourly_rate
+      ) values (?, ?, ?, ?, ?, ?, 0, ?, ?)
+      returning id, role, display_name`,
+      [placeholderUsername, placeholderEmail, passwordHash, raw.role, dn, commissionPct, payStructure, hourly]
+    );
+    const dbMs = msSince(tDb);
+    req.log.info(
+      { route: "POST /v1/auth/register", bcryptMs, dbMs, totalMs: msSince(reqStart), payrollOnly: true },
+      "register timing"
     );
     return { id: row?.id, role: row?.role, displayName: row?.display_name ?? null };
   });
@@ -174,14 +220,14 @@ export async function registerAuthRoutes(app: FastifyInstance) {
   app.post("/v1/auth/login", async (req) => {
     const body = z
       .object({
-        email: z.string().trim().toLowerCase().email(),
+        username: usernameSchema,
         password: z.string().min(1)
       })
       .parse(req.body);
 
     const user = await one<{
       id: string;
-      email: string;
+      username: string;
       password_hash: string;
       role: AppRole;
       display_name: string | null;
@@ -189,9 +235,9 @@ export async function registerAuthRoutes(app: FastifyInstance) {
       purged_at: string | null;
       requires_login: number;
     }>(
-      `select id, email, password_hash, role, display_name, is_active, purged_at, requires_login
-       from users where email = ?`,
-      [body.email]
+      `select id, username, password_hash, role, display_name, is_active, purged_at, requires_login
+       from users where username = ?`,
+      [body.username]
     );
     if (!user) throw new Error("Invalid credentials");
     if (user.purged_at) throw new Error("Invalid credentials");
@@ -209,7 +255,7 @@ export async function registerAuthRoutes(app: FastifyInstance) {
     }
 
     const token = jwt.sign(
-      { sub: user.id, role: user.role, email: user.email } satisfies JwtPayload,
+      { sub: user.id, role: user.role, username: user.username } satisfies JwtPayload,
       env.jwtSecret,
       { expiresIn: "12h" }
     );
@@ -217,7 +263,7 @@ export async function registerAuthRoutes(app: FastifyInstance) {
       token,
       user: {
         id: user.id,
-        email: user.email,
+        username: user.username,
         role: user.role,
         displayName: user.display_name
       }
@@ -229,17 +275,17 @@ export async function registerAuthRoutes(app: FastifyInstance) {
     if (!userId) throw new Error("Unauthorized");
     const data = await one<{
       id: string;
-      email: string;
+      username: string;
       role: AppRole;
       display_name: string | null;
       is_active: number;
       purged_at: string | null;
-    }>("select id, email, role, display_name, is_active, purged_at from users where id = ?", [userId]);
+    }>("select id, username, role, display_name, is_active, purged_at from users where id = ?", [userId]);
     if (!data) throw new Error("Profile not found");
     if (!data.is_active || data.purged_at) throw new Error("Unauthorized");
     return {
       id: data.id,
-      email: data.email,
+      username: data.username,
       role: data.role,
       displayName: data.display_name
     };

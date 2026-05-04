@@ -4,6 +4,7 @@ import { api } from "../lib/api";
 
 type AdminUser = {
   id: string;
+  username: string;
   email: string;
   display_name: string | null;
   role: string;
@@ -28,12 +29,14 @@ type PayrollRow = {
   filename: string;
   rows: number;
   imported_at: string;
+  username: string;
   email: string;
   display_name: string | null;
 };
 
 type WeeklySummaryRow = {
   userId: string;
+  username: string;
   email: string;
   displayName: string | null;
   role: string;
@@ -480,7 +483,7 @@ export function PayrollPage() {
   }, []);
 
   const userLabel = (u: AdminUser) =>
-    u.display_name?.trim() || (u.email.includes("@internal.invalid") ? `${u.id.slice(0, 8)}…` : u.email);
+    u.display_name?.trim() || u.username;
 
   const weekDayYmds = useMemo(() => weekDates.map((d) => localYmd(d)), [weekDates]);
 
@@ -620,7 +623,7 @@ export function PayrollPage() {
                 ) : (
                   (weeklySummary.data?.users ?? []).map((r) => (
                     <tr key={r.userId}>
-                      <td className="tbl-gold">{r.displayName?.trim() || r.email}</td>
+                      <td className="tbl-gold">{r.displayName?.trim() || r.username}</td>
                       <td style={{ fontSize: "0.7rem" }}>{r.role}</td>
                       <td style={{ fontSize: "0.7rem" }}>{r.payStructure}</td>
                       <td>{r.hoursWorkedWeek.toFixed(2)}</td>
@@ -765,7 +768,7 @@ export function PayrollPage() {
               (payroll.data ?? []).map((r) => (
                 <tr key={r.id}>
                   <td>{new Date(r.imported_at).toLocaleDateString()}</td>
-                  <td className="tbl-gold">{r.display_name?.trim() || r.email}</td>
+                  <td className="tbl-gold">{r.display_name?.trim() || r.username}</td>
                   <td>{r.rows}</td>
                   <td style={{ fontSize: "0.65rem", color: "var(--muted)" }}>{r.filename}</td>
                   <td>

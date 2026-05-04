@@ -5,6 +5,7 @@ import { useAuth } from "../state/auth";
 
 type AdminUser = {
   id: string;
+  username: string;
   email: string;
   display_name: string | null;
   role: string;
@@ -201,7 +202,7 @@ export function SchedulePage() {
   };
 
   const userLabel = (u: AdminUser) =>
-    u.display_name?.trim() || (u.email.includes("@internal.invalid") ? u.id.slice(0, 8) + "…" : u.email);
+    u.display_name?.trim() || u.username;
   const slotHost = (s: ScheduleSlot) => s.streamer_display_name?.trim() || s.streamer_email;
   const statusBadge = (status: ScheduleSlot["status"]) =>
     status === "approved"

@@ -3,7 +3,7 @@ import { useAuth } from "../state/auth";
 
 export function LoginPage() {
   const { signIn } = useAuth();
-  const [email, setEmail] = useState("");
+  const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
 
@@ -11,7 +11,7 @@ export function LoginPage() {
     e.preventDefault();
     setError(null);
     try {
-      await signIn(email, password);
+      await signIn(username, password);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unable to login");
     }
@@ -26,17 +26,17 @@ export function LoginPage() {
           <div className="login-logo">⬡ GoldStream</div>
           <div className="login-tagline">Live Gold · Direct Sales Platform</div>
           <div className="login-field">
-            <label className="login-label" htmlFor="login-email">
-              Email
+            <label className="login-label" htmlFor="login-username">
+              Username
             </label>
             <input
-              id="login-email"
+              id="login-username"
               className="login-input"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              type="email"
+              value={username}
+              onChange={(e) => setUsername(e.target.value)}
+              type="text"
               autoComplete="username"
-              placeholder="you@example.com"
+              placeholder="nbleicher"
               required
             />
           </div>

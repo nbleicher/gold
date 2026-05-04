@@ -248,6 +248,7 @@ export async function registerAdminRoutes(app: FastifyInstance) {
   app.get("/v1/admin/users", adminPre, async () => {
     return q<{
       id: string;
+      username: string;
       email: string;
       display_name: string | null;
       role: string;
@@ -259,9 +260,9 @@ export async function registerAdminRoutes(app: FastifyInstance) {
       hourly_rate: number;
       requires_login: number;
     }>(
-      `select id, email, display_name, role, is_active, deactivated_at, deactivated_by,
+      `select id, username, email, display_name, role, is_active, deactivated_at, deactivated_by,
               commission_percent, pay_structure, hourly_rate, requires_login
-       from users where purged_at is null order by email asc`
+       from users where purged_at is null order by username asc`
     );
   });
 
@@ -394,10 +395,11 @@ export async function registerAdminRoutes(app: FastifyInstance) {
       return req.server.httpErrors.conflict("Deactivate the user before removing from the app");
     }
     const newEmail = `purged+${id}@invalid`;
+    const newUsername = `purged_${id.slice(0, 22)}`;
     const passwordHash = await bcrypt.hash(randomBytes(32).toString("hex"), 12);
     await q(
-      "update users set email = ?, password_hash = ?, display_name = null, purged_at = datetime('now'), purged_by = ? where id = ?",
-      [newEmail, passwordHash, actorId, id]
+      "update users set email = ?, username = ?, password_hash = ?, display_name = null, purged_at = datetime('now'), purged_by = ? where id = ?",
+      [newEmail, newUsername, passwordHash, actorId, id]
     );
     return { ok: true, id };
   });
@@ -436,10 +438,11 @@ export async function registerAdminRoutes(app: FastifyInstance) {
       filename: string;
       rows: number;
       imported_at: string;
+      username: string;
       email: string;
       display_name: string | null;
     }>(
-      `select p.id, p.user_id, p.filename, p.rows, p.imported_at, u.email, u.display_name
+      `select p.id, p.user_id, p.filename, p.rows, p.imported_at, u.username, u.email, u.display_name
        from payroll_records p
        join users u on u.id = p.user_id
        order by p.imported_at desc`
@@ -456,7 +459,7 @@ export async function registerAdminRoutes(app: FastifyInstance) {
     );
     if (!ins) throw new Error("Payroll insert failed");
     return one(
-      `select p.id, p.user_id, p.filename, p.rows, p.imported_at, u.email, u.display_name
+      `select p.id, p.user_id, p.filename, p.rows, p.imported_at, u.username, u.email, u.display_name
        from payroll_records p
        join users u on u.id = p.user_id
        where p.id = ?`,
@@ -539,6 +542,7 @@ export async function registerAdminRoutes(app: FastifyInstance) {
 
     const usersList = await q<{
       id: string;
+      username: string;
       email: string;
       display_name: string | null;
       role: string;
@@ -546,8 +550,8 @@ export async function registerAdminRoutes(app: FastifyInstance) {
       commission_percent: number;
       hourly_rate: number;
     }>(
-      `select id, email, display_name, role, pay_structure, commission_percent, hourly_rate
-       from users where purged_at is null order by email asc`
+      `select id, username, email, display_name, role, pay_structure, commission_percent, hourly_rate
+       from users where purged_at is null order by username asc`
     );
 
     const rows = [];
@@ -569,6 +573,7 @@ export async function registerAdminRoutes(app: FastifyInstance) {
 
       rows.push({
         userId: u.id,
+        username: u.username,
         email: u.email,
         displayName: u.display_name,
         role: u.role,
@@ -690,9 +695,9 @@ export async function registerAdminRoutes(app: FastifyInstance) {
     }>(
       `select s.id, s.date, s.start_time, s.streamer_id, s.created_at, s.entry_type, s.hours_worked, s.status, s.submitted_by, s.pending_submitted_at,
               s.reviewed_at, s.reviewed_by, s.review_note,
-              u.email as streamer_email, u.display_name as streamer_display_name,
-              su.email as submitted_by_email, su.display_name as submitted_by_display_name,
-              ru.email as reviewed_by_email, ru.display_name as reviewed_by_display_name
+              u.username as streamer_email, u.display_name as streamer_display_name,
+              su.username as submitted_by_email, su.display_name as submitted_by_display_name,
+              ru.username as reviewed_by_email, ru.display_name as reviewed_by_display_name
        from schedules s
        join users u on u.id = s.streamer_id
        left join users su on su.id = s.submitted_by
@@ -733,7 +738,7 @@ export async function registerAdminRoutes(app: FastifyInstance) {
       return one(
         `select s.id, s.date, s.start_time, s.streamer_id, s.created_at, s.entry_type, s.hours_worked, s.status, s.submitted_by, s.pending_submitted_at,
                 s.reviewed_at, s.reviewed_by, s.review_note,
-                u.email as streamer_email, u.display_name as streamer_display_name
+                u.username as streamer_email, u.display_name as streamer_display_name
          from schedules s
          join users u on u.id = s.streamer_id
          where s.id = ?`,
@@ -755,7 +760,7 @@ export async function registerAdminRoutes(app: FastifyInstance) {
     return one(
       `select s.id, s.date, s.start_time, s.streamer_id, s.created_at, s.entry_type, s.hours_worked, s.status, s.submitted_by, s.pending_submitted_at,
               s.reviewed_at, s.reviewed_by, s.review_note,
-              u.email as streamer_email, u.display_name as streamer_display_name
+              u.username as streamer_email, u.display_name as streamer_display_name
        from schedules s
        join users u on u.id = s.streamer_id
        where s.id = ?`,
@@ -823,7 +828,7 @@ export async function registerAdminRoutes(app: FastifyInstance) {
     return one(
       `select s.id, s.date, s.start_time, s.streamer_id, s.created_at, s.entry_type, s.hours_worked, s.status, s.submitted_by, s.pending_submitted_at,
               s.reviewed_at, s.reviewed_by, s.review_note,
-              u.email as streamer_email, u.display_name as streamer_display_name
+              u.username as streamer_email, u.display_name as streamer_display_name
        from schedules s
        join users u on u.id = s.streamer_id
        where s.id = ?`,
@@ -879,7 +884,7 @@ export async function registerAdminRoutes(app: FastifyInstance) {
       streamer_display_name: string | null;
     }>(
       `select s.id, s.date, s.start_time, s.streamer_id, s.created_at, s.entry_type, s.hours_worked, s.status, s.submitted_by, s.pending_submitted_at,
-              s.reviewed_at, s.reviewed_by, s.review_note, u.email as streamer_email, u.display_name as streamer_display_name
+              s.reviewed_at, s.reviewed_by, s.review_note, u.username as streamer_email, u.display_name as streamer_display_name
        from schedules s
        join users u on u.id = s.streamer_id
        ${where}
@@ -901,7 +906,7 @@ export async function registerAdminRoutes(app: FastifyInstance) {
     if (!ins) throw new Error("Schedule insert failed");
     return one(
       `select s.id, s.date, s.start_time, s.streamer_id, s.created_at, s.entry_type, s.hours_worked, s.status, s.submitted_by, s.pending_submitted_at,
-              s.reviewed_at, s.reviewed_by, s.review_note, u.email as streamer_email, u.display_name as streamer_display_name
+              s.reviewed_at, s.reviewed_by, s.review_note, u.username as streamer_email, u.display_name as streamer_display_name
        from schedules s
        join users u on u.id = s.streamer_id
        where s.id = ?`,
@@ -969,7 +974,7 @@ export async function registerAdminRoutes(app: FastifyInstance) {
     }>(
       `select s.id, s.user_id, s.started_at, s.ended_at, s.gold_batch_id, s.silver_batch_id,
               s.completed_earnings,
-              u.email as user_email, u.display_name as user_display_name
+              u.username as user_email, u.display_name as user_display_name
        from streams s
        left join users u on u.id = s.user_id
        order by s.started_at desc`
