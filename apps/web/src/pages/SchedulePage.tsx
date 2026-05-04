@@ -470,29 +470,38 @@ export function SchedulePage() {
                 onChange={(e) => setFormDate(e.target.value)}
               />
             </div>
-            <div className="form-group">
-              <label className="form-label" htmlFor="sc-time">
-                Start time
-              </label>
-              <input
-                id="sc-time"
-                className="form-input"
-                type="time"
-                value={formTime}
-                onChange={(e) => setFormTime(e.target.value)}
-              />
-            </div>
-            <div className="form-group">
-              <label className="form-label" htmlFor="sc-end-time">
-                End time <span style={{ opacity: 0.65 }}>(optional)</span>
-              </label>
-              <input
-                id="sc-end-time"
-                className="form-input"
-                type="time"
-                value={formEndTime}
-                onChange={(e) => setFormEndTime(e.target.value)}
-              />
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: "repeat(auto-fit, minmax(10rem, 1fr))",
+                gap: "0.75rem",
+                alignItems: "end"
+              }}
+            >
+              <div className="form-group" style={{ marginBottom: 0 }}>
+                <label className="form-label" htmlFor="sc-time">
+                  Start time
+                </label>
+                <input
+                  id="sc-time"
+                  className="form-input"
+                  type="time"
+                  value={formTime}
+                  onChange={(e) => setFormTime(e.target.value)}
+                />
+              </div>
+              <div className="form-group" style={{ marginBottom: 0 }}>
+                <label className="form-label" htmlFor="sc-end-time">
+                  End time <span style={{ opacity: 0.65 }}>(optional)</span>
+                </label>
+                <input
+                  id="sc-end-time"
+                  className="form-input"
+                  type="time"
+                  value={formEndTime}
+                  onChange={(e) => setFormEndTime(e.target.value)}
+                />
+              </div>
             </div>
             {mutError ? <p className="error">{(mutError as Error).message}</p> : null}
             {reviewMut.error ? <p className="error">{(reviewMut.error as Error).message}</p> : null}

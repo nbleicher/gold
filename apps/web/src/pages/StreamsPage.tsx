@@ -70,7 +70,6 @@ export function StreamsPage() {
   const qc = useQueryClient();
   const { user } = useAuth();
   const [activeStreamId, setActiveStreamId] = useState<string | null>(null);
-  const [isStartCardOpen, setIsStartCardOpen] = useState(false);
   const [pendingStartKind, setPendingStartKind] = useState<"break" | "sticker">("break");
   const [stickerCodeInput, setStickerCodeInput] = useState("");
   const [selectedBreakId, setSelectedBreakId] = useState("");
@@ -148,7 +147,6 @@ export function StreamsPage() {
       }),
     onSuccess: (stream) => {
       setActiveStreamId(stream.id);
-      setIsStartCardOpen(false);
       void qc.invalidateQueries({ queryKey: ["streams", user?.id] });
       void qc.invalidateQueries({ queryKey: ["stream-items", stream.id] });
       void qc.invalidateQueries({ queryKey: ["active-stream-break", stream.id] });
@@ -296,65 +294,39 @@ export function StreamsPage() {
       <h2>Streams</h2>
 
       {!activeStreamId ? (
-        <>
+        <div style={{ marginTop: "0.75rem" }}>
+          <div style={{ fontSize: "0.65rem", color: "var(--muted)", marginBottom: "0.5rem" }}>
+            Stream type
+          </div>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: "0.75rem", marginBottom: "0.75rem" }}>
+            <label style={{ display: "flex", alignItems: "center", gap: "0.35rem", fontSize: "0.75rem" }}>
+              <input
+                type="radio"
+                name="stream-kind"
+                checked={pendingStartKind === "break"}
+                onChange={() => setPendingStartKind("break")}
+              />
+              Break stream (floor spots &amp; prizes)
+            </label>
+            <label style={{ display: "flex", alignItems: "center", gap: "0.35rem", fontSize: "0.75rem" }}>
+              <input
+                type="radio"
+                name="stream-kind"
+                checked={pendingStartKind === "sticker"}
+                onChange={() => setPendingStartKind("sticker")}
+              />
+              Sticker stream (bag sticker codes)
+            </label>
+          </div>
           <button
             type="button"
             className="btn btn-gold"
-            style={{ marginTop: "0.75rem" }}
-            onClick={() => {
-              setPendingStartKind("break");
-              setIsStartCardOpen(true);
-            }}
-            disabled={startDisabled}
+            onClick={() => startMutation.mutate(pendingStartKind)}
+            disabled={startDisabled || startMutation.isPending}
           >
             Start stream
           </button>
-          {isStartCardOpen ? (
-            <div style={{ marginTop: "0.75rem" }}>
-              <div style={{ fontSize: "0.65rem", color: "var(--muted)", marginBottom: "0.5rem" }}>
-                Stream type
-              </div>
-              <div style={{ display: "flex", flexWrap: "wrap", gap: "0.75rem", marginBottom: "0.75rem" }}>
-                <label style={{ display: "flex", alignItems: "center", gap: "0.35rem", fontSize: "0.75rem" }}>
-                  <input
-                    type="radio"
-                    name="stream-kind"
-                    checked={pendingStartKind === "break"}
-                    onChange={() => setPendingStartKind("break")}
-                  />
-                  Break stream (floor spots &amp; prizes)
-                </label>
-                <label style={{ display: "flex", alignItems: "center", gap: "0.35rem", fontSize: "0.75rem" }}>
-                  <input
-                    type="radio"
-                    name="stream-kind"
-                    checked={pendingStartKind === "sticker"}
-                    onChange={() => setPendingStartKind("sticker")}
-                  />
-                  Sticker stream (bag sticker codes)
-                </label>
-              </div>
-              <div style={{ display: "flex", gap: "0.5rem" }}>
-                <button
-                  type="button"
-                  className="btn btn-gold"
-                  onClick={() => startMutation.mutate(pendingStartKind)}
-                  disabled={!user || startMutation.isPending}
-                >
-                  Confirm
-                </button>
-                <button
-                  type="button"
-                  className="btn btn-outline"
-                  onClick={() => setIsStartCardOpen(false)}
-                  disabled={startMutation.isPending}
-                >
-                  Cancel
-                </button>
-              </div>
-            </div>
-          ) : null}
-        </>
+        </div>
       ) : (
         <>
           <div className="stream-live-bar">
