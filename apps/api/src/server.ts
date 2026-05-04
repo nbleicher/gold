@@ -18,7 +18,11 @@ const app = Fastify({ logger: true });
 await app.register(cors, { origin: env.corsOrigin, credentials: true });
 await app.register(sensible);
 
-app.get("/health", async () => ({ ok: true }));
+const healthPayload = { ok: true as const };
+app.get("/health", async () => healthPayload);
+app.head("/health", async (_req, reply) => {
+  reply.status(200).send();
+});
 app.get("/metrics", async () => ({
   service: "gold-api",
   uptimeSeconds: process.uptime(),

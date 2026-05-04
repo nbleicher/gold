@@ -12,9 +12,10 @@
 
 1. Create Railway service from repo root.
 2. Set service root/build context to repository root.
-3. Set start command:
-   - `npm --workspace @gold/api run start`
-4. Configure env vars:
+3. **Build:** [`railway.toml`](railway.toml) runs `npm --workspace @gold/shared run build && npm --workspace @gold/api run build` so TypeScript compiles during deploy (not on every container boot).
+4. Set start command:
+   - `npm --workspace @gold/api run start` (runs `node dist/server.js` only)
+5. Configure env vars:
    - `PORT`
    - `TURSO_DATABASE_URL`
    - `TURSO_AUTH_TOKEN`
@@ -24,7 +25,7 @@
    - `SPOT_FALLBACK_FEED_URL`
    - `SPOT_PUSH_SECRET` (recommended): long random string; enables **`POST /v1/spot/push`** for the VPS scraper.
 
-5. **Spot updates (choose one or both)**
+6. **Spot updates (choose one or both)**
 
    **A. Push from VPS (recommended)**  
    Set **`SPOT_PUSH_SECRET`** on Railway to a strong random value. On the VPS, cron [`spot_scraper.py`](../spot_scraper.py) with environment:
@@ -37,7 +38,7 @@
    **B. Pull ingest (`job:spot`)**  
    If you serve **`spot-feed.json`** at a **public HTTPS** URL, add a Railway Cron Job with the **same env as the API** running `npm --workspace @gold/api run job:spot` on your desired interval. Do **not** use `http://localhost/...` for **`SPOT_PRIMARY_FEED_URL`**; Railway cannot reach the VPS loopback.
 
-6. **Cache headers for public `spot-feed.json` (pull ingest only)**  
+7. **Cache headers for public `spot-feed.json` (pull ingest only)**  
    If you use **B**, avoid stale JSON behind a CDN:
 
    ```nginx
