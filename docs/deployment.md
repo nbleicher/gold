@@ -46,19 +46,20 @@
    }
    ```
 
-## Cloudflare Workers (Web)
+## Cloudflare Pages + Worker (Web)
 
-The frontend is a **Cloudflare Worker** with `main = "worker.ts"` plus **static assets** from the Vite build (`[assets] directory = "./dist"`). Edge logic runs in [`apps/web/worker.ts`](apps/web/worker.ts) (e.g. `GET /health`); everything else is served from `dist/` via the `ASSETS` binding.
+**Pages (Git):** [`apps/web/wrangler.toml`](apps/web/wrangler.toml) is **Pages-only**: `name`, `compatibility_date`, and **`pages_build_output_dir = "./dist"`**. Cloudflare forbids **`main` / `[assets]`** in the same file as **`pages_build_output_dir`**—use the split below.
 
-**Cloudflare Pages (Git):** [`apps/web/wrangler.toml`](apps/web/wrangler.toml) must include **`pages_build_output_dir = "./dist"`** so Pages does not skip the file during CI (Worker-only configs without that key are ignored).
+**Worker + assets (optional manual deploy):** [`apps/web/wrangler.worker.toml`](apps/web/wrangler.worker.toml) contains `main = "worker.ts"` and `[assets]` for edge routes (e.g. `GET /health` in [`apps/web/worker.ts`](apps/web/worker.ts)) and SPA fallback. Deploy after build with:
 
-1. Create a Workers (or compatible) project from this repo.
-2. Set root directory: `apps/web`
-3. Build command: `npm install && npm run build && npx wrangler deploy` (`npm run build` runs `tsc` + `vite build` so `dist/` exists before deploy).
-4. Environment variables:
+`npm run build && npx wrangler deploy --config wrangler.worker.toml`
+
+1. Create a **Pages** project from this repo (root directory `apps/web`).
+2. Build command: `npm install && npm run build` (outputs `dist/`; Pages uploads from `pages_build_output_dir`).
+3. Environment variables (Pages):
    - `VITE_API_BASE_URL` = Railway API URL
-5. Custom domain:
-   - attach `gold.jawnix.com` to the project.
+4. Custom domain: attach `gold.jawnix.com` to the Pages project.
+5. If you need the Worker wrapper in production, deploy it separately with the command above (or host static-only on Pages; `/health` can live on the Railway API instead).
 
 ## CORS
 

@@ -1,0 +1,8 @@
+# Full Worker + assets (edge `/health`, SPA fallback). Not used by Pages Git builds.
+name = "gold-web"
+main = "worker.ts"
+compatibility_date = "2026-03-30"
+
+[assets]
+directory = "./dist"
+not_found_handling = "single-page-application"
