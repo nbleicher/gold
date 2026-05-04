@@ -61,7 +61,8 @@ export async function api<T>(path: string, init?: RequestInit): Promise<T> {
       : METHODS_DEFAULT_JSON_BODY.has(method)
         ? JSON.stringify({})
         : undefined;
-  const res = await fetch(resolveApiUrl(path), {
+  const url = resolveApiUrl(path);
+  const res = await fetch(url, {
     ...init,
     cache: path === "/v1/spot/latest" ? "no-store" : init?.cache,
     body,
@@ -79,6 +80,9 @@ export async function api<T>(path: string, init?: RequestInit): Promise<T> {
       if (typeof j?.error === "string" && j.error.trim()) message = j.error.trim();
     } catch {
       /* keep message */
+    }
+    if (res.status === 405) {
+      message = `405 Method Not Allowed at ${url}. The browser must reach your Railway API (set VITE_API_BASE_URL to the Railway origin), or use same-origin mode: set GOLD_API_ORIGIN on Cloudflare Pages and VITE_API_BASE_URL to this site’s URL so /v1/* is proxied. Details: docs/deployment.md. Response: ${message}`;
     }
     throw new Error(message);
   }

@@ -57,11 +57,18 @@
 
 1. Create a **Pages** project from this repo (root directory `apps/web`).
 2. Build command: `npm install && npm run build` (outputs `dist/`; Pages uploads from `pages_build_output_dir`).
-3. Environment variables (Pages):
-   - `VITE_API_BASE_URL` — **required**; set to the **full Railway API origin** only, e.g. `https://your-service.up.railway.app`  
-     - Must be `http://` or `https://` (not a host bare name, not empty).  
-     - No extra path after the host (the app calls paths like `/v1/auth/login` itself).  
-     - Vite **bakes this in at build time**; after changing it in Pages, **redeploy** the site.
+3. Environment variables (Pages) — pick **one** API routing mode:
+
+   **A — Direct to Railway (simplest)**  
+   - `VITE_API_BASE_URL` = your **Railway API origin**, e.g. `https://your-service.up.railway.app`  
+   - Must be `http://` or `https://`, no path after the host.  
+   - Vite **bakes this in at build time**; after changing it, **redeploy** the site.
+
+   **B — Same origin + edge proxy (fixes 405 when POST was hitting static Pages)**  
+   - `GOLD_API_ORIGIN` = same Railway API origin as in **A** (set in Pages as a normal env var; **not** `VITE_*`).  
+   - `VITE_API_BASE_URL` = your **site** origin (the Pages URL or custom domain), e.g. `https://gold.jawnix.com`  
+   - Requests to `/v1/*` are handled by [`apps/web/functions/v1/[[path]].ts`](apps/web/functions/v1/[[path]].ts) and forwarded to Railway. Redeploy after changing either variable.
+
 4. Custom domain: attach `gold.jawnix.com` to the Pages project.
 5. If you need the Worker wrapper in production, deploy it separately with the command above (or host static-only on Pages; `/health` can live on the Railway API instead).
 
@@ -72,12 +79,11 @@
 
 ## Troubleshooting: login returns **405 Method Not Allowed**
 
-The web app must call the **Railway API**, not the static Pages host:
+`405` means the HTTP **method** is not allowed **at that URL’s handler**. For this app, `POST /v1/auth/login` must reach **Fastify on Railway** (or the Pages **proxy** that forwards `/v1/*` there). It is **not** a Turso/SQL error.
 
-- **Expected request:** `POST {VITE_API_BASE_URL}/v1/auth/login` with JSON `{ "username", "password" }`.
-- **Common causes:**
-  - **`VITE_API_BASE_URL` missing or wrong** at Pages build → browser posts to the wrong origin (often same-origin to Pages), which can return **405** for `POST /v1/auth/login`.
-  - **Forgot to redeploy** after changing `VITE_API_BASE_URL`.
-- **Verify:** In browser DevTools → Network, confirm the login request URL is your Railway hostname and status is **401** for bad credentials (proves the request hit the API auth route), not **405**.
+- **Expected request:** `POST` to `{resolved API base}/v1/auth/login` with JSON `{ "username", "password" }`, where the resolved base is either your Railway origin (**mode A**) or your site origin when **`GOLD_API_ORIGIN`** + proxy are configured (**mode B**).
+- **Typical mistake:** `VITE_API_BASE_URL` points at the **Pages / static hostname** without **`GOLD_API_ORIGIN`** → the browser sends `POST` to the CDN/static layer, which often answers **405** for API paths.
+- **Fix:** Use **mode A** (Railway URL in `VITE_API_BASE_URL`) or **mode B** (`GOLD_API_ORIGIN` + site URL in `VITE_API_BASE_URL`), then **redeploy** the Pages build.
+- **Verify:** DevTools → Network → login request: host should be Railway **or** your domain with a **200/401** JSON body from the API, not **405** from a static response.
 
 Database / Turso issues typically surface as **401** / **500**, not **405**.

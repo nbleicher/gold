@@ -10,6 +10,7 @@
   "include": [
     "src",
     "worker.ts",
-    "vite.config.ts"
+    "vite.config.ts",
+    "functions/**/*.ts"
   ]
 }
