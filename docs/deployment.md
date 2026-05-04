@@ -50,6 +50,8 @@
 
 The frontend is a **Cloudflare Worker** with `main = "worker.ts"` plus **static assets** from the Vite build (`[assets] directory = "./dist"`). Edge logic runs in [`apps/web/worker.ts`](apps/web/worker.ts) (e.g. `GET /health`); everything else is served from `dist/` via the `ASSETS` binding.
 
+**Cloudflare Pages (Git):** [`apps/web/wrangler.toml`](apps/web/wrangler.toml) must include **`pages_build_output_dir = "./dist"`** so Pages does not skip the file during CI (Worker-only configs without that key are ignored).
+
 1. Create a Workers (or compatible) project from this repo.
 2. Set root directory: `apps/web`
 3. Build command: `npm install && npm run build && npx wrangler deploy` (`npm run build` runs `tsc` + `vite build` so `dist/` exists before deploy).
