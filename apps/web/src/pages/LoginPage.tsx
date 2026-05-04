@@ -27,7 +27,7 @@ export function LoginPage() {
           <div className="login-tagline">Live Gold · Direct Sales Platform</div>
           <div className="login-field">
             <label className="login-label" htmlFor="login-username">
-              Username
+              Username or email
             </label>
             <input
               id="login-username"
@@ -36,7 +36,7 @@ export function LoginPage() {
               onChange={(e) => setUsername(e.target.value)}
               type="text"
               autoComplete="username"
-              placeholder="nbleicher"
+              placeholder="admin or admin@yourcompany.com"
               required
             />
           </div>

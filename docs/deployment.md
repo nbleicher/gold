@@ -87,3 +87,7 @@
 - **Verify:** DevTools → Network → login request: host should be Railway **or** your domain with a **200/401** JSON body from the API, not **405** from a static response.
 
 Database / Turso issues typically surface as **401** / **500**, not **405**.
+
+**Login identifier:** Use your **`users.username`** value. If you type an **email**, only the part **before `@`** is matched (same rules as the DB migration): e.g. `admin@goldstream.com` is looked up as **`admin`**, not the full string.
+
+Use **`https://`** for `VITE_API_BASE_URL` toward Railway — **`http://`** can redirect and turn **`POST` into `GET`**, which surfaces as **405** on `/v1/auth/login`.

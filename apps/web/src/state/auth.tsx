@@ -1,5 +1,6 @@
 import { createContext, useContext, useEffect, useMemo, useState } from "react";
 import { api, getAuthToken, setAuthToken } from "../lib/api";
+import { loginIdentifierToUsername } from "../lib/loginUsername";
 
 export type AppRole = "admin" | "streamer" | "shipper" | "bagger";
 
@@ -53,7 +54,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       signIn: async (username, password) => {
         const res = await api<{ token: string; user: AppUser }>("/v1/auth/login", {
           method: "POST",
-          body: JSON.stringify({ username: username.trim().toLowerCase(), password })
+          body: JSON.stringify({
+            username: loginIdentifierToUsername(username),
+            password
+          })
         });
         setAuthToken(res.token);
         setProfile(res.user);

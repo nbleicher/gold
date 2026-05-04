@@ -3,13 +3,22 @@ const TOKEN_KEY = "gold_auth_token";
 /** Lazily validated; throws on first request if env is wrong (avoids silent `undefined/v1/...` misroutes). */
 let cachedApiBase: string | null = null;
 
+function isLocalHost(hostname: string): boolean {
+  return hostname === "localhost" || hostname === "127.0.0.1" || hostname === "[::1]";
+}
+
 function getResolvedApiBaseUrl(): string {
   if (cachedApiBase) return cachedApiBase;
 
   const raw = import.meta.env.VITE_API_BASE_URL;
   if (typeof raw !== "string" || !raw.trim()) {
+    // Production SPA on Cloudflare Pages: same-origin `/v1/*` is proxied when GOLD_API_ORIGIN is set.
+    if (import.meta.env.PROD && typeof window !== "undefined") {
+      cachedApiBase = window.location.origin;
+      return cachedApiBase;
+    }
     throw new Error(
-      "Missing VITE_API_BASE_URL. Set it at build time (e.g. Cloudflare Pages) to your Railway API origin, e.g. https://your-service.up.railway.app"
+      "Missing VITE_API_BASE_URL. Set it at build time (e.g. Cloudflare Pages) to your Railway API origin (https://…), or leave unset in production and set GOLD_API_ORIGIN so same-origin /v1/* is proxied."
     );
   }
 
@@ -29,8 +38,13 @@ function getResolvedApiBaseUrl(): string {
     );
   }
 
-  // Normalize trailing slash on href so `new URL(path, base)` is stable.
-  cachedApiBase = parsed.href.replace(/\/$/, "");
+  // Avoid http→https redirects turning POST into GET (405 on GET /v1/auth/login).
+  let href = parsed.href.replace(/\/$/, "");
+  if (parsed.protocol === "http:" && !isLocalHost(parsed.hostname)) {
+    href = href.replace(/^http:\/\//i, "https://").replace(/\/$/, "");
+  }
+
+  cachedApiBase = href;
   return cachedApiBase;
 }
 
