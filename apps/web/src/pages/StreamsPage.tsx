@@ -333,6 +333,9 @@ export function StreamsPage() {
             <span className="stream-live-dot" aria-hidden />
             <span className="stream-live-label">LIVE</span>
           </div>
+          <p style={{ fontSize: "0.62rem", color: "var(--muted)", marginBottom: "0.35rem" }}>
+            End this session to start a new stream and choose Break vs Sticker again.
+          </p>
           <p style={{ fontSize: "0.65rem", color: "var(--muted)", marginBottom: "0.75rem" }}>
             {isStickerStream
               ? "Sticker session · enter bag sticker codes from Inventory → Nuggets"

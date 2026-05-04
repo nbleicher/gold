@@ -473,9 +473,9 @@ export function SchedulePage() {
             <div
               style={{
                 display: "grid",
-                gridTemplateColumns: "repeat(auto-fit, minmax(10rem, 1fr))",
+                gridTemplateColumns: "1fr",
                 gap: "0.75rem",
-                alignItems: "end"
+                alignItems: "stretch"
               }}
             >
               <div className="form-group" style={{ marginBottom: 0 }}>
