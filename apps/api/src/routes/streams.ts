@@ -1,9 +1,15 @@
-import type { FastifyInstance } from "fastify";
+import type { FastifyInstance, FastifyRequest } from "fastify";
 import { createRawSaleSchema, createStickerSaleSchema } from "@gold/shared";
+import { z } from "zod";
 import { one, q, txQ, txOne, withWriteTx } from "../db.js";
 import { requireAuth } from "./auth.js";
 
 const OZT_TO_GRAMS = 31.1034768;
+
+const startStreamBodySchema = z.object({
+  userId: z.string().min(1),
+  streamKind: z.enum(["break", "sticker"]).optional().default("break")
+});
 
 async function getLatestSpot(metal: "gold" | "silver") {
   const row = await one<{ price: number }>(
@@ -72,16 +78,13 @@ export async function registerStreamRoutes(app: FastifyInstance) {
   });
 
   app.post("/v1/streams/start", { preHandler: requireAuth }, async (req) => {
-    const body = req.body as {
-      userId: string;
-      goldBatchId?: string | null;
-      silverBatchId?: string | null;
-    };
+    const parsed = startStreamBodySchema.safeParse(req.body);
+    if (!parsed.success) {
+      return req.server.httpErrors.badRequest("userId and optional streamKind (break | sticker) required");
+    }
+    const body = parsed.data;
     const self = req.authUser?.sub;
     const isAdmin = req.authUser?.role === "admin";
-    if (!body.userId) {
-      return req.server.httpErrors.badRequest("userId required");
-    }
     if (!isAdmin && body.userId !== self) {
       return req.server.httpErrors.forbidden("Cannot start stream for another user");
     }
@@ -94,12 +97,14 @@ export async function registerStreamRoutes(app: FastifyInstance) {
       return one("select * from streams where id = ?", [existing.id]);
     }
 
+    const streamKind = body.streamKind;
+
     return withWriteTx(async (tx) => {
-      await txQ(tx, "insert into streams (user_id, gold_batch_id, silver_batch_id) values (?, ?, ?)", [
-        body.userId,
-        null,
-        null
-      ]);
+      await txQ(
+        tx,
+        "insert into streams (user_id, gold_batch_id, silver_batch_id, stream_kind) values (?, ?, ?, ?)",
+        [body.userId, null, null, streamKind]
+      );
       const stream = await txOne<Record<string, unknown>>(
         tx,
         "select * from streams order by rowid desc limit 1"
@@ -107,9 +112,11 @@ export async function registerStreamRoutes(app: FastifyInstance) {
       if (!stream || typeof stream.id !== "string") {
         throw new Error("Failed to create stream");
       }
-      await txQ(tx, "insert into stream_batches (stream_id, batch_id) select ?, id from inventory_batches", [
-        stream.id
-      ]);
+      if (streamKind === "break") {
+        await txQ(tx, "insert into stream_batches (stream_id, batch_id) select ?, id from inventory_batches", [
+          stream.id
+        ]);
+      }
       return stream;
     });
   });
@@ -137,26 +144,34 @@ export async function registerStreamRoutes(app: FastifyInstance) {
     return { ok: true, discarded: false };
   });
 
-  app.post("/v1/streams/sticker-sale", { preHandler: requireAuth }, async (req) => {
-    return req.server.httpErrors.gone("Sticker sales are deprecated. Use break spot flow.");
-  });
-
-  app.post("/v1/streams/_legacy-sticker-sale", { preHandler: requireAuth }, async (req) => {
+  async function runStickerSale(req: FastifyRequest) {
     const parsed = createStickerSaleSchema.safeParse(req.body);
     if (!parsed.success) {
       return req.server.httpErrors.badRequest("Invalid sticker sale payload");
     }
-    const body = parsed.data;
-    const stream = await one<{ id: string; ended_at: string | null }>(
-      "select id, ended_at from streams where id = ?",
-      [body.streamId]
-    );
+    const saleBody = parsed.data;
+    const self = req.authUser?.sub;
+    const isAdmin = req.authUser?.role === "admin";
+
+    const stream = await one<{
+      id: string;
+      ended_at: string | null;
+      user_id: string;
+      stream_kind: string;
+    }>("select id, ended_at, user_id, stream_kind from streams where id = ?", [saleBody.streamId]);
     if (!stream) {
       return req.server.httpErrors.notFound("Stream not found");
+    }
+    if (!isAdmin && stream.user_id !== self) {
+      return req.server.httpErrors.forbidden();
     }
     if (stream.ended_at) {
       return req.server.httpErrors.conflict("Stream is not live");
     }
+    if (stream.stream_kind !== "sticker") {
+      return req.server.httpErrors.badRequest("Sticker sales only apply to sticker streams");
+    }
+
     const order = await one<{
       id: string;
       metal: "gold" | "silver" | "mixed";
@@ -164,14 +179,14 @@ export async function registerStreamRoutes(app: FastifyInstance) {
       actual_weight_grams: number;
     }>(
       "select id, metal, primary_batch_id, actual_weight_grams from bag_orders where sticker_code = ?",
-      [body.stickerCode.toUpperCase()]
+      [saleBody.stickerCode.toUpperCase()]
     );
     if (!order) {
       return req.server.httpErrors.notFound("Unknown sticker");
     }
     const existing = await one<{ id: string }>(
       "select id from stream_items where sale_type = 'sticker' and upper(sticker_code) = ? limit 1",
-      [body.stickerCode.toUpperCase()]
+      [saleBody.stickerCode.toUpperCase()]
     );
     if (existing) {
       return req.server.httpErrors.conflict("Sticker already sold");
@@ -207,14 +222,14 @@ export async function registerStreamRoutes(app: FastifyInstance) {
       }
     }
     const spotPrice = totalWeight ? (totalSpotValue / totalWeight) * OZT_TO_GRAMS : 0;
-    const codeUpper = body.stickerCode.toUpperCase();
+    const codeUpper = saleBody.stickerCode.toUpperCase();
 
     return withWriteTx(async (tx) => {
       await txQ(
         tx,
         "insert into stream_items (stream_id, sale_type, name, metal, weight_grams, spot_value, spot_price, sticker_code, batch_id) values (?, 'sticker', ?, ?, ?, ?, ?, ?, ?)",
         [
-          body.streamId,
+          saleBody.streamId,
           codeUpper,
           order.metal,
           totalWeight,
@@ -232,19 +247,32 @@ export async function registerStreamRoutes(app: FastifyInstance) {
       return txOne(
         tx,
         "select * from stream_items where stream_id = ? order by created_at desc limit 1",
-        [body.streamId]
+        [saleBody.streamId]
       );
     });
+  }
+
+  app.post("/v1/streams/sticker-sale", { preHandler: requireAuth }, async (req) => {
+    return runStickerSale(req);
+  });
+
+  app.post("/v1/streams/_legacy-sticker-sale", { preHandler: requireAuth }, async (req) => {
+    return runStickerSale(req);
   });
 
   app.post("/v1/streams/raw-sale", { preHandler: requireAuth }, async (req) => {
     const body = createRawSaleSchema.parse(req.body);
-    const stream = await one<{ id: string; gold_batch_id: string | null; silver_batch_id: string | null }>(
-      "select id, gold_batch_id, silver_batch_id from streams where id = ?",
-      [body.streamId]
-    );
+    const stream = await one<{
+      id: string;
+      gold_batch_id: string | null;
+      silver_batch_id: string | null;
+      stream_kind: string;
+    }>("select id, gold_batch_id, silver_batch_id, stream_kind from streams where id = ?", [body.streamId]);
     if (!stream) {
       return req.server.httpErrors.notFound("Stream missing");
+    }
+    if (stream.stream_kind === "sticker") {
+      return req.server.httpErrors.badRequest("Raw metal sales are not available on sticker streams");
     }
 
     const snapshotCountRow = await one<{ c: unknown }>(

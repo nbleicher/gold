@@ -29,6 +29,14 @@ async function assertStreamAccess(
   if (stream.ended_at) throw req.server.httpErrors.conflict("Stream is not live");
 }
 
+async function assertBreakStream(req: FastifyRequest, streamId: string): Promise<void> {
+  await assertStreamAccess(req, streamId);
+  const row = await one<{ stream_kind: string }>("select stream_kind from streams where id = ?", [streamId]);
+  if (!row || row.stream_kind !== "break") {
+    throw req.server.httpErrors.badRequest("Break runs require a break stream (not a sticker stream)");
+  }
+}
+
 async function readPoolAverages(
   tx: Transaction,
   metal: Metal
@@ -319,7 +327,7 @@ export async function registerBreakRoutes(app: FastifyInstance) {
 
   app.post("/v1/streams/:id/breaks/start", { preHandler: requireAuth }, async (req) => {
     const { id: streamId } = req.params as { id: string };
-    await assertStreamAccess(req, streamId);
+    await assertBreakStream(req, streamId);
     const parsed = startStreamBreakSchema.safeParse(req.body ?? {});
     if (!parsed.success) return req.server.httpErrors.badRequest("Invalid start break payload");
     const { breakId, floorSpots } = parsed.data;
@@ -377,7 +385,7 @@ export async function registerBreakRoutes(app: FastifyInstance) {
 
   app.post("/v1/streams/:id/breaks/:streamBreakId/end", { preHandler: requireAuth }, async (req) => {
     const { id: streamId, streamBreakId } = req.params as { id: string; streamBreakId: string };
-    await assertStreamAccess(req, streamId);
+    await assertBreakStream(req, streamId);
 
     return withWriteTx(async (tx) => {
       const row = await txOne<{ id: string; break_id: string }>(
@@ -393,7 +401,7 @@ export async function registerBreakRoutes(app: FastifyInstance) {
 
   app.get("/v1/streams/:id/break", { preHandler: requireAuth }, async (req) => {
     const { id: streamId } = req.params as { id: string };
-    await assertStreamAccess(req, streamId);
+    await assertBreakStream(req, streamId);
     const streamBreak = await one<{
       id: string;
       stream_id: string;
@@ -434,7 +442,7 @@ export async function registerBreakRoutes(app: FastifyInstance) {
 
   app.get("/v1/streams/:id/break-stats", { preHandler: requireAuth }, async (req) => {
     const { id: streamId } = req.params as { id: string };
-    await assertStreamAccess(req, streamId);
+    await assertBreakStream(req, streamId);
 
     const costRow = await one<{ c: number }>(
       "select coalesce(sum(spot_value), 0) as c from stream_items where stream_id = ? and break_id is not null",
@@ -455,7 +463,7 @@ export async function registerBreakRoutes(app: FastifyInstance) {
 
   app.post("/v1/streams/:id/breaks/:streamBreakId/process-spot", { preHandler: requireAuth }, async (req) => {
     const { id: streamId, streamBreakId } = req.params as { id: string; streamBreakId: string };
-    await assertStreamAccess(req, streamId);
+    await assertBreakStream(req, streamId);
     const parsed = processBreakSpotSchema.safeParse({
       ...(req.body as Record<string, unknown>),
       streamId,

@@ -15,6 +15,7 @@ type ScheduleSlot = {
   id: string;
   date: string;
   start_time: string;
+  end_time?: string | null;
   streamer_id: string;
   created_at: string;
   entry_type?: string;
@@ -56,6 +57,7 @@ export function SchedulePage() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [formDate, setFormDate] = useState("");
   const [formTime, setFormTime] = useState("09:00");
+  const [formEndTime, setFormEndTime] = useState("");
   const [formStreamer, setFormStreamer] = useState("");
   const [statusFilter, setStatusFilter] = useState<"all" | "pending" | "approved" | "rejected">("all");
 
@@ -109,17 +111,29 @@ export function SchedulePage() {
     return m;
   }, [schedules.data]);
 
+  const streamPayload = () => {
+    const base: Record<string, unknown> = isAdmin
+      ? { date: formDate, startTime: formTime, streamerId: formStreamer }
+      : { date: formDate, startTime: formTime };
+    if (editingId) {
+      base.endTime = formEndTime.trim();
+    } else if (formEndTime.trim()) {
+      base.endTime = formEndTime.trim();
+    }
+    return base;
+  };
+
   const createMut = useMutation({
     mutationFn: () => {
       if (isAdmin) {
         return api<ScheduleSlot>("/v1/admin/schedules", {
           method: "POST",
-          body: JSON.stringify({ date: formDate, startTime: formTime, streamerId: formStreamer })
+          body: JSON.stringify(streamPayload())
         });
       }
       return api<ScheduleSlot>("/v1/schedules/mine", {
         method: "POST",
-        body: JSON.stringify({ date: formDate, startTime: formTime })
+        body: JSON.stringify(streamPayload())
       });
     },
     onSuccess: () => {
@@ -134,12 +148,12 @@ export function SchedulePage() {
       if (isAdmin) {
         return api<ScheduleSlot>(`/v1/admin/schedules/${editingId}`, {
           method: "PATCH",
-          body: JSON.stringify({ date: formDate, startTime: formTime, streamerId: formStreamer })
+          body: JSON.stringify(streamPayload())
         });
       }
       return api<ScheduleSlot>(`/v1/schedules/mine/${editingId}`, {
         method: "PATCH",
-        body: JSON.stringify({ date: formDate, startTime: formTime })
+        body: JSON.stringify(streamPayload())
       });
     },
     onSuccess: () => {
@@ -166,12 +180,14 @@ export function SchedulePage() {
   const closeModal = () => {
     setModalOpen(false);
     setEditingId(null);
+    setFormEndTime("");
   };
 
   const openAdd = (dateKey: string) => {
     setEditingId(null);
     setFormDate(dateKey);
     setFormTime("09:00");
+    setFormEndTime("");
     if (isAdmin) {
       const u = scheduleAssignees;
       if (!u.length) {
@@ -189,6 +205,8 @@ export function SchedulePage() {
     setEditingId(slot.id);
     setFormDate(slot.date);
     setFormTime(slot.start_time.length >= 5 ? slot.start_time.slice(0, 5) : slot.start_time);
+    const et = slot.end_time;
+    setFormEndTime(et && et.length >= 5 ? et.slice(0, 5) : et?.trim() ?? "");
     setFormStreamer(slot.streamer_id);
     setModalOpen(true);
   };
@@ -204,6 +222,14 @@ export function SchedulePage() {
   const userLabel = (u: AdminUser) =>
     u.display_name?.trim() || u.username;
   const slotHost = (s: ScheduleSlot) => s.streamer_display_name?.trim() || s.streamer_email;
+
+  const streamTimeLabel = (s: ScheduleSlot) => {
+    const st = s.start_time.length >= 5 ? s.start_time.slice(0, 5) : s.start_time;
+    const et = s.end_time?.trim();
+    if (et && et.length >= 5) return `${st}–${et.slice(0, 5)}`;
+    if (et) return `${st}–${et}`;
+    return st;
+  };
   const statusBadge = (status: ScheduleSlot["status"]) =>
     status === "approved"
       ? "badge badge-morning"
@@ -335,7 +361,7 @@ export function SchedulePage() {
                         Stream
                       </div>
                       <div style={{ fontSize: "0.72rem", color: "var(--gold-light)", marginBottom: "0.2rem" }}>
-                        {s.start_time}
+                        {streamTimeLabel(s)}
                       </div>
                       <div style={{ fontSize: "0.62rem", color: "var(--text-dim)" }}>Host: {slotHost(s)}</div>
                       <div style={{ marginTop: "0.25rem" }}>
@@ -454,6 +480,18 @@ export function SchedulePage() {
                 type="time"
                 value={formTime}
                 onChange={(e) => setFormTime(e.target.value)}
+              />
+            </div>
+            <div className="form-group">
+              <label className="form-label" htmlFor="sc-end-time">
+                End time <span style={{ opacity: 0.65 }}>(optional)</span>
+              </label>
+              <input
+                id="sc-end-time"
+                className="form-input"
+                type="time"
+                value={formEndTime}
+                onChange={(e) => setFormEndTime(e.target.value)}
               />
             </div>
             {mutError ? <p className="error">{(mutError as Error).message}</p> : null}

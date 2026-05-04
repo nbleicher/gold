@@ -7,6 +7,8 @@ type Stream = {
   id: string;
   started_at: string;
   ended_at: string | null;
+  /** `"break"` | `"sticker"` — older APIs may omit (treated as break). */
+  stream_kind?: string;
 };
 
 type StreamItemRow = {
@@ -69,6 +71,8 @@ export function StreamsPage() {
   const { user } = useAuth();
   const [activeStreamId, setActiveStreamId] = useState<string | null>(null);
   const [isStartCardOpen, setIsStartCardOpen] = useState(false);
+  const [pendingStartKind, setPendingStartKind] = useState<"break" | "sticker">("break");
+  const [stickerCodeInput, setStickerCodeInput] = useState("");
   const [selectedBreakId, setSelectedBreakId] = useState("");
   /** How many floor spots remain when starting this run (streamer-entered snapshot for tracking). */
   const [floorSpotsLeftInput, setFloorSpotsLeftInput] = useState("40");
@@ -103,6 +107,12 @@ export function StreamsPage() {
     enabled: !!activeStreamId
   });
 
+  const liveStream = useMemo(
+    () => streams.data?.find((s) => s.id === activeStreamId) ?? null,
+    [streams.data, activeStreamId]
+  );
+  const isStickerStream = liveStream != null && liveStream.stream_kind === "sticker";
+
   const breaks = useQuery({
     queryKey: ["breaks"],
     queryFn: () => api<BreakRow[]>("/v1/breaks")
@@ -111,13 +121,13 @@ export function StreamsPage() {
   const activeBreak = useQuery({
     queryKey: ["active-stream-break", activeStreamId],
     queryFn: () => api<ActiveBreakResponse>(`/v1/streams/${activeStreamId}/break`),
-    enabled: !!activeStreamId
+    enabled: !!activeStreamId && !isStickerStream
   });
 
   const breakStats = useQuery({
     queryKey: ["stream-break-stats", activeStreamId],
     queryFn: () => api<BreakStats>(`/v1/streams/${activeStreamId}/break-stats`),
-    enabled: !!activeStreamId
+    enabled: !!activeStreamId && !isStickerStream
   });
 
   useEffect(() => {
@@ -128,11 +138,12 @@ export function StreamsPage() {
   }, [selectedBreakId, breaks.data]);
 
   const startMutation = useMutation({
-    mutationFn: () =>
+    mutationFn: (streamKind: "break" | "sticker") =>
       api<Stream>("/v1/streams/start", {
         method: "POST",
         body: JSON.stringify({
-          userId: user?.id
+          userId: user?.id,
+          streamKind
         })
       }),
     onSuccess: (stream) => {
@@ -142,6 +153,24 @@ export function StreamsPage() {
       void qc.invalidateQueries({ queryKey: ["stream-items", stream.id] });
       void qc.invalidateQueries({ queryKey: ["active-stream-break", stream.id] });
       void qc.invalidateQueries({ queryKey: ["stream-break-stats", stream.id] });
+    }
+  });
+
+  const stickerSaleMutation = useMutation({
+    mutationFn: () =>
+      api("/v1/streams/sticker-sale", {
+        method: "POST",
+        body: JSON.stringify({
+          streamId: activeStreamId,
+          stickerCode: stickerCodeInput.trim()
+        })
+      }),
+    onSuccess: () => {
+      setStickerCodeInput("");
+      void qc.invalidateQueries({ queryKey: ["stream-items", activeStreamId] });
+      void qc.invalidateQueries({ queryKey: ["bag-orders"] });
+      void qc.invalidateQueries({ queryKey: ["admin-profit-metrics"] });
+      void qc.invalidateQueries({ queryKey: ["admin-stream-log"] });
     }
   });
 
@@ -202,6 +231,7 @@ export function StreamsPage() {
       void qc.invalidateQueries({ queryKey: ["active-stream-break", activeStreamId] });
       void qc.invalidateQueries({ queryKey: ["stream-break-stats", activeStreamId] });
       void qc.invalidateQueries({ queryKey: ["batches"] });
+      void qc.invalidateQueries({ queryKey: ["bag-orders"] });
       void qc.invalidateQueries({ queryKey: ["admin-profit-metrics"] });
       void qc.invalidateQueries({ queryKey: ["admin-stream-log"] });
     }
@@ -277,11 +307,34 @@ export function StreamsPage() {
           </button>
           {isStartCardOpen ? (
             <div style={{ marginTop: "0.75rem" }}>
+              <div style={{ fontSize: "0.65rem", color: "var(--muted)", marginBottom: "0.5rem" }}>
+                Stream type
+              </div>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: "0.75rem", marginBottom: "0.75rem" }}>
+                <label style={{ display: "flex", alignItems: "center", gap: "0.35rem", fontSize: "0.75rem" }}>
+                  <input
+                    type="radio"
+                    name="stream-kind"
+                    checked={pendingStartKind === "break"}
+                    onChange={() => setPendingStartKind("break")}
+                  />
+                  Break stream (floor spots &amp; prizes)
+                </label>
+                <label style={{ display: "flex", alignItems: "center", gap: "0.35rem", fontSize: "0.75rem" }}>
+                  <input
+                    type="radio"
+                    name="stream-kind"
+                    checked={pendingStartKind === "sticker"}
+                    onChange={() => setPendingStartKind("sticker")}
+                  />
+                  Sticker stream (bag sticker codes)
+                </label>
+              </div>
               <div style={{ display: "flex", gap: "0.5rem" }}>
                 <button
                   type="button"
                   className="btn btn-gold"
-                  onClick={() => startMutation.mutate()}
+                  onClick={() => startMutation.mutate(pendingStartKind)}
                   disabled={!user || startMutation.isPending}
                 >
                   Confirm
@@ -305,10 +358,42 @@ export function StreamsPage() {
             <span className="stream-live-label">LIVE</span>
           </div>
           <p style={{ fontSize: "0.65rem", color: "var(--muted)", marginBottom: "0.75rem" }}>
-            Session active · run break spots below
+            {isStickerStream
+              ? "Sticker session · enter bag sticker codes from Inventory → Nuggets"
+              : "Session active · run break spots below"}
           </p>
 
-          {breakStats.data ? (
+          {isStickerStream ? (
+            <div style={{ marginBottom: "1rem" }} className="grid-form">
+              <label style={{ fontSize: "0.7rem", color: "var(--muted)" }}>
+                Sticker code
+                <input
+                  className="form-input"
+                  style={{ marginTop: "0.35rem" }}
+                  value={stickerCodeInput}
+                  onChange={(e) => setStickerCodeInput(e.target.value.toUpperCase())}
+                  placeholder="e.g. A31"
+                  autoCapitalize="characters"
+                  aria-label="Sticker code"
+                />
+              </label>
+              <button
+                type="button"
+                className="btn btn-gold"
+                disabled={stickerSaleMutation.isPending || !stickerCodeInput.trim()}
+                onClick={() => stickerSaleMutation.mutate()}
+              >
+                Log sticker sale
+              </button>
+              {stickerSaleMutation.isError ? (
+                <p className="error" style={{ fontSize: "0.75rem" }}>
+                  {(stickerSaleMutation.error as Error).message}
+                </p>
+              ) : null}
+            </div>
+          ) : null}
+
+          {!isStickerStream && breakStats.data ? (
             <div
               style={{
                 fontSize: "0.7rem",
@@ -323,7 +408,7 @@ export function StreamsPage() {
             </div>
           ) : null}
 
-          {!activeBreak.data?.streamBreak ? (
+          {!isStickerStream && !activeBreak.data?.streamBreak ? (
             <div className="grid-form">
               <select value={selectedBreakId} onChange={(e) => setSelectedBreakId(e.target.value)}>
                 <option value="">Select break</option>
@@ -365,16 +450,16 @@ export function StreamsPage() {
                 Start break run
               </button>
             </div>
-          ) : (
+          ) : !isStickerStream ? (
             <div style={{ marginBottom: "0.75rem" }}>
               <div style={{ fontSize: "0.7rem", marginBottom: "0.35rem" }}>
-                <strong>{activeBreak.data.streamBreak.break_name}</strong> · prizes sold{" "}
-                {activeBreak.data.streamBreak.sold_prize_spots}/{prizeTotal} · remaining silver{" "}
-                {Number(activeBreak.data.streamBreak.remaining_silver_grams).toFixed(2)}g · floor spots left at run
+                <strong>{activeBreak.data!.streamBreak!.break_name}</strong> · prizes sold{" "}
+                {activeBreak.data!.streamBreak!.sold_prize_spots}/{prizeTotal} · remaining silver{" "}
+                {Number(activeBreak.data!.streamBreak!.remaining_silver_grams).toFixed(2)}g · floor spots left at run
                 start:{" "}
                 <strong>
-                  {activeBreak.data.streamBreak.floor_spots} out of{" "}
-                  {activeBreak.data.streamBreak.floor_spots_total ?? "—"}
+                  {activeBreak.data!.streamBreak!.floor_spots} out of{" "}
+                  {activeBreak.data!.streamBreak!.floor_spots_total ?? "—"}
                 </strong>
               </div>
               <div className="grid-form">
@@ -410,7 +495,7 @@ export function StreamsPage() {
                 <button
                   type="button"
                   className="btn btn-outline"
-                  disabled={endBreakMutation.isPending || !activeBreak.data.streamBreak?.id}
+                  disabled={endBreakMutation.isPending || !activeBreak.data?.streamBreak?.id}
                   onClick={() => {
                     if (!activeBreak.data?.streamBreak?.id) return;
                     if (!window.confirm("End this break run now? You can start another break afterward.")) return;
@@ -421,7 +506,7 @@ export function StreamsPage() {
                 </button>
               </div>
             </div>
-          )}
+          ) : null}
           {startBreakMutation.isError ? (
             <p className="error" style={{ marginTop: "0.5rem", fontSize: "0.75rem" }}>
               {(startBreakMutation.error as Error).message}
@@ -447,7 +532,9 @@ export function StreamsPage() {
             ) : streamItems.error ? (
               <p className="error">{(streamItems.error as Error).message}</p>
             ) : itemCount === 0 ? (
-              <p style={{ fontSize: "0.7rem", color: "var(--muted)" }}>No spots processed yet.</p>
+              <p style={{ fontSize: "0.7rem", color: "var(--muted)" }}>
+                {isStickerStream ? "No sticker sales logged yet." : "No spots processed yet."}
+              </p>
             ) : (
               <div className="tbl-wrap">
                 <table className="tbl">

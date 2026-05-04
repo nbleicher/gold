@@ -36,6 +36,7 @@ const adminCreateScheduleBodySchema = z
     date: z.string().min(10),
     streamerId: z.string().min(1),
     startTime: z.string().min(1).optional(),
+    endTime: z.string().min(1).optional(),
     hoursWorked: z.number().positive().optional()
   })
   .superRefine((data, ctx) => {
@@ -47,14 +48,48 @@ const adminCreateScheduleBodySchema = z
         message: "Provide exactly one of: startTime (stream slot) or hoursWorked (labor entry)"
       });
     }
+    if (hasTime && data.endTime?.trim()) {
+      const sm = payrollMinutesFromHHMM(data.startTime!.trim());
+      const em = payrollMinutesFromHHMM(data.endTime.trim());
+      if (sm === null || em === null) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "Invalid start or end time (use HH:MM)"
+        });
+      } else if (em <= sm) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "endTime must be after startTime"
+        });
+      }
+    }
   });
 
-const patchScheduleSchema = z.object({
-  date: z.string().min(10).optional(),
-  startTime: z.string().min(1).optional(),
-  streamerId: z.string().min(1).optional(),
-  hoursWorked: z.number().positive().optional()
-});
+const patchScheduleSchema = z
+  .object({
+    date: z.string().min(10).optional(),
+    startTime: z.string().min(1).optional(),
+    endTime: z.string().min(1).optional(),
+    streamerId: z.string().min(1).optional(),
+    hoursWorked: z.number().positive().optional()
+  })
+  .superRefine((data, ctx) => {
+    if (data.startTime?.trim() && data.endTime?.trim()) {
+      const sm = payrollMinutesFromHHMM(data.startTime.trim());
+      const em = payrollMinutesFromHHMM(data.endTime.trim());
+      if (sm === null || em === null) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "Invalid start or end time (use HH:MM)"
+        });
+      } else if (em <= sm) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "endTime must be after startTime"
+        });
+      }
+    }
+  });
 
 const reviewScheduleSchema = z.object({
   action: z.enum(["approve", "reject"]),
@@ -652,9 +687,9 @@ export async function registerAdminRoutes(app: FastifyInstance) {
       ]);
       await txQ(
         tx,
-        `insert into schedules (date, start_time, streamer_id, status, submitted_by, pending_submitted_at, reviewed_at, reviewed_by, entry_type, hours_worked)
-         values (?, ?, ?, 'approved', ?, datetime('now'), datetime('now'), ?, 'labor', ?)`,
-        [body.date, startNorm, body.userId, actor, actor, hours]
+        `insert into schedules (date, start_time, end_time, streamer_id, status, submitted_by, pending_submitted_at, reviewed_at, reviewed_by, entry_type, hours_worked)
+         values (?, ?, ?, ?, 'approved', ?, datetime('now'), datetime('now'), ?, 'labor', ?)`,
+        [body.date, startNorm, endNorm, body.userId, actor, actor, hours]
       );
     });
 
@@ -676,6 +711,7 @@ export async function registerAdminRoutes(app: FastifyInstance) {
       id: string;
       date: string;
       start_time: string;
+      end_time: string | null;
       streamer_id: string;
       created_at: string;
       entry_type: string;
@@ -693,7 +729,7 @@ export async function registerAdminRoutes(app: FastifyInstance) {
       reviewed_by_email: string | null;
       reviewed_by_display_name: string | null;
     }>(
-      `select s.id, s.date, s.start_time, s.streamer_id, s.created_at, s.entry_type, s.hours_worked, s.status, s.submitted_by, s.pending_submitted_at,
+      `select s.id, s.date, s.start_time, s.end_time, s.streamer_id, s.created_at, s.entry_type, s.hours_worked, s.status, s.submitted_by, s.pending_submitted_at,
               s.reviewed_at, s.reviewed_by, s.review_note,
               u.username as streamer_email, u.display_name as streamer_display_name,
               su.username as submitted_by_email, su.display_name as submitted_by_display_name,
@@ -729,14 +765,14 @@ export async function registerAdminRoutes(app: FastifyInstance) {
       }
       const hoursWorked = body.hoursWorked!;
       const ins = await one<{ id: string }>(
-        `insert into schedules (date, start_time, streamer_id, status, submitted_by, pending_submitted_at, reviewed_at, reviewed_by, entry_type, hours_worked)
-         values (?, '00:00', ?, 'approved', ?, datetime('now'), datetime('now'), ?, 'labor', ?)
+        `insert into schedules (date, start_time, end_time, streamer_id, status, submitted_by, pending_submitted_at, reviewed_at, reviewed_by, entry_type, hours_worked)
+         values (?, '00:00', null, ?, 'approved', ?, datetime('now'), datetime('now'), ?, 'labor', ?)
          returning id`,
         [body.date, body.streamerId, actor, actor, hoursWorked]
       );
       if (!ins) throw new Error("Schedule insert failed");
       return one(
-        `select s.id, s.date, s.start_time, s.streamer_id, s.created_at, s.entry_type, s.hours_worked, s.status, s.submitted_by, s.pending_submitted_at,
+        `select s.id, s.date, s.start_time, s.end_time, s.streamer_id, s.created_at, s.entry_type, s.hours_worked, s.status, s.submitted_by, s.pending_submitted_at,
                 s.reviewed_at, s.reviewed_by, s.review_note,
                 u.username as streamer_email, u.display_name as streamer_display_name
          from schedules s
@@ -750,15 +786,16 @@ export async function registerAdminRoutes(app: FastifyInstance) {
       throw new Error("Stream slots can only be assigned to admins or streamers");
     }
     const startTime = body.startTime!.trim();
+    const endTimeVal = body.endTime?.trim() ? body.endTime.trim() : null;
     const ins = await one<{ id: string }>(
-      `insert into schedules (date, start_time, streamer_id, status, submitted_by, pending_submitted_at, reviewed_at, reviewed_by, entry_type, hours_worked)
-       values (?, ?, ?, 'approved', ?, datetime('now'), datetime('now'), ?, 'stream', null)
+      `insert into schedules (date, start_time, end_time, streamer_id, status, submitted_by, pending_submitted_at, reviewed_at, reviewed_by, entry_type, hours_worked)
+       values (?, ?, ?, ?, 'approved', ?, datetime('now'), datetime('now'), ?, 'stream', null)
        returning id`,
-      [body.date, startTime, body.streamerId, actor, actor]
+      [body.date, startTime, endTimeVal, body.streamerId, actor, actor]
     );
     if (!ins) throw new Error("Schedule insert failed");
     return one(
-      `select s.id, s.date, s.start_time, s.streamer_id, s.created_at, s.entry_type, s.hours_worked, s.status, s.submitted_by, s.pending_submitted_at,
+      `select s.id, s.date, s.start_time, s.end_time, s.streamer_id, s.created_at, s.entry_type, s.hours_worked, s.status, s.submitted_by, s.pending_submitted_at,
               s.reviewed_at, s.reviewed_by, s.review_note,
               u.username as streamer_email, u.display_name as streamer_display_name
        from schedules s
@@ -776,10 +813,11 @@ export async function registerAdminRoutes(app: FastifyInstance) {
     const row = await one<{
       date: string;
       start_time: string;
+      end_time: string | null;
       streamer_id: string;
       entry_type: string;
       hours_worked: number | null;
-    }>("select date, start_time, streamer_id, entry_type, hours_worked from schedules where id = ?", [id]);
+    }>("select date, start_time, end_time, streamer_id, entry_type, hours_worked from schedules where id = ?", [id]);
     if (!row) throw new Error("Schedule slot not found");
 
     if (body.streamerId) {
@@ -797,8 +835,8 @@ export async function registerAdminRoutes(app: FastifyInstance) {
     }
 
     if (row.entry_type === "labor") {
-      if (body.startTime !== undefined) {
-        throw new Error("Cannot set start time on a labor entry");
+      if (body.startTime !== undefined || body.endTime !== undefined) {
+        throw new Error("Cannot set start or end time on a labor entry");
       }
       const date = body.date ?? row.date;
       const streamerId = body.streamerId ?? row.streamer_id;
@@ -817,16 +855,28 @@ export async function registerAdminRoutes(app: FastifyInstance) {
       const date = body.date ?? row.date;
       const startTime = body.startTime ?? row.start_time;
       const streamerId = body.streamerId ?? row.streamer_id;
-      await q("update schedules set date = ?, start_time = ?, streamer_id = ?, hours_worked = null, entry_type = 'stream' where id = ?", [
-        date,
-        startTime,
-        streamerId,
-        id
-      ]);
+      let endTimeVal: string | null;
+      if (body.endTime === undefined) {
+        endTimeVal = row.end_time;
+      } else if (body.endTime.trim() === "") {
+        endTimeVal = null;
+      } else {
+        endTimeVal = body.endTime.trim();
+      }
+      if (endTimeVal) {
+        const sm = payrollMinutesFromHHMM(startTime);
+        const em = payrollMinutesFromHHMM(endTimeVal);
+        if (sm === null || em === null) throw new Error("Invalid start or end time (use HH:MM)");
+        if (em <= sm) throw new Error("endTime must be after startTime");
+      }
+      await q(
+        "update schedules set date = ?, start_time = ?, end_time = ?, streamer_id = ?, hours_worked = null, entry_type = 'stream' where id = ?",
+        [date, startTime, endTimeVal, streamerId, id]
+      );
     }
 
     return one(
-      `select s.id, s.date, s.start_time, s.streamer_id, s.created_at, s.entry_type, s.hours_worked, s.status, s.submitted_by, s.pending_submitted_at,
+      `select s.id, s.date, s.start_time, s.end_time, s.streamer_id, s.created_at, s.entry_type, s.hours_worked, s.status, s.submitted_by, s.pending_submitted_at,
               s.reviewed_at, s.reviewed_by, s.review_note,
               u.username as streamer_email, u.display_name as streamer_display_name
        from schedules s
@@ -870,6 +920,7 @@ export async function registerAdminRoutes(app: FastifyInstance) {
       id: string;
       date: string;
       start_time: string;
+      end_time: string | null;
       streamer_id: string;
       created_at: string;
       entry_type: string;
@@ -883,7 +934,7 @@ export async function registerAdminRoutes(app: FastifyInstance) {
       streamer_email: string;
       streamer_display_name: string | null;
     }>(
-      `select s.id, s.date, s.start_time, s.streamer_id, s.created_at, s.entry_type, s.hours_worked, s.status, s.submitted_by, s.pending_submitted_at,
+      `select s.id, s.date, s.start_time, s.end_time, s.streamer_id, s.created_at, s.entry_type, s.hours_worked, s.status, s.submitted_by, s.pending_submitted_at,
               s.reviewed_at, s.reviewed_by, s.review_note, u.username as streamer_email, u.display_name as streamer_display_name
        from schedules s
        join users u on u.id = s.streamer_id
@@ -893,19 +944,56 @@ export async function registerAdminRoutes(app: FastifyInstance) {
     );
   });
 
+  const mineSchedulePostSchema = z
+    .object({
+      date: z.string().min(10),
+      startTime: z.string().min(1),
+      endTime: z.string().optional()
+    })
+    .superRefine((data, ctx) => {
+      if (data.endTime?.trim()) {
+        const sm = payrollMinutesFromHHMM(data.startTime.trim());
+        const em = payrollMinutesFromHHMM(data.endTime.trim());
+        if (sm === null || em === null) {
+          ctx.addIssue({ code: z.ZodIssueCode.custom, message: "Invalid start or end time (use HH:MM)" });
+        } else if (em <= sm) {
+          ctx.addIssue({ code: z.ZodIssueCode.custom, message: "endTime must be after startTime" });
+        }
+      }
+    });
+
+  const mineSchedulePatchSchema = z
+    .object({
+      date: z.string().min(10).optional(),
+      startTime: z.string().min(1).optional(),
+      endTime: z.string().optional()
+    })
+    .superRefine((data, ctx) => {
+      if (data.startTime?.trim() && data.endTime?.trim()) {
+        const sm = payrollMinutesFromHHMM(data.startTime.trim());
+        const em = payrollMinutesFromHHMM(data.endTime.trim());
+        if (sm === null || em === null) {
+          ctx.addIssue({ code: z.ZodIssueCode.custom, message: "Invalid start or end time (use HH:MM)" });
+        } else if (em <= sm) {
+          ctx.addIssue({ code: z.ZodIssueCode.custom, message: "endTime must be after startTime" });
+        }
+      }
+    });
+
   app.post("/v1/schedules/mine", { preHandler: requireAuth }, async (req) => {
     const userId = req.authUser?.sub;
     if (!userId) throw new Error("Unauthorized");
-    const body = z.object({ date: z.string().min(10), startTime: z.string().min(1) }).parse(req.body);
+    const body = mineSchedulePostSchema.parse(req.body);
+    const endTimeVal = body.endTime?.trim() ? body.endTime.trim() : null;
     const ins = await one<{ id: string }>(
-      `insert into schedules (date, start_time, streamer_id, status, submitted_by, pending_submitted_at, entry_type, hours_worked)
-       values (?, ?, ?, 'pending', ?, datetime('now'), 'stream', null)
+      `insert into schedules (date, start_time, end_time, streamer_id, status, submitted_by, pending_submitted_at, entry_type, hours_worked)
+       values (?, ?, ?, ?, 'pending', ?, datetime('now'), 'stream', null)
        returning id`,
-      [body.date, body.startTime, userId, userId]
+      [body.date, body.startTime, endTimeVal, userId, userId]
     );
     if (!ins) throw new Error("Schedule insert failed");
     return one(
-      `select s.id, s.date, s.start_time, s.streamer_id, s.created_at, s.entry_type, s.hours_worked, s.status, s.submitted_by, s.pending_submitted_at,
+      `select s.id, s.date, s.start_time, s.end_time, s.streamer_id, s.created_at, s.entry_type, s.hours_worked, s.status, s.submitted_by, s.pending_submitted_at,
               s.reviewed_at, s.reviewed_by, s.review_note, u.username as streamer_email, u.display_name as streamer_display_name
        from schedules s
        join users u on u.id = s.streamer_id
@@ -918,25 +1006,41 @@ export async function registerAdminRoutes(app: FastifyInstance) {
     const userId = req.authUser?.sub;
     if (!userId) throw new Error("Unauthorized");
     const { id } = req.params as { id: string };
-    const body = z.object({ date: z.string().min(10).optional(), startTime: z.string().min(1).optional() }).parse(req.body);
+    const body = mineSchedulePatchSchema.parse(req.body);
     const existing = await one<{
       id: string;
       submitted_by: string | null;
       status: string;
       date: string;
       start_time: string;
+      end_time: string | null;
       entry_type: string;
-    }>("select id, submitted_by, status, date, start_time, entry_type from schedules where id = ?", [id]);
+    }>("select id, submitted_by, status, date, start_time, end_time, entry_type from schedules where id = ?", [id]);
     if (!existing || existing.submitted_by !== userId) return req.server.httpErrors.notFound("Schedule slot not found");
     if (existing.entry_type === "labor") {
       return req.server.httpErrors.conflict("Labor entries cannot be edited here");
     }
     if (existing.status !== "pending") return req.server.httpErrors.conflict("Only pending schedules can be edited");
-    await q("update schedules set date = ?, start_time = ?, pending_submitted_at = datetime('now') where id = ?", [
-      body.date ?? existing.date,
-      body.startTime ?? existing.start_time,
-      id
-    ]);
+    const nextDate = body.date ?? existing.date;
+    const nextStart = body.startTime ?? existing.start_time;
+    let nextEnd: string | null;
+    if (body.endTime === undefined) {
+      nextEnd = existing.end_time;
+    } else if (body.endTime.trim() === "") {
+      nextEnd = null;
+    } else {
+      nextEnd = body.endTime.trim();
+    }
+    if (nextEnd) {
+      const sm = payrollMinutesFromHHMM(nextStart);
+      const em = payrollMinutesFromHHMM(nextEnd);
+      if (sm === null || em === null) return req.server.httpErrors.badRequest("Invalid start or end time (use HH:MM)");
+      if (em <= sm) return req.server.httpErrors.badRequest("endTime must be after startTime");
+    }
+    await q(
+      "update schedules set date = ?, start_time = ?, end_time = ?, pending_submitted_at = datetime('now') where id = ?",
+      [nextDate, nextStart, nextEnd, id]
+    );
     return { ok: true, id };
   });
 
@@ -972,7 +1076,7 @@ export async function registerAdminRoutes(app: FastifyInstance) {
       user_email: string | null;
       user_display_name: string | null;
     }>(
-      `select s.id, s.user_id, s.started_at, s.ended_at, s.gold_batch_id, s.silver_batch_id,
+      `select s.id, s.user_id, s.started_at, s.ended_at, s.stream_kind, s.gold_batch_id, s.silver_batch_id,
               s.completed_earnings,
               u.username as user_email, u.display_name as user_display_name
        from streams s
