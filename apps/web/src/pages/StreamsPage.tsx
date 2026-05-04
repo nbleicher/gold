@@ -111,7 +111,7 @@ export function StreamsPage() {
     () => streams.data?.find((s) => s.id === activeStreamId) ?? null,
     [streams.data, activeStreamId]
   );
-  const isStickerStream = liveStream != null && liveStream.stream_kind === "sticker";
+  const isStickerStream = liveStream != null && (liveStream.stream_kind ?? "break") === "sticker";
 
   const breaks = useQuery({
     queryKey: ["breaks"],
@@ -244,6 +244,7 @@ export function StreamsPage() {
       }),
     onSuccess: (result, streamId) => {
       setActiveStreamId(null);
+      setPendingStartKind("break");
       const uid = user?.id;
       if (uid) {
         if (result.discarded) {
@@ -300,7 +301,10 @@ export function StreamsPage() {
             type="button"
             className="btn btn-gold"
             style={{ marginTop: "0.75rem" }}
-            onClick={() => setIsStartCardOpen(true)}
+            onClick={() => {
+              setPendingStartKind("break");
+              setIsStartCardOpen(true);
+            }}
             disabled={startDisabled}
           >
             Start stream

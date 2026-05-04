@@ -28,7 +28,7 @@ function safeUsername(u: AdminUser): string {
 
 export function AdminUsersPage() {
   const qc = useQueryClient();
-  const { profile } = useAuth();
+  const { profile, refreshProfile } = useAuth();
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [displayName, setDisplayName] = useState("");
@@ -91,6 +91,11 @@ export function AdminUsersPage() {
   const [payEditCommission, setPayEditCommission] = useState("");
   const [payEditHourly, setPayEditHourly] = useState("");
 
+  const [credTarget, setCredTarget] = useState<AdminUser | null>(null);
+  const [credUsername, setCredUsername] = useState("");
+  const [credPassword, setCredPassword] = useState("");
+  const [credError, setCredError] = useState<string | null>(null);
+
   const patchPaySettings = useMutation({
     mutationFn: (args: { id: string; commissionPercent?: number; hourlyRate?: number }) => {
       const body: Record<string, number> = {};
@@ -104,6 +109,28 @@ export function AdminUsersPage() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["admin-users"] });
       setPayEditId(null);
+    }
+  });
+
+  const patchCredentials = useMutation({
+    mutationFn: (args: { id: string; username?: string; password?: string }) => {
+      const body: Record<string, string> = {};
+      if (args.username !== undefined) body.username = args.username;
+      if (args.password !== undefined) body.password = args.password;
+      return api<{ ok: boolean; id: string; username?: string }>(`/v1/admin/users/${args.id}/credentials`, {
+        method: "PATCH",
+        body: JSON.stringify(body)
+      });
+    },
+    onSuccess: async (_data, vars) => {
+      qc.invalidateQueries({ queryKey: ["admin-users"] });
+      setCredTarget(null);
+      setCredUsername("");
+      setCredPassword("");
+      setCredError(null);
+      if (vars.id === profile?.id) {
+        await refreshProfile();
+      }
     }
   });
 
@@ -154,6 +181,53 @@ export function AdminUsersPage() {
     ) : (
       <span className="badge badge-evening">No</span>
     );
+
+  const openCredentials = (u: AdminUser) => {
+    setCredTarget(u);
+    setCredUsername(safeUsername(u));
+    setCredPassword("");
+    setCredError(null);
+  };
+
+  const closeCredentials = () => {
+    if (patchCredentials.isPending) return;
+    setCredTarget(null);
+    setCredUsername("");
+    setCredPassword("");
+    setCredError(null);
+  };
+
+  const saveCredentials = () => {
+    if (!credTarget) return;
+    const trimmed = credUsername.trim().toLowerCase();
+    const initial = safeUsername(credTarget);
+    const usernameChanged = trimmed !== initial;
+    const passwordNonEmpty = credPassword.length > 0;
+
+    if (!usernameChanged && !passwordNonEmpty) {
+      setCredError("Change the username or enter a new password.");
+      return;
+    }
+    if (passwordNonEmpty && credPassword.length < 8) {
+      setCredError("Password must be at least 8 characters.");
+      return;
+    }
+    if (passwordNonEmpty && !trimmed) {
+      setCredError("Set a username before assigning a password.");
+      return;
+    }
+    if (usernameChanged) {
+      if (trimmed.length < 3 || trimmed.length > 32 || !/^[a-z0-9_]+$/.test(trimmed)) {
+        setCredError("Username must be 3–32 characters (letters, numbers, underscores).");
+        return;
+      }
+    }
+    setCredError(null);
+    const payload: { id: string; username?: string; password?: string } = { id: credTarget.id };
+    if (usernameChanged) payload.username = trimmed;
+    if (passwordNonEmpty) payload.password = credPassword;
+    patchCredentials.mutate(payload);
+  };
 
   return (
     <section className="card">
@@ -294,6 +368,7 @@ export function AdminUsersPage() {
               <th>Role</th>
               <th>Pay</th>
               <th>Login</th>
+              <th>Username / password</th>
               <th>Status</th>
               <th>Deactivated</th>
               <th />
@@ -302,7 +377,7 @@ export function AdminUsersPage() {
           <tbody>
             {(users.data ?? []).length === 0 ? (
               <tr>
-                <td colSpan={8} className="tbl-empty">
+                <td colSpan={9} className="tbl-empty">
                   No users found
                 </td>
               </tr>
@@ -395,6 +470,16 @@ export function AdminUsersPage() {
                     </td>
                     <td>{loginBadge(u)}</td>
                     <td>
+                      <button
+                        type="button"
+                        className="btn btn-outline btn-sm"
+                        disabled={patchCredentials.isPending}
+                        onClick={() => openCredentials(u)}
+                      >
+                        Edit
+                      </button>
+                    </td>
+                    <td>
                       {isActive ? (
                         <span className="badge badge-morning">Active</span>
                       ) : (
@@ -452,6 +537,95 @@ export function AdminUsersPage() {
       {deactivateUser.error ? <p className="error">{(deactivateUser.error as Error).message}</p> : null}
       {reactivateUser.error ? <p className="error">{(reactivateUser.error as Error).message}</p> : null}
       {patchPaySettings.error ? <p className="error">{(patchPaySettings.error as Error).message}</p> : null}
+
+      {credTarget ? (
+        <div
+          style={{
+            position: "fixed",
+            inset: 0,
+            background: "rgba(0, 0, 0, 0.65)",
+            zIndex: 9650,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            padding: "1rem"
+          }}
+          role="presentation"
+          onClick={(e) => {
+            if (e.target === e.currentTarget && !patchCredentials.isPending) closeCredentials();
+          }}
+        >
+          <div
+            className="card"
+            style={{ maxWidth: 440, width: "100%" }}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="cred-dialog-title"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h3 id="cred-dialog-title" style={{ fontFamily: '"Playfair Display", serif', marginBottom: "0.75rem" }}>
+              Edit username and password
+            </h3>
+            <p style={{ fontSize: "0.72rem", color: "var(--text-dim)", marginBottom: "1rem", lineHeight: 1.5 }}>
+              <strong style={{ color: "var(--text)" }}>
+                {credTarget.display_name?.trim() || safeUsername(credTarget) || "User"}
+              </strong>{" "}
+              · role {credTarget.role}
+              {credTarget.role === "shipper" || credTarget.role === "bagger"
+                ? " (payroll-only; cannot sign in to the app)"
+                : ""}
+            </p>
+            <div className="form-group" style={{ marginBottom: "0.75rem" }}>
+              <label className="form-label" htmlFor="cred-username">
+                Username
+              </label>
+              <input
+                id="cred-username"
+                className="form-input"
+                value={credUsername}
+                onChange={(e) => {
+                  setCredUsername(e.target.value);
+                  setCredError(null);
+                }}
+                autoComplete="off"
+                disabled={patchCredentials.isPending}
+              />
+            </div>
+            <div className="form-group" style={{ marginBottom: "1rem" }}>
+              <label className="form-label" htmlFor="cred-password">
+                New password
+              </label>
+              <input
+                id="cred-password"
+                className="form-input"
+                type="password"
+                value={credPassword}
+                onChange={(e) => {
+                  setCredPassword(e.target.value);
+                  setCredError(null);
+                }}
+                placeholder="Leave blank to keep current password"
+                autoComplete="new-password"
+                disabled={patchCredentials.isPending}
+              />
+            </div>
+            {credError ? <p className="error" style={{ marginBottom: "0.75rem" }}>{credError}</p> : null}
+            {patchCredentials.error ? (
+              <p className="error" style={{ marginBottom: "0.75rem" }}>
+                {(patchCredentials.error as Error).message}
+              </p>
+            ) : null}
+            <div style={{ display: "flex", flexWrap: "wrap", gap: "0.5rem", justifyContent: "flex-end" }}>
+              <button type="button" className="btn btn-outline btn-sm" disabled={patchCredentials.isPending} onClick={closeCredentials}>
+                Cancel
+              </button>
+              <button type="button" className="btn btn-gold btn-sm" disabled={patchCredentials.isPending} onClick={saveCredentials}>
+                Save
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       {purgeTarget ? (
         <div

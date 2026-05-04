@@ -17,7 +17,7 @@ export function loginEmailFromUsername(username: string): string {
   return `${username.toLowerCase()}@login.internal`;
 }
 
-const usernameSchema = z
+export const usernameSchema = z
   .string()
   .trim()
   .toLowerCase()

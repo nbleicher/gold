@@ -16,6 +16,8 @@ type AuthContextValue = {
   loading: boolean;
   signIn: (username: string, password: string) => Promise<void>;
   signOut: () => Promise<void>;
+  /** Re-fetch `/v1/auth/me` (e.g. after admin changes the signed-in user’s username). */
+  refreshProfile: () => Promise<void>;
 };
 
 const AuthContext = createContext<AuthContextValue | null>(null);
@@ -59,6 +61,20 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       signOut: async () => {
         setAuthToken(null);
         setProfile(null);
+      },
+      refreshProfile: async () => {
+        const token = getAuthToken();
+        if (!token) {
+          setProfile(null);
+          return;
+        }
+        try {
+          const p = await api<AppUser>("/v1/auth/me");
+          setProfile(p);
+        } catch {
+          setAuthToken(null);
+          setProfile(null);
+        }
       }
     }),
     [profile, loading]

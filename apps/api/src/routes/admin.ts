@@ -15,7 +15,7 @@ import {
   totalCogsFromMap,
   totalSpotValue
 } from "../domain/streamCogs.js";
-import { requireAuth, requireRole, type AppRole } from "./auth.js";
+import { loginEmailFromUsername, requireAuth, requireRole, usernameSchema, type AppRole } from "./auth.js";
 
 const adminPre = { preHandler: requireRole("admin") };
 
@@ -114,6 +114,15 @@ const patchUserPaySettingsSchema = z.object({
   commissionPercent: z.number().min(0).max(100).optional(),
   hourlyRate: z.number().nonnegative().optional()
 });
+
+const patchUserCredentialsSchema = z
+  .object({
+    username: usernameSchema.optional(),
+    password: z.string().min(8, "Password must be at least 8 characters").optional()
+  })
+  .refine((d) => d.username !== undefined || d.password !== undefined, {
+    message: "Provide at least one of username or password"
+  });
 
 const putPayrollLaborDaySchema = z.object({
   userId: z.string().min(1),
@@ -348,6 +357,61 @@ export async function registerAdminRoutes(app: FastifyInstance) {
       commissionPercent: commissionPct,
       hourlyRate: hourly
     };
+  });
+
+  app.patch("/v1/admin/users/:id/credentials", adminPre, async (req) => {
+    const { id } = req.params as { id: string };
+    const body = patchUserCredentialsSchema.parse(req.body);
+
+    const target = await one<{ id: string; username: string; email: string; purged_at: string | null }>(
+      "select id, username, email, purged_at from users where id = ?",
+      [id]
+    );
+    if (!target || target.purged_at) {
+      return req.server.httpErrors.notFound("User not found");
+    }
+
+    let nextUsername = target.username;
+    let nextEmail = target.email;
+
+    if (body.username !== undefined && body.username !== target.username) {
+      const takenName = await one<{ id: string }>(
+        "select id from users where username = ? and id != ?",
+        [body.username, id]
+      );
+      if (takenName) {
+        return req.server.httpErrors.conflict("That username is already in use");
+      }
+      nextUsername = body.username;
+      nextEmail = loginEmailFromUsername(body.username);
+      const takenEmail = await one<{ id: string }>(
+        "select id from users where email = ? and id != ?",
+        [nextEmail, id]
+      );
+      if (takenEmail) {
+        return req.server.httpErrors.conflict("That email is already in use");
+      }
+    }
+
+    let passwordHashToSet: string | undefined;
+    if (body.password !== undefined) {
+      passwordHashToSet = await bcrypt.hash(body.password, 12);
+    }
+
+    if (nextUsername === target.username && passwordHashToSet === undefined) {
+      return { ok: true, id, changed: false };
+    }
+
+    if (passwordHashToSet !== undefined) {
+      await q(
+        "update users set username = ?, email = ?, password_hash = ? where id = ?",
+        [nextUsername, nextEmail, passwordHashToSet, id]
+      );
+    } else {
+      await q("update users set username = ?, email = ? where id = ?", [nextUsername, nextEmail, id]);
+    }
+
+    return { ok: true, id, username: nextUsername };
   });
 
   app.delete("/v1/admin/users/:id", adminPre, async (req) => {
