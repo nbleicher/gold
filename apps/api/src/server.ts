@@ -15,12 +15,24 @@ import { registerDashboardRoutes } from "./routes/dashboard.js";
 
 const app = Fastify({ logger: true });
 
-await app.register(cors, { origin: env.corsOrigin, credentials: true });
+await app.register(cors, {
+  origin: env.corsOrigin,
+  credentials: true,
+  methods: ["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"]
+});
 await app.register(sensible);
 
 const healthPayload = { ok: true as const };
-// Fastify registers HEAD for GET routes; a separate app.head would cause FST_ERR_DUPLICATED_ROUTE.
-app.get("/health", async () => healthPayload);
+// Single route for GET/HEAD/OPTIONS avoids duplicate HEAD registration and satisfies odd probes.
+app.route({
+  method: ["GET", "HEAD", "OPTIONS"],
+  url: "/health",
+  handler: async (request, reply) => {
+    if (request.method === "OPTIONS") return reply.status(204).send();
+    if (request.method === "HEAD") return reply.status(200).send();
+    return healthPayload;
+  }
+});
 app.get("/metrics", async () => ({
   service: "gold-api",
   uptimeSeconds: process.uptime(),
@@ -36,6 +48,16 @@ await registerAuthRoutes(app);
 await registerOpsRoutes(app);
 await registerAdminRoutes(app);
 await registerDashboardRoutes(app);
+
+app.addHook("onResponse", (request, reply, done) => {
+  if (reply.statusCode === 405) {
+    request.log.warn(
+      { method: request.method, url: request.url },
+      "405 method not allowed"
+    );
+  }
+  done();
+});
 
 app.setErrorHandler((error, _req, reply) => {
   app.log.error(error);
