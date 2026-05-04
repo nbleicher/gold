@@ -51,8 +51,10 @@ await registerDashboardRoutes(app);
 
 app.addHook("onResponse", (request, reply, done) => {
   if (reply.statusCode === 405) {
+    const host = request.headers.host;
+    const userAgent = request.headers["user-agent"];
     request.log.warn(
-      { method: request.method, url: request.url },
+      { method: request.method, url: request.url, host, userAgent },
       "405 method not allowed"
     );
   }

@@ -1,5 +1,45 @@
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL;
 const TOKEN_KEY = "gold_auth_token";
+
+/** Lazily validated; throws on first request if env is wrong (avoids silent `undefined/v1/...` misroutes). */
+let cachedApiBase: string | null = null;
+
+function getResolvedApiBaseUrl(): string {
+  if (cachedApiBase) return cachedApiBase;
+
+  const raw = import.meta.env.VITE_API_BASE_URL;
+  if (typeof raw !== "string" || !raw.trim()) {
+    throw new Error(
+      "Missing VITE_API_BASE_URL. Set it at build time (e.g. Cloudflare Pages) to your Railway API origin, e.g. https://your-service.up.railway.app"
+    );
+  }
+
+  const trimmed = raw.trim();
+  let parsed: URL;
+  try {
+    parsed = new URL(trimmed);
+  } catch {
+    throw new Error(
+      `Invalid VITE_API_BASE_URL: "${trimmed}". Must be a full URL such as https://your-service.up.railway.app`
+    );
+  }
+
+  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+    throw new Error(
+      `Invalid VITE_API_BASE_URL: must use http:// or https:// (got ${parsed.protocol})`
+    );
+  }
+
+  // Normalize trailing slash on href so `new URL(path, base)` is stable.
+  cachedApiBase = parsed.href.replace(/\/$/, "");
+  return cachedApiBase;
+}
+
+function resolveApiUrl(path: string): string {
+  if (!path.startsWith("/")) {
+    throw new Error(`API path must start with /, got: ${path}`);
+  }
+  return new URL(path, `${getResolvedApiBaseUrl()}/`).toString();
+}
 
 export function setAuthToken(token: string | null) {
   if (token) localStorage.setItem(TOKEN_KEY, token);
@@ -21,7 +61,7 @@ export async function api<T>(path: string, init?: RequestInit): Promise<T> {
       : METHODS_DEFAULT_JSON_BODY.has(method)
         ? JSON.stringify({})
         : undefined;
-  const res = await fetch(`${API_BASE_URL}${path}`, {
+  const res = await fetch(resolveApiUrl(path), {
     ...init,
     cache: path === "/v1/spot/latest" ? "no-store" : init?.cache,
     body,

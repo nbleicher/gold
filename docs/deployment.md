@@ -58,7 +58,10 @@
 1. Create a **Pages** project from this repo (root directory `apps/web`).
 2. Build command: `npm install && npm run build` (outputs `dist/`; Pages uploads from `pages_build_output_dir`).
 3. Environment variables (Pages):
-   - `VITE_API_BASE_URL` = Railway API URL
+   - `VITE_API_BASE_URL` — **required**; set to the **full Railway API origin** only, e.g. `https://your-service.up.railway.app`  
+     - Must be `http://` or `https://` (not a host bare name, not empty).  
+     - No extra path after the host (the app calls paths like `/v1/auth/login` itself).  
+     - Vite **bakes this in at build time**; after changing it in Pages, **redeploy** the site.
 4. Custom domain: attach `gold.jawnix.com` to the Pages project.
 5. If you need the Worker wrapper in production, deploy it separately with the command above (or host static-only on Pages; `/health` can live on the Railway API instead).
 
@@ -66,3 +69,15 @@
 
 - Set API `CORS_ORIGIN` to `https://gold.jawnix.com` in production.
 - For preview branches, include preview domains or use strict wildcard strategy with care.
+
+## Troubleshooting: login returns **405 Method Not Allowed**
+
+The web app must call the **Railway API**, not the static Pages host:
+
+- **Expected request:** `POST {VITE_API_BASE_URL}/v1/auth/login` with JSON `{ "username", "password" }`.
+- **Common causes:**
+  - **`VITE_API_BASE_URL` missing or wrong** at Pages build → browser posts to the wrong origin (often same-origin to Pages), which can return **405** for `POST /v1/auth/login`.
+  - **Forgot to redeploy** after changing `VITE_API_BASE_URL`.
+- **Verify:** In browser DevTools → Network, confirm the login request URL is your Railway hostname and status is **401** for bad credentials (proves the request hit the API auth route), not **405**.
+
+Database / Turso issues typically surface as **401** / **500**, not **405**.
