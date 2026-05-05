@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { TROY_OUNCES_TO_GRAMS } from "@gold/shared";
+import { TROY_OUNCES_TO_GRAMS } from "../lib/metal";
 import { api } from "../lib/api";
 
 type HomeLastStream = {
