@@ -18,8 +18,8 @@ async function nextApprovedScheduleForStreamer(streamerId: string) {
   }>(
     `select id, date, start_time, status from schedules
      where streamer_id = ? and status = 'approved'
-       and ifnull(entry_type, 'stream') = 'stream'
-       and datetime(date || ' ' || start_time) >= datetime('now', 'localtime')
+       and coalesce(entry_type, 'stream') = 'stream'
+       and (date || ' ' || start_time)::timestamp >= now()
      order by date asc, start_time asc
      limit 1`,
     [streamerId]
@@ -37,10 +37,9 @@ export async function registerDashboardRoutes(app: FastifyInstance) {
   app.get("/v1/dashboard/home", { preHandler: requireAuth }, async (req) => {
     const userId = req.authUser!.sub;
 
-    const todayRows = await q(
-      "select count(*) as c from streams where user_id = ? and date(started_at) = date('now')",
-      [userId]
-    );
+    const todayRows = await q("select count(*) as c from streams where user_id = ? and started_at::date = current_date", [
+      userId
+    ]);
     const streamsToday = countFromRows(todayRows);
 
     const nextSchedule = await nextApprovedScheduleForStreamer(userId);

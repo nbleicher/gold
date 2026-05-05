@@ -116,14 +116,14 @@ async function finalizeStreamBreak(
   );
   await txQ(
     tx,
-    `update stream_breaks set ended_at = datetime('now'), ended_reason = ?,
+    `update stream_breaks set ended_at = now(), ended_reason = ?,
         run_total_cost = ?, run_total_silver_grams = ?
      where id = ?`,
     [endedReason, Number(costRow?.c ?? 0), Number(silverRow?.g ?? 0), streamBreakId]
   );
   await txQ(
     tx,
-    "update breaks set status = 'completed', updated_at = datetime('now') where id = ? and is_template = 0",
+    "update breaks set status = 'completed', updated_at = now() where id = ? and is_template = 0",
     [breakInstanceId]
   );
 }
@@ -161,7 +161,7 @@ async function cloneBreakFromTemplate(tx: Transaction, templateId: string): Prom
      values (?, 'draft', ?, ?, 0, 0, ?, ?, 0, ?)`,
     [src.name, src.total_spots, src.fixed_silver_spots, budget, budget, templateId]
   );
-  const created = await txOne<{ id: string }>(tx, "select id from breaks order by rowid desc limit 1");
+  const created = await txOne<{ id: string }>(tx, "select id from breaks order by created_at desc, id desc limit 1");
   if (!created) throw new Error("Failed to clone break");
 
   for (const s of slots) {
@@ -232,7 +232,7 @@ export async function registerBreakRoutes(app: FastifyInstance) {
          values (?, 'draft', ?, ?, 0, 0, ?, ?, 1, null)`,
         [body.name.trim(), body.totalSpots, body.floorSilverSpots, budget, budget]
       );
-      const created = await txOne<{ id: string }>(tx, "select id from breaks order by rowid desc limit 1");
+      const created = await txOne<{ id: string }>(tx, "select id from breaks order by created_at desc, id desc limit 1");
       if (!created) throw new Error("Failed to create break");
 
       await upsertBreakPrizeSlots(tx, created.id, body.prizeSlots);
@@ -269,7 +269,7 @@ export async function registerBreakRoutes(app: FastifyInstance) {
       await txQ(
         tx,
         `update breaks set name = ?, status = coalesce(?, status), total_spots = ?, fixed_silver_spots = ?,
-            total_silver_budget_grams = ?, remaining_silver_grams = ?, updated_at = datetime('now')
+            total_silver_budget_grams = ?, remaining_silver_grams = ?, updated_at = now()
          where id = ?`,
         [body.name.trim(), body.status ?? null, body.totalSpots, body.floorSilverSpots, budget, budget, id]
       );
@@ -357,7 +357,7 @@ export async function registerBreakRoutes(app: FastifyInstance) {
         "insert into stream_breaks (stream_id, break_id, floor_spots) values (?, ?, ?)",
         [streamId, instanceId, floorSpotsLeftAtRunStart]
       );
-      await txQ(tx, "update breaks set status = 'active', updated_at = datetime('now') where id = ?", [
+      await txQ(tx, "update breaks set status = 'active', updated_at = now() where id = ?", [
         instanceId
       ]);
 
@@ -540,7 +540,7 @@ export async function registerBreakRoutes(app: FastifyInstance) {
       if (body.outcomeType === "prize" && prizeSlotId) {
         await txQ(
           tx,
-          "update break_prize_slots set is_consumed = 1, consumed_at = datetime('now'), updated_at = datetime('now') where id = ?",
+          "update break_prize_slots set is_consumed = 1, consumed_at = now(), updated_at = now() where id = ?",
           [prizeSlotId]
         );
       }
@@ -548,7 +548,7 @@ export async function registerBreakRoutes(app: FastifyInstance) {
       await txQ(
         tx,
         `update break_spots
-         set outcome_type = ?, prize_slot_id = ?, metal = ?, grams = ?, cost = ?, processed_at = datetime('now')
+         set outcome_type = ?, prize_slot_id = ?, metal = ?, grams = ?, cost = ?, processed_at = now()
          where id = ?`,
         [body.outcomeType, prizeSlotId, metal, grams, spotCost, nextSpot.id]
       );
@@ -558,8 +558,8 @@ export async function registerBreakRoutes(app: FastifyInstance) {
         `update breaks
          set sold_spots = sold_spots + 1,
              sold_prize_spots = sold_prize_spots + ?,
-             remaining_silver_grams = case when ? = 'silver' then max(0, remaining_silver_grams - 1) else remaining_silver_grams end,
-             updated_at = datetime('now')
+            remaining_silver_grams = case when ? = 'silver' then greatest(0, remaining_silver_grams - 1) else remaining_silver_grams end,
+            updated_at = now()
          where id = ?`,
         [body.outcomeType === "prize" ? 1 : 0, body.outcomeType, brk.id]
       );

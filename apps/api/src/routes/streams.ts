@@ -107,7 +107,7 @@ export async function registerStreamRoutes(app: FastifyInstance) {
       );
       const stream = await txOne<Record<string, unknown>>(
         tx,
-        "select * from streams order by rowid desc limit 1"
+        "select * from streams order by created_at desc, id desc limit 1"
       );
       if (!stream || typeof stream.id !== "string") {
         throw new Error("Failed to create stream");
@@ -241,7 +241,7 @@ export async function registerStreamRoutes(app: FastifyInstance) {
       );
       await txQ(
         tx,
-        "update bag_orders set sold_at = coalesce(sold_at, datetime('now')) where upper(sticker_code) = ?",
+        "update bag_orders set sold_at = coalesce(sold_at, now()) where upper(sticker_code) = ?",
         [codeUpper]
       );
       return txOne(
@@ -337,7 +337,7 @@ export async function registerStreamRoutes(app: FastifyInstance) {
         body.weightGrams,
         batchId
       ]);
-      return txOne(tx, "select * from stream_items order by rowid desc limit 1");
+      return txOne(tx, "select * from stream_items order by created_at desc, id desc limit 1");
     });
   });
 

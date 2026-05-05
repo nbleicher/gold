@@ -445,7 +445,7 @@ export async function registerAdminRoutes(app: FastifyInstance) {
     }
 
     await q(
-      "update users set is_active = 0, deactivated_at = datetime('now'), deactivated_by = ? where id = ?",
+      "update users set is_active = 0, deactivated_at = now(), deactivated_by = ? where id = ?",
       [actorId, id]
     );
     return { ok: true, id };
@@ -498,7 +498,7 @@ export async function registerAdminRoutes(app: FastifyInstance) {
     const newUsername = `purged_${id.slice(0, 22)}`;
     const passwordHash = await bcrypt.hash(randomBytes(32).toString("hex"), 12);
     await q(
-      "update users set email = ?, username = ?, password_hash = ?, display_name = null, purged_at = datetime('now'), purged_by = ? where id = ?",
+      "update users set email = ?, username = ?, password_hash = ?, display_name = null, purged_at = now(), purged_by = ? where id = ?",
       [newEmail, newUsername, passwordHash, actorId, id]
     );
     return { ok: true, id };
@@ -754,7 +754,7 @@ export async function registerAdminRoutes(app: FastifyInstance) {
       await txQ(
         tx,
         `insert into schedules (date, start_time, end_time, streamer_id, status, submitted_by, pending_submitted_at, reviewed_at, reviewed_by, entry_type, hours_worked)
-         values (?, ?, ?, ?, 'approved', ?, datetime('now'), datetime('now'), ?, 'labor', ?)`,
+         values (?, ?, ?, ?, 'approved', ?, now(), now(), ?, 'labor', ?)`,
         [body.date, startNorm, endNorm, body.userId, actor, actor, hours]
       );
     });
@@ -832,7 +832,7 @@ export async function registerAdminRoutes(app: FastifyInstance) {
       const hoursWorked = body.hoursWorked!;
       const ins = await one<{ id: string }>(
         `insert into schedules (date, start_time, end_time, streamer_id, status, submitted_by, pending_submitted_at, reviewed_at, reviewed_by, entry_type, hours_worked)
-         values (?, '00:00', null, ?, 'approved', ?, datetime('now'), datetime('now'), ?, 'labor', ?)
+         values (?, '00:00', null, ?, 'approved', ?, now(), now(), ?, 'labor', ?)
          returning id`,
         [body.date, body.streamerId, actor, actor, hoursWorked]
       );
@@ -855,7 +855,7 @@ export async function registerAdminRoutes(app: FastifyInstance) {
     const endTimeVal = body.endTime?.trim() ? body.endTime.trim() : null;
     const ins = await one<{ id: string }>(
       `insert into schedules (date, start_time, end_time, streamer_id, status, submitted_by, pending_submitted_at, reviewed_at, reviewed_by, entry_type, hours_worked)
-       values (?, ?, ?, ?, 'approved', ?, datetime('now'), datetime('now'), ?, 'stream', null)
+       values (?, ?, ?, ?, 'approved', ?, now(), now(), ?, 'stream', null)
        returning id`,
       [body.date, startTime, endTimeVal, body.streamerId, actor, actor]
     );
@@ -970,7 +970,7 @@ export async function registerAdminRoutes(app: FastifyInstance) {
     }
     const nextStatus = body.action === "approve" ? "approved" : "rejected";
     await q(
-      "update schedules set status = ?, reviewed_at = datetime('now'), reviewed_by = ?, review_note = ? where id = ?",
+      "update schedules set status = ?, reviewed_at = now(), reviewed_by = ?, review_note = ? where id = ?",
       [nextStatus, req.authUser?.sub ?? null, body.reviewNote ?? null, id]
     );
     return { ok: true, id, status: nextStatus };
@@ -1053,7 +1053,7 @@ export async function registerAdminRoutes(app: FastifyInstance) {
     const endTimeVal = body.endTime?.trim() ? body.endTime.trim() : null;
     const ins = await one<{ id: string }>(
       `insert into schedules (date, start_time, end_time, streamer_id, status, submitted_by, pending_submitted_at, entry_type, hours_worked)
-       values (?, ?, ?, ?, 'pending', ?, datetime('now'), 'stream', null)
+       values (?, ?, ?, ?, 'pending', ?, now(), 'stream', null)
        returning id`,
       [body.date, body.startTime, endTimeVal, userId, userId]
     );
@@ -1104,7 +1104,7 @@ export async function registerAdminRoutes(app: FastifyInstance) {
       if (em <= sm) return req.server.httpErrors.badRequest("endTime must be after startTime");
     }
     await q(
-      "update schedules set date = ?, start_time = ?, end_time = ?, pending_submitted_at = datetime('now') where id = ?",
+      "update schedules set date = ?, start_time = ?, end_time = ?, pending_submitted_at = now() where id = ?",
       [nextDate, nextStart, nextEnd, id]
     );
     return { ok: true, id };

@@ -13,7 +13,7 @@ export async function registerOpsRoutes(app: FastifyInstance) {
       "insert into schedules (date, start_time, streamer_id, entry_type, hours_worked) values (?, ?, ?, 'stream', null)",
       [body.date, body.startTime, body.streamerId]
     );
-    return one("select * from schedules order by rowid desc limit 1");
+    return one("select * from schedules order by created_at desc, id desc limit 1");
   });
 
   app.delete("/v1/schedules/:id", { preHandler: requireRole("admin") }, async (req) => {
@@ -29,7 +29,7 @@ export async function registerOpsRoutes(app: FastifyInstance) {
   app.post("/v1/expenses", { preHandler: requireRole("admin") }, async (req) => {
     const body = req.body as { date: string; name: string; cost: number };
     await q("insert into expenses (date, name, cost) values (?, ?, ?)", [body.date, body.name, body.cost]);
-    return one("select * from expenses order by rowid desc limit 1");
+    return one("select * from expenses order by created_at desc, id desc limit 1");
   });
 
   app.delete("/v1/expenses/:id", { preHandler: requireRole("admin") }, async (req) => {
@@ -49,7 +49,7 @@ export async function registerOpsRoutes(app: FastifyInstance) {
       body.filename,
       body.rows
     ]);
-    return one("select * from payroll_records order by rowid desc limit 1");
+    return one("select * from payroll_records order by imported_at desc, id desc limit 1");
   });
 
   app.delete("/v1/payroll/:id", { preHandler: requireRole("admin") }, async (req) => {
