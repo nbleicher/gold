@@ -403,11 +403,11 @@ export function SchedulePage() {
                         background: "rgba(139,105,20,0.07)",
                         border: isDropHighlight ? "1px dashed var(--gold)" : "1px solid var(--gold-dark)",
                         borderRadius: 2,
-                        padding: "0.35rem",
+                        padding: "0.22rem 0.28rem",
                         opacity: dragStreamId === s.id ? 0.72 : 1
                       }}
                     >
-                      <div style={{ display: "flex", gap: "0.3rem", alignItems: "flex-start" }}>
+                      <div style={{ display: "flex", gap: "0.22rem", alignItems: "flex-start" }}>
                         {isAdmin ? (
                           <span
                             draggable
@@ -430,9 +430,9 @@ export function SchedulePage() {
                             style={{
                               cursor: "grab",
                               color: "var(--muted)",
-                              fontSize: "0.78rem",
-                              lineHeight: 1.1,
-                              padding: "0.15rem 0 0 0",
+                              fontSize: "0.72rem",
+                              lineHeight: 1,
+                              padding: "0.06rem 0 0 0",
                               userSelect: "none",
                               flexShrink: 0
                             }}
@@ -443,37 +443,52 @@ export function SchedulePage() {
                         <div style={{ flex: 1, minWidth: 0 }}>
                       <div
                         style={{
-                          fontSize: "0.52rem",
+                          fontSize: "0.5rem",
                           letterSpacing: "0.1em",
                           textTransform: "uppercase",
                           color: "var(--muted)",
-                          marginBottom: "0.25rem"
+                          marginBottom: "0.1rem",
+                          lineHeight: 1.2
                         }}
                       >
                         Stream
                       </div>
                       {showClock ? (
-                        <div style={{ fontSize: "0.68rem", color: "var(--gold-light)", marginBottom: "0.15rem" }}>
+                        <div
+                          style={{
+                            fontSize: "0.64rem",
+                            color: "var(--gold-light)",
+                            marginBottom: "0.08rem",
+                            lineHeight: 1.2
+                          }}
+                        >
                           {streamTimeLabel(s)}
                         </div>
                       ) : null}
-                      <div style={{ fontSize: "0.62rem", color: "var(--text-dim)", fontWeight: 600 }}>
+                      <div
+                        style={{
+                          fontSize: "0.6rem",
+                          color: "var(--text-dim)",
+                          fontWeight: 600,
+                          lineHeight: 1.25
+                        }}
+                      >
                         {slotHost(s)}
                       </div>
-                      <div style={{ marginTop: "0.25rem" }}>
+                      <div style={{ marginTop: "0.12rem" }}>
                         <span className={statusBadge(s.status)}>{s.status}</span>
                       </div>
                       {s.status === "pending" && s.pending_submitted_at ? (
-                        <div style={{ fontSize: "0.58rem", color: "var(--muted)", marginTop: "0.2rem" }}>
+                        <div style={{ fontSize: "0.54rem", color: "var(--muted)", marginTop: "0.1rem", lineHeight: 1.3 }}>
                           Submitted: {new Date(s.pending_submitted_at).toLocaleString()}
                         </div>
                       ) : null}
                       {s.status === "rejected" && s.review_note ? (
-                        <div style={{ fontSize: "0.58rem", color: "var(--muted)", marginTop: "0.2rem" }}>
+                        <div style={{ fontSize: "0.54rem", color: "var(--muted)", marginTop: "0.1rem", lineHeight: 1.3 }}>
                           Note: {s.review_note}
                         </div>
                       ) : null}
-                      <div style={{ display: "flex", gap: "0.35rem", marginTop: "0.45rem", flexWrap: "wrap" }}>
+                      <div style={{ display: "flex", gap: "0.28rem", marginTop: "0.28rem", flexWrap: "wrap" }}>
                         {(isAdmin || s.status === "pending") ? (
                           <button type="button" className="btn btn-outline btn-sm" onClick={() => openEdit(s)}>
                             Edit
