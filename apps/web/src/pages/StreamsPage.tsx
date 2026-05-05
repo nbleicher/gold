@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "../lib/api";
 import { useAuth } from "../state/auth";
+import { hasSupabaseClient, supabase } from "../lib/supabase";
 
 type Stream = {
   id: string;
@@ -83,6 +84,28 @@ export function StreamsPage() {
     queryFn: () => api<Stream[]>(`/v1/streams?userId=${user?.id ?? ""}`),
     enabled: !!user?.id
   });
+
+  useEffect(() => {
+    if (!hasSupabaseClient || !supabase || !user?.id) return;
+    const client = supabase;
+    const channel = client
+      .channel(`streams-live-${user.id}`)
+      .on("postgres_changes", { event: "*", schema: "public", table: "streams" }, () => {
+        void qc.invalidateQueries({ queryKey: ["streams", user.id] });
+      })
+      .on("postgres_changes", { event: "*", schema: "public", table: "stream_items" }, () => {
+        void qc.invalidateQueries({ queryKey: ["stream-items", activeStreamId] });
+        void qc.invalidateQueries({ queryKey: ["stream-break-stats", activeStreamId] });
+      })
+      .on("postgres_changes", { event: "*", schema: "public", table: "break_spots" }, () => {
+        void qc.invalidateQueries({ queryKey: ["active-stream-break", activeStreamId] });
+      })
+      .subscribe();
+
+    return () => {
+      void client.removeChannel(channel);
+    };
+  }, [activeStreamId, qc, user?.id]);
 
   useEffect(() => {
     if (!user?.id || !streams.isSuccess || !streams.data) return;

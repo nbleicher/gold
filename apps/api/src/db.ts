@@ -1,20 +1,45 @@
-import { createClient, type Client, type InArgs, type Transaction } from "@libsql/client";
+import { Pool, type PoolClient } from "pg";
 import { env } from "./env.js";
 
-export const db: Client = createClient({
-  url: env.tursoDatabaseUrl,
-  authToken: env.tursoAuthToken
+export type InArgs = ReadonlyArray<unknown>;
+
+export type Transaction = {
+  query: <T = any>(sql: string, args?: InArgs) => Promise<T[]>;
+};
+
+const pool = new Pool({
+  connectionString: env.databaseUrl,
+  ssl: env.databaseUrl.includes("sslmode=") ? undefined : { rejectUnauthorized: false }
 });
 
-export async function q<T = Record<string, unknown>>(
+function normalizeSql(sql: string): string {
+  const withDates = sql
+    .replace(/datetime\('now'\)/g, "now()")
+    .replace(/datetime\('now',\s*'localtime'\)/g, "now()")
+    .replace(/date\('now'\)/g, "current_date")
+    .replace(/\bifnull\s*\(/g, "coalesce(")
+    .replace(/\bmax\(\s*0\s*,/g, "greatest(0,");
+
+  let idx = 1;
+  return withDates.replace(/\?/g, () => `$${idx++}`);
+}
+
+function normalizeArgs(args?: InArgs): unknown[] {
+  if (!args) return [];
+  return [...args];
+}
+
+export async function q<T = any>(
   sql: string,
   args?: InArgs
 ) {
-  const res = args === undefined ? await db.execute(sql) : await db.execute({ sql, args });
-  return res.rows as T[];
+  const text = normalizeSql(sql);
+  const values = normalizeArgs(args);
+  const res = await pool.query(text, values);
+  return res.rows;
 }
 
-export async function one<T = Record<string, unknown>>(
+export async function one<T = any>(
   sql: string,
   args?: InArgs
 ) {
@@ -22,16 +47,26 @@ export async function one<T = Record<string, unknown>>(
   return rows[0] ?? null;
 }
 
-export async function txQ<T = Record<string, unknown>>(
+async function txQuery<T = any>(
+  client: PoolClient,
+  sql: string,
+  args?: InArgs
+) {
+  const text = normalizeSql(sql);
+  const values = normalizeArgs(args);
+  const res = await client.query(text, values);
+  return res.rows;
+}
+
+export async function txQ<T = any>(
   tx: Transaction,
   sql: string,
   args?: InArgs
 ) {
-  const res = args === undefined ? await tx.execute(sql) : await tx.execute({ sql, args });
-  return res.rows as T[];
+  return tx.query<T>(sql, args);
 }
 
-export async function txOne<T = Record<string, unknown>>(
+export async function txOne<T = any>(
   tx: Transaction,
   sql: string,
   args?: InArgs
@@ -41,21 +76,19 @@ export async function txOne<T = Record<string, unknown>>(
 }
 
 export async function withWriteTx<T>(run: (tx: Transaction) => Promise<T>): Promise<T> {
-  const tx = await db.transaction("write");
+  const client = await pool.connect();
   try {
+    await client.query("begin");
+    const tx: Transaction = {
+      query: <R = any>(sql: string, args?: InArgs) => txQuery<R>(client, sql, args)
+    };
     const result = await run(tx);
-    await tx.commit();
+    await client.query("commit");
     return result;
   } catch (err) {
-    if (!tx.closed) {
-      try {
-        await tx.rollback();
-      } catch {
-        // Preserve the original error from transactional work.
-      }
-    }
+    await client.query("rollback");
     throw err;
   } finally {
-    tx.close();
+    client.release();
   }
 }

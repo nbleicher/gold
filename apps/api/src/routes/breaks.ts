@@ -1,4 +1,3 @@
-import type { Transaction } from "@libsql/client";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import {
   createBreakSchema,
@@ -6,7 +5,7 @@ import {
   startStreamBreakSchema,
   updateBreakSchema
 } from "@gold/shared";
-import { one, q, txOne, txQ, withWriteTx } from "../db.js";
+import { one, q, txOne, txQ, withWriteTx, type Transaction } from "../db.js";
 import { requireAuth, requireRole } from "./auth.js";
 
 const OZT_TO_GRAMS = 31.1034768;

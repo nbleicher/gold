@@ -9,9 +9,12 @@ function required(name: string): string {
 export const env = {
   port: Number(process.env.PORT ?? 8787),
   corsOrigin: process.env.CORS_ORIGIN ?? "http://localhost:5173",
-  tursoDatabaseUrl: required("TURSO_DATABASE_URL"),
-  tursoAuthToken: required("TURSO_AUTH_TOKEN"),
+  databaseUrl: required("DATABASE_URL"),
   jwtSecret: required("JWT_SECRET"),
+  supabaseUrl: process.env.SUPABASE_URL ?? "",
+  supabaseAnonKey: process.env.SUPABASE_ANON_KEY ?? "",
+  supabaseServiceRoleKey: process.env.SUPABASE_SERVICE_ROLE_KEY ?? "",
+  supabaseJwtSecret: process.env.SUPABASE_JWT_SECRET ?? "",
   spotPrimaryFeedUrl: process.env.SPOT_PRIMARY_FEED_URL ?? "",
   spotFallbackFeedUrl:
     process.env.SPOT_FALLBACK_FEED_URL ??

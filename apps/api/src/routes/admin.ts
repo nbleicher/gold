@@ -28,7 +28,8 @@ const createExpenseSchema = z.object({
 const createPayrollSchema = z.object({
   userId: z.string().min(1),
   filename: z.string().min(1),
-  rows: z.number().int().nonnegative()
+  rows: z.number().int().nonnegative(),
+  storagePath: z.string().min(1).optional()
 });
 
 const adminCreateScheduleBodySchema = z
@@ -536,12 +537,13 @@ export async function registerAdminRoutes(app: FastifyInstance) {
       user_id: string;
       filename: string;
       rows: number;
+      storage_path: string | null;
       imported_at: string;
       username: string;
       email: string;
       display_name: string | null;
     }>(
-      `select p.id, p.user_id, p.filename, p.rows, p.imported_at, u.username, u.email, u.display_name
+      `select p.id, p.user_id, p.filename, p.rows, p.storage_path, p.imported_at, u.username, u.email, u.display_name
        from payroll_records p
        join users u on u.id = p.user_id
        order by p.imported_at desc`
@@ -553,12 +555,12 @@ export async function registerAdminRoutes(app: FastifyInstance) {
     const user = await one<{ id: string }>("select id from users where id = ?", [body.userId]);
     if (!user) throw new Error("User not found");
     const ins = await one<{ id: string }>(
-      "insert into payroll_records (user_id, filename, rows) values (?, ?, ?) returning id",
-      [body.userId, body.filename, body.rows]
+      "insert into payroll_records (user_id, filename, rows, storage_path) values (?, ?, ?, ?) returning id",
+      [body.userId, body.filename, body.rows, body.storagePath ?? null]
     );
     if (!ins) throw new Error("Payroll insert failed");
     return one(
-      `select p.id, p.user_id, p.filename, p.rows, p.imported_at, u.username, u.email, u.display_name
+      `select p.id, p.user_id, p.filename, p.rows, p.storage_path, p.imported_at, u.username, u.email, u.display_name
        from payroll_records p
        join users u on u.id = p.user_id
        where p.id = ?`,

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState, type Dispatch, type SetStateAction } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "../lib/api";
+import { hasSupabaseClient, supabase } from "../lib/supabase";
 
 type AdminUser = {
   id: string;
@@ -27,6 +28,7 @@ type PayrollRow = {
   id: string;
   user_id: string;
   filename: string;
+  storage_path?: string | null;
   rows: number;
   imported_at: string;
   username: string;
@@ -58,7 +60,7 @@ type WeeklySummaryResponse = {
 type PreviewState = { filename: string; headers: string[]; rows: string[][] } | null;
 
 /** Set to true to show CSV import UI again. */
-const PAYROLL_CSV_IMPORT_ENABLED = false;
+const PAYROLL_CSV_IMPORT_ENABLED = true;
 
 function localYmd(d: Date): string {
   const y = d.getFullYear();
@@ -446,14 +448,28 @@ export function PayrollPage() {
   });
 
   const importMutation = useMutation({
-    mutationFn: () => {
+    mutationFn: async () => {
       if (!userId || !preview) throw new Error("Select a user and a CSV file");
+      let storagePath: string | null = null;
+      if (hasSupabaseClient && supabase) {
+        const payload = new Blob([`${preview.headers.join(",")}\n${preview.rows.map((r) => r.join(",")).join("\n")}`], {
+          type: "text/csv"
+        });
+        const filePath = `payroll/${userId}/${Date.now()}-${preview.filename}`;
+        const uploaded = await supabase.storage.from("payroll-csv").upload(filePath, payload, {
+          contentType: "text/csv",
+          upsert: false
+        });
+        if (uploaded.error) throw uploaded.error;
+        storagePath = filePath;
+      }
       return api<PayrollRow>("/v1/admin/payroll", {
         method: "POST",
         body: JSON.stringify({
           userId,
           filename: preview.filename,
-          rows: preview.rows.length
+          rows: preview.rows.length,
+          storagePath
         })
       });
     },
@@ -770,7 +786,10 @@ export function PayrollPage() {
                   <td>{new Date(r.imported_at).toLocaleDateString()}</td>
                   <td className="tbl-gold">{r.display_name?.trim() || r.username}</td>
                   <td>{r.rows}</td>
-                  <td style={{ fontSize: "0.65rem", color: "var(--muted)" }}>{r.filename}</td>
+                  <td style={{ fontSize: "0.65rem", color: "var(--muted)" }}>
+                    {r.filename}
+                    {r.storage_path ? <div style={{ opacity: 0.7 }}>{r.storage_path}</div> : null}
+                  </td>
                   <td>
                     <button
                       type="button"

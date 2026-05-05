@@ -1,6 +1,7 @@
 import { createContext, useContext, useEffect, useMemo, useState } from "react";
 import { api, getAuthToken, setAuthToken } from "../lib/api";
 import { loginIdentifierToUsername } from "../lib/loginUsername";
+import { hasSupabaseClient, supabase } from "../lib/supabase";
 
 export type AppRole = "admin" | "streamer" | "shipper" | "bagger";
 
@@ -28,22 +29,28 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const token = getAuthToken();
-    if (!token) {
-      setLoading(false);
-      return;
-    }
-    api<AppUser>("/v1/auth/me")
-      .then((p) => {
+    const boot = async () => {
+      let token = getAuthToken();
+      if (!token && hasSupabaseClient && supabase) {
+        const session = (await supabase.auth.getSession()).data.session;
+        token = session?.access_token ?? null;
+        if (token) setAuthToken(token);
+      }
+      if (!token) {
+        setLoading(false);
+        return;
+      }
+      try {
+        const p = await api<AppUser>("/v1/auth/me");
         setProfile(p);
-      })
-      .catch(() => {
+      } catch {
         setAuthToken(null);
         setProfile(null);
-      })
-      .finally(() => {
+      } finally {
         setLoading(false);
-      });
+      }
+    };
+    void boot();
   }, []);
 
   const value = useMemo<AuthContextValue>(
@@ -52,17 +59,28 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       profile,
       loading,
       signIn: async (username, password) => {
+        const normalized = loginIdentifierToUsername(username);
+        if (hasSupabaseClient && supabase) {
+          const email = `${normalized}@login.internal`;
+          const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+          if (!error && data.session?.access_token) {
+            setAuthToken(data.session.access_token);
+            const p = await api<AppUser>("/v1/auth/me");
+            setProfile(p);
+            return;
+          }
+        }
         const res = await api<{ token: string; user: AppUser }>("/v1/auth/login", {
           method: "POST",
-          body: JSON.stringify({
-            username: loginIdentifierToUsername(username),
-            password
-          })
+          body: JSON.stringify({ username: normalized, password })
         });
         setAuthToken(res.token);
         setProfile(res.user);
       },
       signOut: async () => {
+        if (hasSupabaseClient && supabase) {
+          await supabase.auth.signOut();
+        }
         setAuthToken(null);
         setProfile(null);
       },

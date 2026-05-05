@@ -15,6 +15,13 @@
     "typecheck": "npm run typecheck --workspaces --if-present",
     "lint": "npm run lint --workspaces --if-present",
     "test": "npm run test --workspaces --if-present",
-    "import:legacy": "node scripts/import-localstorage.mjs"
+    "import:legacy": "node scripts/import-localstorage.mjs",
+    "migrate:turso:export": "node scripts/turso-export.mjs",
+    "migrate:turso:import": "node scripts/supabase-import.mjs",
+    "migrate:turso:reconcile": "node scripts/reconcile-turso-supabase.mjs"
+  },
+  "dependencies": {
+    "@libsql/client": "^0.15.15",
+    "pg": "^8.16.3"
   }
 }

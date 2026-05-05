@@ -3,6 +3,7 @@ import bcrypt from "bcrypt";
 import jwt from "jsonwebtoken";
 import { performance } from "node:perf_hooks";
 import { randomBytes } from "node:crypto";
+import { createRemoteJWKSet, jwtVerify } from "jose";
 import { z } from "zod";
 import { env } from "../env.js";
 import { one } from "../db.js";
@@ -11,6 +12,7 @@ export const APP_ROLES = ["admin", "streamer", "shipper", "bagger"] as const;
 export type AppRole = (typeof APP_ROLES)[number];
 
 export type JwtPayload = { sub: string; role: AppRole; username: string };
+type AuthIdentity = JwtPayload & { source: "legacy" | "supabase" };
 
 /** Synthetic email to satisfy `users.email NOT NULL UNIQUE` for username-based accounts. */
 export function loginEmailFromUsername(username: string): string {
@@ -31,16 +33,20 @@ declare module "fastify" {
   }
 }
 
-async function loadAuthUserFromDb(userId: string): Promise<JwtPayload> {
+async function loadAuthUserFromDb(identity: AuthIdentity): Promise<JwtPayload> {
+  const isSupabase = identity.source === "supabase";
   const row = await one<{
+    id: string;
     username: string;
     role: AppRole;
     requires_login: number;
     is_active: number;
     purged_at: string | null;
   }>(
-    "select username, role, requires_login, is_active, purged_at from users where id = ?",
-    [userId]
+    `select id, username, role, requires_login, is_active, purged_at
+     from users
+     where ${isSupabase ? "supabase_user_id" : "id"} = ?`,
+    [identity.sub]
   );
   if (!row || !row.is_active || row.purged_at) {
     throw new Error("Unauthorized");
@@ -51,20 +57,54 @@ async function loadAuthUserFromDb(userId: string): Promise<JwtPayload> {
   if (row.role !== "admin" && row.role !== "streamer") {
     throw new Error("Unauthorized");
   }
-  return { sub: userId, role: row.role, username: row.username };
+  return { sub: row.id, role: row.role, username: row.username };
+}
+
+const supabaseJwks = env.supabaseUrl
+  ? createRemoteJWKSet(new URL(`${env.supabaseUrl}/auth/v1/.well-known/jwks.json`))
+  : null;
+
+async function verifySupabaseToken(token: string): Promise<AuthIdentity> {
+  if (!supabaseJwks) throw new Error("Unauthorized");
+  const verified = await jwtVerify(token, supabaseJwks, {
+    issuer: `${env.supabaseUrl}/auth/v1`
+  });
+  const appMetadata = (verified.payload.app_metadata ?? {}) as { role?: unknown };
+  const userMetadata = (verified.payload.user_metadata ?? {}) as { username?: unknown };
+  const role = appMetadata.role;
+  if (role !== "admin" && role !== "streamer") {
+    throw new Error("Unauthorized");
+  }
+  const username = String(userMetadata.username ?? verified.payload.email ?? "");
+  if (!verified.payload.sub || !username) throw new Error("Unauthorized");
+  return {
+    sub: verified.payload.sub,
+    role,
+    username,
+    source: "supabase"
+  };
+}
+
+function verifyLegacyToken(token: string): AuthIdentity {
+  const decoded = jwt.verify(token, env.jwtSecret) as JwtPayload;
+  return { ...decoded, source: "legacy" };
 }
 
 export async function requireAuth(request: import("fastify").FastifyRequest) {
   const auth = request.headers.authorization;
   if (!auth?.startsWith("Bearer ")) throw new Error("Unauthorized");
   const token = auth.slice("Bearer ".length);
-  let decoded: JwtPayload;
+  let identity: AuthIdentity;
   try {
-    decoded = jwt.verify(token, env.jwtSecret) as JwtPayload;
+    identity = verifyLegacyToken(token);
   } catch {
-    throw new Error("Unauthorized");
+    try {
+      identity = await verifySupabaseToken(token);
+    } catch {
+      throw new Error("Unauthorized");
+    }
   }
-  request.authUser = await loadAuthUserFromDb(decoded.sub);
+  request.authUser = await loadAuthUserFromDb(identity);
 }
 
 /** Only `"admin"` is enforced; `"user"` kept for call-site compatibility. */

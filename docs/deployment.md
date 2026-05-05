@@ -1,12 +1,11 @@
 # Deployment Guide
 
-## Turso
+## Supabase
 
-1. Create Turso database and auth token.
-2. Apply SQL migrations in `turso/migrations` **in numeric order** through the latest file (see folder listing). **`013_break_multi_run.sql`** replaces the break-related tables with the current app schema (drops `breaks`, `break_prize_slots`, `break_spots`, `stream_breaks` and recreates them; clears `stream_items` break FKs). Run **after `012_breaks_and_pool.sql`**. Safe to re-run to repair a broken or partial break schema; it **deletes all break data**.
-
-   - `001_init.sql`
-   - `002_seed_admin_template.sql` (after replacing placeholders)
+1. Create Supabase project.
+2. Apply SQL migrations in `supabase/migrations` (or run `supabase db push`).
+3. Configure Storage bucket `payroll-csv` (private) for payroll CSV uploads.
+4. Enable Realtime for public tables used by streams (`streams`, `stream_items`, `break_spots`).
 
 ## Railway (API + Spot Job)
 
@@ -17,9 +16,11 @@
    - `npm --workspace @gold/api run start` (runs `node dist/server.js` only)
 5. Configure env vars:
    - `PORT`
-   - `TURSO_DATABASE_URL`
-   - `TURSO_AUTH_TOKEN`
+   - `DATABASE_URL`
    - `JWT_SECRET`
+   - `SUPABASE_URL`
+   - `SUPABASE_ANON_KEY`
+   - `SUPABASE_SERVICE_ROLE_KEY`
    - `CORS_ORIGIN`
    - `SPOT_PRIMARY_FEED_URL` (only if you use pull ingest below)
    - `SPOT_FALLBACK_FEED_URL`
@@ -33,7 +34,7 @@
    - **`GOLD_API_BASE_URL`** = your Railway API base URL (e.g. `https://your-service.up.railway.app`)
    - **`SPOT_PUSH_SECRET`** = same value as Railway
 
-   The script POSTs the scraped payload to **`/v1/spot/push`** with `Authorization: Bearer <secret>`. The dashboard updates once the API inserts into Turso (and the web app refetches). Optional: keep **`--out /var/www/html/spot-feed.json`** if you still want a public file.
+  The script POSTs the scraped payload to **`/v1/spot/push`** with `Authorization: Bearer <secret>`. The dashboard updates once the API inserts into Supabase Postgres (and the web app refetches). Optional: keep **`--out /var/www/html/spot-feed.json`** if you still want a public file.
 
    **B. Pull ingest (`job:spot`)**  
    If you serve **`spot-feed.json`** at a **public HTTPS** URL, add a Railway Cron Job with the **same env as the API** running `npm --workspace @gold/api run job:spot` on your desired interval. Do **not** use `http://localhost/...` for **`SPOT_PRIMARY_FEED_URL`**; Railway cannot reach the VPS loopback.
@@ -79,14 +80,14 @@
 
 ## Troubleshooting: login returns **405 Method Not Allowed**
 
-`405` means the HTTP **method** is not allowed **at that URL’s handler**. For this app, `POST /v1/auth/login` must reach **Fastify on Railway** (or the Pages **proxy** that forwards `/v1/*` there). It is **not** a Turso/SQL error.
+`405` means the HTTP **method** is not allowed **at that URL’s handler**. For this app, `POST /v1/auth/login` must reach **Fastify on Railway** (or the Pages **proxy** that forwards `/v1/*` there). It is **not** a database migration error.
 
 - **Expected request:** `POST` to `{resolved API base}/v1/auth/login` with JSON `{ "username", "password" }`, where the resolved base is either your Railway origin (**mode A**) or your site origin when **`GOLD_API_ORIGIN`** + proxy are configured (**mode B**).
 - **Typical mistake:** `VITE_API_BASE_URL` points at the **Pages / static hostname** without **`GOLD_API_ORIGIN`** → the browser sends `POST` to the CDN/static layer, which often answers **405** for API paths.
 - **Fix:** Use **mode A** (Railway URL in `VITE_API_BASE_URL`) or **mode B** (`GOLD_API_ORIGIN` + site URL in `VITE_API_BASE_URL`), then **redeploy** the Pages build.
 - **Verify:** DevTools → Network → login request: host should be Railway **or** your domain with a **200/401** JSON body from the API, not **405** from a static response.
 
-Database / Turso issues typically surface as **401** / **500**, not **405**.
+Database issues typically surface as **401** / **500**, not **405**.
 
 **Login identifier:** Use your **`users.username`** value. If you type an **email**, only the part **before `@`** is matched (same rules as the DB migration): e.g. `admin@goldstream.com` is looked up as **`admin`**, not the full string.
 
