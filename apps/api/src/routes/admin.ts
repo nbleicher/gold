@@ -41,17 +41,22 @@ const adminCreateScheduleBodySchema = z
     hoursWorked: z.number().positive().optional()
   })
   .superRefine((data, ctx) => {
-    const hasTime = Boolean(data.startTime?.trim());
-    const hasHours = data.hoursWorked != null;
-    if (hasTime === hasHours) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        message: "Provide exactly one of: startTime (stream slot) or hoursWorked (labor entry)"
-      });
+    const isLabor = data.hoursWorked != null;
+    if (isLabor) {
+      if (data.startTime?.trim() || data.endTime?.trim()) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "Labor entries cannot include startTime or endTime"
+        });
+      }
+      return;
     }
-    if (hasTime && data.endTime?.trim()) {
-      const sm = payrollMinutesFromHHMM(data.startTime!.trim());
-      const em = payrollMinutesFromHHMM(data.endTime.trim());
+    const st = data.startTime?.trim();
+    const et = data.endTime?.trim();
+    const startEff = st || "00:00";
+    if (et) {
+      const sm = payrollMinutesFromHHMM(startEff);
+      const em = payrollMinutesFromHHMM(et);
       if (sm === null || em === null) {
         ctx.addIssue({
           code: z.ZodIssueCode.custom,
@@ -886,7 +891,7 @@ export async function registerAdminRoutes(app: FastifyInstance) {
     if (assignee.role !== "admin" && assignee.role !== "streamer") {
       throw new Error("Stream slots can only be assigned to admins or streamers");
     }
-    const startTime = body.startTime!.trim();
+    const startTime = body.startTime?.trim() || "00:00";
     const endTimeVal = body.endTime?.trim() ? body.endTime.trim() : null;
     const ord = await nextScheduleSortOrder(body.date);
     const ins = await one<{ id: string }>(
@@ -1082,12 +1087,13 @@ export async function registerAdminRoutes(app: FastifyInstance) {
   const mineSchedulePostSchema = z
     .object({
       date: z.string().min(10),
-      startTime: z.string().min(1),
+      startTime: z.string().optional(),
       endTime: z.string().optional()
     })
     .superRefine((data, ctx) => {
+      const startEff = data.startTime?.trim() || "00:00";
       if (data.endTime?.trim()) {
-        const sm = payrollMinutesFromHHMM(data.startTime.trim());
+        const sm = payrollMinutesFromHHMM(startEff);
         const em = payrollMinutesFromHHMM(data.endTime.trim());
         if (sm === null || em === null) {
           ctx.addIssue({ code: z.ZodIssueCode.custom, message: "Invalid start or end time (use HH:MM)" });
@@ -1120,12 +1126,13 @@ export async function registerAdminRoutes(app: FastifyInstance) {
     if (!userId) throw new Error("Unauthorized");
     const body = mineSchedulePostSchema.parse(req.body);
     const endTimeVal = body.endTime?.trim() ? body.endTime.trim() : null;
+    const startTime = body.startTime?.trim() || "00:00";
     const ord = await nextScheduleSortOrder(body.date);
     const ins = await one<{ id: string }>(
       `insert into schedules (date, start_time, end_time, streamer_id, status, submitted_by, pending_submitted_at, entry_type, hours_worked, sort_order)
        values (?, ?, ?, ?, 'pending', ?, now(), 'stream', null, ?)
        returning id`,
-      [body.date, body.startTime, endTimeVal, userId, userId, ord]
+      [body.date, startTime, endTimeVal, userId, userId, ord]
     );
     if (!ins) throw new Error("Schedule insert failed");
     return one(

@@ -1,11 +1,4 @@
 import { FormEvent, useMemo, useState } from "react";
-
-function reorderIds(ids: string[], fromIndex: number, toIndex: number): string[] {
-  const next = [...ids];
-  const [x] = next.splice(fromIndex, 1);
-  next.splice(toIndex, 0, x);
-  return next;
-}
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "../lib/api";
 import { useAuth } from "../state/auth";
@@ -56,6 +49,28 @@ function getWeekDates(weekOffset: number): Date[] {
 
 const DAY_LABELS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 
+function reorderIds(ids: string[], fromIndex: number, toIndex: number): string[] {
+  const next = [...ids];
+  const [x] = next.splice(fromIndex, 1);
+  next.splice(toIndex, 0, x);
+  return next;
+}
+
+function formatScheduleReadonlyDate(ymd: string): string {
+  if (!ymd || ymd.length < 10) return ymd;
+  const d = new Date(`${ymd}T12:00:00`);
+  if (Number.isNaN(d.getTime())) return ymd;
+  return d.toLocaleDateString(undefined, { weekday: "long", month: "short", day: "numeric", year: "numeric" });
+}
+
+/** Hide clock row when DB uses midnight placeholder with no end time (order-only schedule). */
+function streamRowHidesClock(s: ScheduleSlot): boolean {
+  const st = (s.start_time ?? "").trim();
+  const short = st.length >= 5 ? st.slice(0, 5) : st;
+  const et = s.end_time?.trim();
+  return short === "00:00" && !et;
+}
+
 export function SchedulePage() {
   const { profile } = useAuth();
   const isAdmin = profile?.role === "admin";
@@ -64,11 +79,10 @@ export function SchedulePage() {
   const [modalOpen, setModalOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [formDate, setFormDate] = useState("");
-  const [formTime, setFormTime] = useState("09:00");
-  const [formEndTime, setFormEndTime] = useState("");
   const [formStreamer, setFormStreamer] = useState("");
   const [statusFilter, setStatusFilter] = useState<"all" | "pending" | "approved" | "rejected">("all");
   const [dragStreamId, setDragStreamId] = useState<string | null>(null);
+  const [dragHoverId, setDragHoverId] = useState<string | null>(null);
 
   const weekDates = useMemo(() => getWeekDates(weekOffset), [weekOffset]);
   const from = localYmd(weekDates[0]);
@@ -123,16 +137,11 @@ export function SchedulePage() {
     return m;
   }, [schedules.data]);
 
-  const streamPayload = () => {
-    const base: Record<string, unknown> = isAdmin
-      ? { date: formDate, startTime: formTime, streamerId: formStreamer }
-      : { date: formDate, startTime: formTime };
+  const streamPayload = (): Record<string, unknown> => {
     if (editingId) {
-      base.endTime = formEndTime.trim();
-    } else if (formEndTime.trim()) {
-      base.endTime = formEndTime.trim();
+      return isAdmin ? { streamerId: formStreamer } : {};
     }
-    return base;
+    return isAdmin ? { date: formDate, streamerId: formStreamer } : { date: formDate };
   };
 
   const createMut = useMutation({
@@ -201,14 +210,11 @@ export function SchedulePage() {
   const closeModal = () => {
     setModalOpen(false);
     setEditingId(null);
-    setFormEndTime("");
   };
 
   const openAdd = (dateKey: string) => {
     setEditingId(null);
     setFormDate(dateKey);
-    setFormTime("09:00");
-    setFormEndTime("");
     if (isAdmin) {
       const u = scheduleAssignees;
       if (!u.length) {
@@ -225,9 +231,6 @@ export function SchedulePage() {
   const openEdit = (slot: ScheduleSlot) => {
     setEditingId(slot.id);
     setFormDate(slot.date);
-    setFormTime(slot.start_time.length >= 5 ? slot.start_time.slice(0, 5) : slot.start_time);
-    const et = slot.end_time;
-    setFormEndTime(et && et.length >= 5 ? et.slice(0, 5) : et?.trim() ?? "");
     setFormStreamer(slot.streamer_id);
     setModalOpen(true);
   };
@@ -235,7 +238,6 @@ export function SchedulePage() {
   const onSubmit = (e: FormEvent) => {
     e.preventDefault();
     if (!formDate || (isAdmin && !formStreamer)) return;
-    if (!formTime) return;
     if (editingId) patchMut.mutate();
     else createMut.mutate();
   };
@@ -293,7 +295,7 @@ export function SchedulePage() {
 
       {isAdmin ? (
         <p style={{ fontSize: "0.62rem", color: "var(--muted)", marginBottom: "0.75rem" }}>
-          Drag stream cards within a day to change display order (saved automatically).
+          Use the ⋮⋮ handle on each stream card to drag and reorder within that day (saved automatically).
         </p>
       ) : null}
 
@@ -309,13 +311,17 @@ export function SchedulePage() {
         </button>
       </div>
 
-      <div
-        style={{
-          display: "grid",
-          gridTemplateColumns: "repeat(7, 1fr)",
-          gap: "0.6rem"
-        }}
-      >
+      <div style={{ display: "flex", justifyContent: "center", width: "100%", overflowX: "auto" }}>
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: "repeat(7, minmax(0, 9rem))",
+            gap: "0.45rem",
+            width: "100%",
+            maxWidth: "66rem",
+            paddingBottom: "0.25rem"
+          }}
+        >
         {weekDates.map((date, i) => {
           const key = localYmd(date);
           const slots = (byDate.get(key) ?? []).filter((s) => s.entry_type !== "labor");
@@ -353,7 +359,7 @@ export function SchedulePage() {
                   {date.getDate()}
                 </span>
               </div>
-              <div style={{ padding: "0.5rem", display: "flex", flexDirection: "column", gap: "0.4rem" }}>
+              <div style={{ padding: "0.35rem", display: "flex", flexDirection: "column", gap: "0.35rem" }}>
                 {slots.length === 0 ? (
                   <div
                     style={{
@@ -368,13 +374,19 @@ export function SchedulePage() {
                   </div>
                 ) : (
                   slots.map((s) => {
+                    const showClock = !streamRowHidesClock(s);
+                    const isDropHighlight =
+                      isAdmin && dragStreamId && dragStreamId !== s.id && dragHoverId === s.id;
                     return (
                     <div
                       key={s.id}
-                      draggable={isAdmin}
-                      onDragStart={() => setDragStreamId(s.id)}
-                      onDragEnd={() => setDragStreamId(null)}
-                      onDragOver={(e) => e.preventDefault()}
+                      onDragOver={(e) => {
+                        e.preventDefault();
+                        if (isAdmin && dragStreamId && dragStreamId !== s.id) {
+                          setDragHoverId(s.id);
+                        }
+                      }}
+                      onDragLeave={() => setDragHoverId((hid) => (hid === s.id ? null : hid))}
                       onDrop={(e) => {
                         e.preventDefault();
                         if (!isAdmin || !dragStreamId || dragStreamId === s.id) return;
@@ -385,31 +397,69 @@ export function SchedulePage() {
                         const orderedIds = reorderIds(ids, from, to);
                         reorderMut.mutate({ date: key, orderedIds });
                         setDragStreamId(null);
+                        setDragHoverId(null);
                       }}
                       style={{
                         background: "rgba(139,105,20,0.07)",
-                        border: "1px solid var(--gold-dark)",
+                        border: isDropHighlight ? "1px dashed var(--gold)" : "1px solid var(--gold-dark)",
                         borderRadius: 2,
-                        padding: "0.45rem",
-                        cursor: isAdmin ? "grab" : undefined,
-                        opacity: dragStreamId === s.id ? 0.75 : 1
+                        padding: "0.35rem",
+                        opacity: dragStreamId === s.id ? 0.72 : 1
                       }}
                     >
+                      <div style={{ display: "flex", gap: "0.3rem", alignItems: "flex-start" }}>
+                        {isAdmin ? (
+                          <span
+                            draggable
+                            title="Drag to reorder"
+                            aria-label="Drag to reorder"
+                            onDragStart={(e) => {
+                              e.stopPropagation();
+                              setDragStreamId(s.id);
+                              try {
+                                e.dataTransfer.setData("text/plain", s.id);
+                                e.dataTransfer.effectAllowed = "move";
+                              } catch {
+                                /* ignore */
+                              }
+                            }}
+                            onDragEnd={() => {
+                              setDragStreamId(null);
+                              setDragHoverId(null);
+                            }}
+                            style={{
+                              cursor: "grab",
+                              color: "var(--muted)",
+                              fontSize: "0.78rem",
+                              lineHeight: 1.1,
+                              padding: "0.15rem 0 0 0",
+                              userSelect: "none",
+                              flexShrink: 0
+                            }}
+                          >
+                            ⋮⋮
+                          </span>
+                        ) : null}
+                        <div style={{ flex: 1, minWidth: 0 }}>
                       <div
                         style={{
                           fontSize: "0.52rem",
                           letterSpacing: "0.1em",
                           textTransform: "uppercase",
                           color: "var(--muted)",
-                          marginBottom: "0.3rem"
+                          marginBottom: "0.25rem"
                         }}
                       >
                         Stream
                       </div>
-                      <div style={{ fontSize: "0.72rem", color: "var(--gold-light)", marginBottom: "0.2rem" }}>
-                        {streamTimeLabel(s)}
+                      {showClock ? (
+                        <div style={{ fontSize: "0.68rem", color: "var(--gold-light)", marginBottom: "0.15rem" }}>
+                          {streamTimeLabel(s)}
+                        </div>
+                      ) : null}
+                      <div style={{ fontSize: "0.62rem", color: "var(--text-dim)", fontWeight: 600 }}>
+                        {slotHost(s)}
                       </div>
-                      <div style={{ fontSize: "0.62rem", color: "var(--text-dim)" }}>Host: {slotHost(s)}</div>
                       <div style={{ marginTop: "0.25rem" }}>
                         <span className={statusBadge(s.status)}>{s.status}</span>
                       </div>
@@ -459,6 +509,8 @@ export function SchedulePage() {
                           </>
                         ) : null}
                       </div>
+                        </div>
+                      </div>
                     </div>
                   );
                   })
@@ -470,6 +522,7 @@ export function SchedulePage() {
             </div>
           );
         })}
+        </div>
       </div>
 
       <div
@@ -488,7 +541,7 @@ export function SchedulePage() {
             {isAdmin ? (
               <div className="form-group">
                 <label className="form-label" htmlFor="sc-streamer">
-                  User
+                  Host
                 </label>
                 <select
                   id="sc-streamer"
@@ -505,48 +558,16 @@ export function SchedulePage() {
               </div>
             ) : null}
             <div className="form-group">
-              <label className="form-label" htmlFor="sc-date">
-                Date
-              </label>
-              <input
-                id="sc-date"
+              <span className="form-label">Date</span>
+              <div
                 className="form-input"
-                type="date"
-                value={formDate}
-                onChange={(e) => setFormDate(e.target.value)}
-              />
-            </div>
-            <div
-              style={{
-                display: "grid",
-                gridTemplateColumns: "1fr",
-                gap: "0.75rem",
-                alignItems: "stretch"
-              }}
-            >
-              <div className="form-group" style={{ marginBottom: 0 }}>
-                <label className="form-label" htmlFor="sc-time">
-                  Start time
-                </label>
-                <input
-                  id="sc-time"
-                  className="form-input"
-                  type="time"
-                  value={formTime}
-                  onChange={(e) => setFormTime(e.target.value)}
-                />
-              </div>
-              <div className="form-group" style={{ marginBottom: 0 }}>
-                <label className="form-label" htmlFor="sc-end-time">
-                  End time <span style={{ opacity: 0.65 }}>(optional)</span>
-                </label>
-                <input
-                  id="sc-end-time"
-                  className="form-input"
-                  type="time"
-                  value={formEndTime}
-                  onChange={(e) => setFormEndTime(e.target.value)}
-                />
+                style={{
+                  background: "var(--surface-2, rgba(0,0,0,0.15))",
+                  cursor: "default",
+                  color: "var(--text-dim)"
+                }}
+              >
+                {formatScheduleReadonlyDate(formDate)}
               </div>
             </div>
             {mutError ? <p className="error">{(mutError as Error).message}</p> : null}

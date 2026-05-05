@@ -99,13 +99,15 @@ function SpotMetalCard({
   return (
     <div className={`spot-card${emphasize ? " active" : ""}`}>
       <div className="spot-label">{label}</div>
-      <div className="spot-price">
-        {fmtMoney(spotGram)}
-        <span className="spot-unit">/g</span>
-      </div>
-      <div style={{ fontSize: "0.62rem", color: "var(--muted)", marginTop: "0.25rem" }}>
-        {fmtMoney(spotOz)}
-        <span className="spot-unit">/oz</span>
+      <div style={{ display: "flex", flexDirection: "column", gap: "0.3rem" }}>
+        <div className="spot-price" style={{ margin: 0 }}>
+          {fmtMoney(spotOz)}
+          <span className="spot-unit">/oz</span>
+        </div>
+        <div className="spot-price" style={{ margin: 0 }}>
+          {fmtMoney(spotGram)}
+          <span className="spot-unit">/g</span>
+        </div>
       </div>
       <div className="spot-live-text" style={{ marginTop: "0.35rem" }}>
         <span className={spotStatusClass(row.source_state)}>{row.source_state}</span>
