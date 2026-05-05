@@ -114,7 +114,7 @@ export async function registerStreamRoutes(app: FastifyInstance) {
       );
       const stream = await txOne<Record<string, unknown>>(
         tx,
-        "select * from streams order by created_at desc, id desc limit 1"
+        "select * from streams order by started_at desc, id desc limit 1"
       );
       if (!stream || typeof stream.id !== "string") {
         throw new Error("Failed to create stream");
