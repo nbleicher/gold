@@ -2,7 +2,6 @@
 # or add a Cron Job: npm --workspace @gold/api run job:spot — see docs/deployment.md
 
 [build]
-builder = "NIXPACKS"
 buildCommand = "npm --workspace @gold/shared run build && npm --workspace @gold/api run build"
 
 [deploy]
