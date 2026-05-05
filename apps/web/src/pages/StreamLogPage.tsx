@@ -18,6 +18,8 @@ type StreamItem = {
   cogs: number;
 };
 
+type StreamExpenseRow = { id: string; name: string; price: number };
+
 type StreamLogStream = {
   id: string;
   user_id: string;
@@ -29,6 +31,8 @@ type StreamLogStream = {
   items_spot_total: number;
   items_cogs_total: number;
   items_break_floor_silver_grams?: number;
+  stream_expenses?: StreamExpenseRow[];
+  stream_expenses_total?: number;
   net_profit: number | null;
   user_email: string | null;
   user_display_name: string | null;
@@ -36,6 +40,8 @@ type StreamLogStream = {
   silver_batch_name: string;
   items: StreamItem[];
 };
+
+type ExpenseDraftRow = { localKey: string; name: string; price: string };
 
 type StreamLogResponse = { streams: StreamLogStream[] };
 
@@ -79,6 +85,8 @@ export function StreamLogPage() {
   const [sessionStartedDraft, setSessionStartedDraft] = useState("");
   const [sessionEndedDraft, setSessionEndedDraft] = useState("");
   const [sessionClearEnd, setSessionClearEnd] = useState(false);
+  const [expenseModalStreamId, setExpenseModalStreamId] = useState<string | null>(null);
+  const [expenseRows, setExpenseRows] = useState<ExpenseDraftRow[]>([]);
 
   const toggleExpanded = (streamId: string) => {
     setExpanded((prev) => {
@@ -138,6 +146,26 @@ export function StreamLogPage() {
     }
   });
 
+  const saveStreamExpensesMutation = useMutation({
+    mutationFn: ({
+      streamId,
+      items
+    }: {
+      streamId: string;
+      items: { name: string; price: number }[];
+    }) =>
+      api<{ ok: boolean }>(`/v1/admin/streams/${streamId}/expenses`, {
+        method: "PUT",
+        body: JSON.stringify({ items })
+      }),
+    onSuccess: () => {
+      setExpenseModalStreamId(null);
+      setExpenseRows([]);
+      void qc.invalidateQueries({ queryKey: ["admin-stream-log"] });
+      void qc.invalidateQueries({ queryKey: ["admin-profit-metrics"] });
+    }
+  });
+
   const completedEarningsMutation = useMutation({
     mutationFn: ({ streamId, completedEarnings }: { streamId: string; completedEarnings: number }) =>
       api<{ ok: boolean }>(`/v1/admin/streams/${streamId}/completed-earnings`, {
@@ -158,6 +186,23 @@ export function StreamLogPage() {
     setSessionStartedDraft(toDatetimeLocalValue(st.started_at));
     setSessionEndedDraft(st.ended_at ? toDatetimeLocalValue(st.ended_at) : "");
     setSessionClearEnd(false);
+  };
+
+  const openExpenseModal = (st: StreamLogStream) => {
+    setExpenseModalStreamId(st.id);
+    const saved = st.stream_expenses ?? [];
+    const rows: ExpenseDraftRow[] =
+      saved.length > 0
+        ? [
+            ...saved.map((e) => ({
+              localKey: `srv-${e.id}`,
+              name: e.name,
+              price: String(e.price)
+            })),
+            { localKey: `blank-${Date.now()}`, name: "", price: "" }
+          ]
+        : [{ localKey: "starter", name: "", price: "" }];
+    setExpenseRows(rows);
   };
 
   const requestDelete = (st: StreamLogStream) => {
@@ -195,6 +240,9 @@ export function StreamLogPage() {
       {patchSessionMutation.error ? (
         <p className="error">{(patchSessionMutation.error as Error).message}</p>
       ) : null}
+      {saveStreamExpensesMutation.error ? (
+        <p className="error">{(saveStreamExpensesMutation.error as Error).message}</p>
+      ) : null}
 
       <div className="stats-row" style={{ gridTemplateColumns: "repeat(3, 1fr)", marginBottom: "1.5rem" }}>
         <div className="stat-box">
@@ -224,6 +272,7 @@ export function StreamLogPage() {
               <th>Items sold</th>
               <th>Spot value (est.)</th>
               <th>COGS</th>
+              <th>Stream extras</th>
               <th>Net profit</th>
               <th>Avg spot</th>
               <th>Completed earnings</th>
@@ -233,7 +282,7 @@ export function StreamLogPage() {
           <tbody>
             {streams.length === 0 ? (
               <tr>
-                <td colSpan={13} className="tbl-empty">
+                <td colSpan={14} className="tbl-empty">
                   No streams logged yet
                 </td>
               </tr>
@@ -241,6 +290,7 @@ export function StreamLogPage() {
               streams.flatMap((st) => {
                 const { itemsTotal, metal, avgSpot, mix, rawB, count } = summarizeStream(st);
                 const cogsTotal = Number(st.items_cogs_total ?? 0);
+                const extrasTotal = Number(st.stream_expenses_total ?? 0);
                 const netStr =
                   st.net_profit != null && Number.isFinite(st.net_profit)
                     ? `$${Number(st.net_profit).toFixed(2)}`
@@ -276,6 +326,7 @@ export function StreamLogPage() {
                     <td>{count}</td>
                     <td className="tbl-green">${itemsTotal.toFixed(2)}</td>
                     <td>${cogsTotal.toFixed(2)}</td>
+                    <td style={{ fontSize: "0.62rem" }}>${extrasTotal.toFixed(2)}</td>
                     <td style={{ fontSize: "0.62rem" }}>{netStr}</td>
                     <td>${Number(avgSpot || 0).toFixed(2)}/oz</td>
                     <td style={{ fontSize: "0.62rem", verticalAlign: "top" }}>
@@ -361,6 +412,14 @@ export function StreamLogPage() {
                         <button
                           type="button"
                           className="btn btn-outline btn-sm"
+                          disabled={saveStreamExpensesMutation.isPending}
+                          onClick={() => openExpenseModal(st)}
+                        >
+                          Expenses
+                        </button>
+                        <button
+                          type="button"
+                          className="btn btn-outline btn-sm"
                           disabled={patchSessionMutation.isPending}
                           onClick={() => openSessionEdit(st)}
                         >
@@ -381,7 +440,7 @@ export function StreamLogPage() {
                 if (!isOpen) return [mainRow];
                 const detailRow = (
                   <tr key={`${st.id}-detail`}>
-                    <td colSpan={13} style={{ background: "var(--slate)", padding: "0.75rem 1rem" }}>
+                    <td colSpan={14} style={{ background: "var(--slate)", padding: "0.75rem 1rem" }}>
                       {sessionEditId === st.id ? (
                         <div
                           style={{
@@ -527,6 +586,164 @@ export function StreamLogPage() {
           </tbody>
         </table>
       </div>
+
+      {expenseModalStreamId ? (
+        <div
+          className="modal-overlay open"
+          role="presentation"
+          onClick={(e) => {
+            if (e.target === e.currentTarget && !saveStreamExpensesMutation.isPending) {
+              setExpenseModalStreamId(null);
+              setExpenseRows([]);
+            }
+          }}
+        >
+          <div
+            className="modal"
+            style={{ maxWidth: "min(32rem, 94vw)" }}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="stream-expenses-title"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <button
+              type="button"
+              className="modal-close"
+              aria-label="Close"
+              disabled={saveStreamExpensesMutation.isPending}
+              onClick={() => {
+                setExpenseModalStreamId(null);
+                setExpenseRows([]);
+              }}
+            >
+              ✕
+            </button>
+            <div id="stream-expenses-title" className="modal-title">
+              Stream extras
+              {(() => {
+                const st = streams.find((x) => x.id === expenseModalStreamId);
+                return st ? ` · ${hostLabel(st)}` : "";
+              })()}
+            </div>
+            <p style={{ fontSize: "0.62rem", color: "var(--muted)", marginBottom: "0.75rem" }}>
+              Name and price per line. Saved extras reduce net profit for this session and roll into global net profit.
+            </p>
+            <div className="tbl-wrap">
+              <table className="tbl">
+                <thead>
+                  <tr>
+                    <th>Name</th>
+                    <th>Price</th>
+                    <th aria-label="Remove" />
+                  </tr>
+                </thead>
+                <tbody>
+                  {expenseRows.map((row) => (
+                    <tr key={row.localKey}>
+                      <td>
+                        <input
+                          className="form-input"
+                          value={row.name}
+                          onChange={(e) =>
+                            setExpenseRows((prev) =>
+                              prev.map((r) =>
+                                r.localKey === row.localKey ? { ...r, name: e.target.value } : r
+                              )
+                            )
+                          }
+                          placeholder="e.g. Props"
+                          disabled={saveStreamExpensesMutation.isPending}
+                        />
+                      </td>
+                      <td>
+                        <input
+                          className="form-input"
+                          type="number"
+                          min={0}
+                          step={0.01}
+                          value={row.price}
+                          onChange={(e) =>
+                            setExpenseRows((prev) =>
+                              prev.map((r) =>
+                                r.localKey === row.localKey ? { ...r, price: e.target.value } : r
+                              )
+                            )
+                          }
+                          disabled={saveStreamExpensesMutation.isPending}
+                        />
+                      </td>
+                      <td>
+                        <button
+                          type="button"
+                          className="btn btn-danger btn-sm"
+                          disabled={saveStreamExpensesMutation.isPending}
+                          onClick={() =>
+                            setExpenseRows((prev) => {
+                              const next = prev.filter((r) => r.localKey !== row.localKey);
+                              return next.length === 0
+                                ? [{ localKey: `empty-${Date.now()}`, name: "", price: "" }]
+                                : next;
+                            })
+                          }
+                        >
+                          ✕
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <button
+              type="button"
+              className="btn btn-outline btn-sm"
+              style={{ marginTop: "0.65rem" }}
+              disabled={saveStreamExpensesMutation.isPending}
+              onClick={() =>
+                setExpenseRows((prev) => [
+                  ...prev,
+                  { localKey: `new-${Date.now()}`, name: "", price: "" }
+                ])
+              }
+            >
+              + Add expense
+            </button>
+            <div className="modal-actions" style={{ marginTop: "1rem" }}>
+              <button
+                type="button"
+                className="btn btn-outline"
+                disabled={saveStreamExpensesMutation.isPending}
+                onClick={() => {
+                  setExpenseModalStreamId(null);
+                  setExpenseRows([]);
+                }}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="btn btn-gold"
+                disabled={saveStreamExpensesMutation.isPending || !expenseModalStreamId}
+                onClick={() => {
+                  if (!expenseModalStreamId) return;
+                  const items = expenseRows
+                    .map((r) => ({
+                      name: r.name.trim(),
+                      price: Number(r.price)
+                    }))
+                    .filter((r) => r.name.length > 0 && Number.isFinite(r.price) && r.price >= 0);
+                  saveStreamExpensesMutation.mutate({
+                    streamId: expenseModalStreamId,
+                    items
+                  });
+                }}
+              >
+                Save extras
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </section>
   );
 }

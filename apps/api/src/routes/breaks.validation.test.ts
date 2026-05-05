@@ -4,41 +4,21 @@ import { createBreakSchema, processBreakSpotSchema } from "@gold/shared";
 
 const minimalBreak = {
   name: "Thursday Night Break",
-  totalSpots: 2,
-  floorSilverSpots: 1,
-  prizeSlots: [
-    {
-      slotNumber: 1,
-      slotType: "prize" as const,
-      metal: "silver" as const,
-      grams: 1,
-      cost: 5
-    }
+  templateRows: [
+    { spotType: "floor" as const, metal: "silver" as const, grams: 1, quantity: 1 },
+    { spotType: "prize" as const, metal: "silver" as const, grams: 1, quantity: 1 }
   ]
 };
 
-test("createBreakSchema accepts floor + prize geometry", () => {
+test("createBreakSchema accepts template rows with total qty in range", () => {
   const parsed = createBreakSchema.safeParse(minimalBreak);
   assert.equal(parsed.success, true);
 });
 
-test("createBreakSchema rejects when floor + prizes != totalSpots", () => {
+test("createBreakSchema rejects when sum of quantities not in 2..200", () => {
   const parsed = createBreakSchema.safeParse({
-    ...minimalBreak,
-    totalSpots: 10
-  });
-  assert.equal(parsed.success, false);
-});
-
-test("createBreakSchema rejects duplicate slot numbers", () => {
-  const parsed = createBreakSchema.safeParse({
-    name: "Dup",
-    totalSpots: 3,
-    floorSilverSpots: 1,
-    prizeSlots: [
-      { slotNumber: 1, slotType: "prize" as const, metal: "silver" as const, grams: 1, cost: 0 },
-      { slotNumber: 1, slotType: "prize" as const, metal: "gold" as const, grams: 1, cost: 0 }
-    ]
+    name: "Bad",
+    templateRows: [{ spotType: "floor" as const, metal: "silver" as const, grams: 1, quantity: 1 }]
   });
   assert.equal(parsed.success, false);
 });

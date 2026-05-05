@@ -11,52 +11,72 @@ type BreakRow = {
   sold_spots: number;
   sold_prize_spots: number;
   remaining_silver_grams: number;
+  template_floor_spots?: number;
+  template_prize_spots?: number;
   prize_slot_count?: number;
+  template_estimated_cost?: number;
 };
 
-type PrizeSlot = {
-  id?: string;
-  slot_number: number;
-  slot_type: "normal" | "mega" | "prize";
+type TemplateRowApi = {
+  row_number: number;
+  spot_type: "floor" | "prize";
   metal: "gold" | "silver";
   grams: number;
-  cost: number;
-  is_consumed?: number;
+  quantity: number;
+  estimated_row_cost?: number;
 };
 
 type BreakDetail = BreakRow & {
-  prizeSlots: PrizeSlot[];
+  templateRows?: TemplateRowApi[];
+  template_estimated_cost?: number;
 };
 
-type EditableSlot = {
-  slotNumber: number;
-  slotType: "normal" | "mega" | "prize";
+type EditableTemplateRow = {
+  spotType: "floor" | "prize";
   metal: "gold" | "silver";
   grams: string;
-  cost: string;
+  quantity: string;
+};
+
+type MetalPool = {
+  gold: { gramsOnHand: number; avgCostPerGram: number };
+  silver: { gramsOnHand: number; avgCostPerGram: number };
 };
 
 type CardMode = "closed" | "create" | "edit";
 
-function initialSlots(): EditableSlot[] {
-  return [{ slotNumber: 1, slotType: "prize", metal: "silver", grams: "1", cost: "0" }];
+function initialTemplateRows(): EditableTemplateRow[] {
+  return [
+    { spotType: "floor", metal: "silver", grams: "1", quantity: "1" },
+    { spotType: "prize", metal: "silver", grams: "1", quantity: "1" }
+  ];
 }
 
-function renumberSlots(slots: EditableSlot[]): EditableSlot[] {
-  return slots.map((row, i) => ({ ...row, slotNumber: i + 1 }));
+function rowCostUsd(row: EditableTemplateRow, pool: MetalPool | undefined): number {
+  if (!pool) return 0;
+  const grams = Number(row.grams);
+  const qty = Number(row.quantity);
+  if (!(grams > 0) || !(qty > 0) || !Number.isFinite(grams) || !Number.isFinite(qty)) return 0;
+  const avg = row.metal === "gold" ? pool.gold.avgCostPerGram : pool.silver.avgCostPerGram;
+  return grams * qty * avg;
 }
 
 export function BreaksPage() {
   const qc = useQueryClient();
   const [cardMode, setCardMode] = useState<CardMode>("closed");
   const [name, setName] = useState("");
-  const [floorSilverSpots, setFloorSilverSpots] = useState(1);
   const [formBreakId, setFormBreakId] = useState("");
-  const [slots, setSlots] = useState<EditableSlot[]>(initialSlots);
+  const [templateRows, setTemplateRows] = useState<EditableTemplateRow[]>(initialTemplateRows);
 
   const breaks = useQuery({
     queryKey: ["breaks"],
     queryFn: () => api<BreakRow[]>("/v1/breaks")
+  });
+
+  const metalPool = useQuery({
+    queryKey: ["metal-pool"],
+    queryFn: () => api<MetalPool>("/v1/inventory/metal-pool"),
+    staleTime: 60_000
   });
 
   const formBreak = useQuery({
@@ -65,12 +85,23 @@ export function BreaksPage() {
     enabled: cardMode === "edit" && !!formBreakId
   });
 
-  const totalSpots = floorSilverSpots + slots.length;
+  const totalSpotQty = useMemo(
+    () =>
+      templateRows.reduce((sum, r) => {
+        const q = Math.floor(Number(r.quantity) || 0);
+        return sum + (q > 0 ? q : 0);
+      }, 0),
+    [templateRows]
+  );
+
+  const templateCostPreview = useMemo(
+    () => templateRows.reduce((sum, r) => sum + rowCostUsd(r, metalPool.data), 0),
+    [templateRows, metalPool.data]
+  );
 
   const resetForm = useCallback(() => {
     setName("");
-    setFloorSilverSpots(1);
-    setSlots(initialSlots());
+    setTemplateRows(initialTemplateRows());
     setFormBreakId("");
   }, []);
 
@@ -93,33 +124,32 @@ export function BreaksPage() {
   useEffect(() => {
     if (cardMode !== "edit" || !formBreak.data) return;
     setName(formBreak.data.name);
-    setFloorSilverSpots(Number(formBreak.data.fixed_silver_spots));
-    const fromApi: EditableSlot[] = (formBreak.data.prizeSlots ?? []).map((slot) => ({
-      slotNumber: Number(slot.slot_number),
-      slotType: slot.slot_type,
-      metal: slot.metal,
-      grams: String(slot.grams),
-      cost: String(slot.cost)
-    }));
-    if (fromApi.length > 0) {
-      setSlots(renumberSlots(fromApi.sort((a, b) => a.slotNumber - b.slotNumber)));
+    const raw = formBreak.data.templateRows ?? [];
+    if (raw.length > 0) {
+      setTemplateRows(
+        [...raw]
+          .sort((a, b) => a.row_number - b.row_number)
+          .map((r) => ({
+            spotType: r.spot_type,
+            metal: r.metal,
+            grams: String(r.grams),
+            quantity: String(r.quantity)
+          }))
+      );
     }
   }, [cardMode, formBreak.data]);
 
   const payload = useMemo(
     () => ({
       name: name.trim(),
-      totalSpots,
-      floorSilverSpots,
-      prizeSlots: slots.map((slot) => ({
-        slotNumber: slot.slotNumber,
-        slotType: slot.slotType,
-        metal: slot.metal,
-        grams: Number(slot.grams),
-        cost: Number(slot.cost)
+      templateRows: templateRows.map((r) => ({
+        spotType: r.spotType,
+        metal: r.metal,
+        grams: Number(r.grams),
+        quantity: Number(r.quantity)
       }))
     }),
-    [name, totalSpots, floorSilverSpots, slots]
+    [name, templateRows]
   );
 
   const createBreak = useMutation({
@@ -160,30 +190,22 @@ export function BreaksPage() {
   const onSubmit = (e: FormEvent) => {
     e.preventDefault();
     if (!payload.name) return;
-    if (totalSpots < 2) return;
-    const invalid = payload.prizeSlots.some((slot) => !(slot.grams > 0) || !(slot.cost >= 0));
+    if (totalSpotQty < 2) return;
+    const invalid = payload.templateRows.some((row) => !(row.grams > 0) || !(row.quantity >= 1));
     if (invalid) return;
     if (cardMode === "edit") updateBreak.mutate();
     else createBreak.mutate();
   };
 
-  const addPrizeSlot = () => {
-    setSlots((prev) =>
-      renumberSlots([
-        ...prev,
-        {
-          slotNumber: prev.length + 1,
-          slotType: "prize",
-          metal: "silver",
-          grams: "1",
-          cost: "0"
-        }
-      ])
-    );
+  const addRow = () => {
+    setTemplateRows((prev) => [
+      ...prev,
+      { spotType: "prize", metal: "silver", grams: "1", quantity: "1" }
+    ]);
   };
 
-  const removeLastSlot = () => {
-    setSlots((prev) => (prev.length <= 1 ? prev : renumberSlots(prev.slice(0, -1))));
+  const removeLastRow = () => {
+    setTemplateRows((prev) => (prev.length <= 1 ? prev : prev.slice(0, -1)));
   };
 
   const cardTitle = cardMode === "edit" ? "Edit break" : cardMode === "create" ? "New break" : "";
@@ -192,13 +214,19 @@ export function BreaksPage() {
     createBreak.isPending ||
     updateBreak.isPending;
 
+  const savedTemplateCost =
+    cardMode === "edit" && formBreak.data?.template_estimated_cost != null
+      ? formBreak.data.template_estimated_cost
+      : null;
+
   return (
     <section className="card">
       <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", justifyContent: "space-between", gap: "0.75rem", marginBottom: "1rem" }}>
         <div>
           <h2 style={{ marginBottom: "0.25rem" }}>Break Management</h2>
           <p className="pg-sub" style={{ margin: 0 }}>
-            Templates: floor spots + prizes. Each stream run clones a template; floor count per run is set on Streams.
+            Templates: each row is spot type (floor/prize), grams, metal, and quantity. Cost uses pooled average cost
+            per gram by metal.
           </p>
         </div>
         <button type="button" className="btn btn-gold" onClick={openCreate} disabled={cardMode !== "closed"}>
@@ -214,9 +242,10 @@ export function BreaksPage() {
             <tr>
               <th>Name</th>
               <th>Status</th>
-              <th>Total</th>
+              <th>Total spots</th>
               <th>Floor</th>
               <th>Prizes</th>
+              <th>Est. cost</th>
               <th>Sold</th>
               <th aria-label="Actions" />
             </tr>
@@ -224,13 +253,13 @@ export function BreaksPage() {
           <tbody>
             {breaks.isLoading ? (
               <tr>
-                <td colSpan={7} style={{ fontSize: "0.75rem", color: "var(--muted)" }}>
+                <td colSpan={8} style={{ fontSize: "0.75rem", color: "var(--muted)" }}>
                   Loading…
                 </td>
               </tr>
             ) : (breaks.data ?? []).length === 0 ? (
               <tr>
-                <td colSpan={7} style={{ fontSize: "0.75rem", color: "var(--muted)" }}>
+                <td colSpan={8} style={{ fontSize: "0.75rem", color: "var(--muted)" }}>
                   No breaks yet. Use Add new break.
                 </td>
               </tr>
@@ -240,8 +269,11 @@ export function BreaksPage() {
                   <td>{row.name}</td>
                   <td>{row.status}</td>
                   <td>{row.total_spots ?? "—"}</td>
-                  <td>{row.fixed_silver_spots ?? "—"}</td>
-                  <td>{row.prize_slot_count ?? "—"}</td>
+                  <td>{row.template_floor_spots ?? row.fixed_silver_spots ?? "—"}</td>
+                  <td>{row.template_prize_spots ?? row.prize_slot_count ?? "—"}</td>
+                  <td className="tbl-green">
+                    {row.template_estimated_cost != null ? `$${row.template_estimated_cost.toFixed(2)}` : "—"}
+                  </td>
                   <td style={{ fontSize: "0.75rem" }}>
                     {row.sold_spots} spots · {row.sold_prize_spots} prizes
                   </td>
@@ -304,68 +336,73 @@ export function BreaksPage() {
                 <input className="form-input" value={name} onChange={(e) => setName(e.target.value)} required disabled={formDisabled} />
               </div>
 
-              <div className="form-group">
-                <label className="form-label">Floor silver spots (1g each)</label>
-                <input
-                  className="form-input"
-                  type="number"
-                  min={0}
-                  max={200}
-                  value={floorSilverSpots}
-                  onChange={(e) => setFloorSilverSpots(Math.max(0, Math.min(200, Number(e.target.value) || 0)))}
-                  disabled={formDisabled}
-                />
-              </div>
-
               <p style={{ fontSize: "0.75rem", color: "var(--muted)", marginTop: "0.35rem" }}>
-                Total spots (computed): <strong>{totalSpots}</strong> = {floorSilverSpots} floor + {slots.length} prize
-                {totalSpots < 2 ? " · need at least 2 total spots" : ""}
+                Total spots (sum of quantities): <strong>{totalSpotQty}</strong>
+                {totalSpotQty < 2 ? " · need at least 2 total spots" : ""}
+                {" · "}
+                Template cost (estimate):{" "}
+                <strong>
+                  {savedTemplateCost != null
+                    ? `$${savedTemplateCost.toFixed(2)}`
+                    : `$${templateCostPreview.toFixed(2)}`}
+                </strong>
               </p>
 
               <div style={{ marginTop: "1rem", marginBottom: "0.5rem", fontSize: "0.7rem", color: "var(--muted)" }}>
-                Prize configuration (type defaults to prize)
+                Rows (first column: spot type)
               </div>
               <div className="tbl-wrap">
                 <table className="tbl">
                   <thead>
                     <tr>
-                      <th>Slot</th>
-                      <th>Type</th>
-                      <th>Metal</th>
+                      <th>Spot type</th>
                       <th>Grams</th>
-                      <th>Cost</th>
+                      <th>Metal</th>
+                      <th>Qty</th>
+                      <th>Est. cost</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {slots.map((slot, idx) => (
+                    {templateRows.map((row, idx) => (
                       <tr key={idx}>
-                        <td>{slot.slotNumber}</td>
                         <td>
                           <select
                             className="form-input"
-                            value={slot.slotType}
+                            value={row.spotType}
                             onChange={(e) =>
-                              setSlots((prev) =>
-                                prev.map((row, i) =>
-                                  i === idx ? { ...row, slotType: e.target.value as EditableSlot["slotType"] } : row
+                              setTemplateRows((prev) =>
+                                prev.map((x, i) =>
+                                  i === idx ? { ...x, spotType: e.target.value as EditableTemplateRow["spotType"] } : x
                                 )
                               )
                             }
                             disabled={formDisabled}
                           >
-                            <option value="prize">prize</option>
-                            <option value="normal">normal</option>
-                            <option value="mega">mega</option>
+                            <option value="floor">Floor</option>
+                            <option value="prize">Prize</option>
                           </select>
+                        </td>
+                        <td>
+                          <input
+                            className="form-input"
+                            type="number"
+                            min={0}
+                            step="0.0001"
+                            value={row.grams}
+                            onChange={(e) =>
+                              setTemplateRows((prev) => prev.map((x, i) => (i === idx ? { ...x, grams: e.target.value } : x)))
+                            }
+                            disabled={formDisabled}
+                          />
                         </td>
                         <td>
                           <select
                             className="form-input"
-                            value={slot.metal}
+                            value={row.metal}
                             onChange={(e) =>
-                              setSlots((prev) =>
-                                prev.map((row, i) =>
-                                  i === idx ? { ...row, metal: e.target.value as "gold" | "silver" } : row
+                              setTemplateRows((prev) =>
+                                prev.map((x, i) =>
+                                  i === idx ? { ...x, metal: e.target.value as "gold" | "silver" } : x
                                 )
                               )
                             }
@@ -379,27 +416,19 @@ export function BreaksPage() {
                           <input
                             className="form-input"
                             type="number"
-                            min={0}
-                            step="0.0001"
-                            value={slot.grams}
+                            min={1}
+                            max={200}
+                            value={row.quantity}
                             onChange={(e) =>
-                              setSlots((prev) => prev.map((row, i) => (i === idx ? { ...row, grams: e.target.value } : row)))
+                              setTemplateRows((prev) =>
+                                prev.map((x, i) => (i === idx ? { ...x, quantity: e.target.value } : x))
+                              )
                             }
                             disabled={formDisabled}
                           />
                         </td>
-                        <td>
-                          <input
-                            className="form-input"
-                            type="number"
-                            min={0}
-                            step="0.01"
-                            value={slot.cost}
-                            onChange={(e) =>
-                              setSlots((prev) => prev.map((row, i) => (i === idx ? { ...row, cost: e.target.value } : row)))
-                            }
-                            disabled={formDisabled}
-                          />
+                        <td className="tbl-green" style={{ fontSize: "0.8rem" }}>
+                          ${rowCostUsd(row, metalPool.data).toFixed(2)}
                         </td>
                       </tr>
                     ))}
@@ -408,13 +437,19 @@ export function BreaksPage() {
               </div>
 
               <div style={{ display: "flex", gap: "0.6rem", marginTop: "0.75rem" }}>
-                <button type="button" className="btn btn-outline" onClick={addPrizeSlot} disabled={formDisabled}>
-                  Add prize slot
+                <button type="button" className="btn btn-outline" onClick={addRow} disabled={formDisabled}>
+                  Add row
                 </button>
-                <button type="button" className="btn btn-outline" onClick={removeLastSlot} disabled={formDisabled || slots.length <= 1}>
-                  Remove last prize slot
+                <button type="button" className="btn btn-outline" onClick={removeLastRow} disabled={formDisabled || templateRows.length <= 1}>
+                  Remove last row
                 </button>
               </div>
+
+              {metalPool.isError ? (
+                <p className="error" style={{ fontSize: "0.75rem", marginTop: "0.5rem" }}>
+                  {(metalPool.error as Error).message}
+                </p>
+              ) : null}
 
               {createBreak.error ? <p className="error">{(createBreak.error as Error).message}</p> : null}
               {updateBreak.error ? <p className="error">{(updateBreak.error as Error).message}</p> : null}

@@ -147,4 +147,24 @@ export async function registerInventoryRoutes(app: FastifyInstance) {
     await q("delete from inventory_batches where id = ?", [id]);
     return { ok: true };
   });
+
+  /** Weighted pool averages by metal (for break template row cost estimates). */
+  app.get("/v1/inventory/metal-pool", { preHandler: requireAuth }, async () => {
+    const rows = await q<{ metal: string; grams_on_hand: number; total_cost_on_hand: number }>(
+      "select metal, grams_on_hand, total_cost_on_hand from metal_inventory_pool where metal in ('gold','silver')"
+    );
+    const out: Record<string, { gramsOnHand: number; avgCostPerGram: number }> = {};
+    for (const r of rows) {
+      const g = Number(r.grams_on_hand);
+      const c = Number(r.total_cost_on_hand);
+      out[r.metal] = {
+        gramsOnHand: g,
+        avgCostPerGram: g > 0 ? c / g : 0
+      };
+    }
+    return {
+      gold: out.gold ?? { gramsOnHand: 0, avgCostPerGram: 0 },
+      silver: out.silver ?? { gramsOnHand: 0, avgCostPerGram: 0 }
+    };
+  });
 }

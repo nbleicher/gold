@@ -6,6 +6,9 @@ export type Role = z.infer<typeof roleSchema>;
 export const metalSchema = z.enum(["gold", "silver", "mixed"]);
 export type Metal = z.infer<typeof metalSchema>;
 
+/** Troy ounce → grams (matches API stream/break valuation math). */
+export const TROY_OUNCES_TO_GRAMS = 31.1034768;
+
 const hexBatchIdSchema = z.string().regex(/^[a-f0-9]{32}$/, "Invalid batch id");
 export const batchIdSchema = z.union([hexBatchIdSchema, z.string().uuid()]);
 /** Same format as DB `streams.id` (hex) or RFC UUID. */
@@ -52,6 +55,7 @@ export const createStickerSaleSchema = z.object({
 });
 export type CreateStickerSaleInput = z.infer<typeof createStickerSaleSchema>;
 
+/** @deprecated Legacy prize-slot shape; templates use templateRows. */
 export const breakPrizeSlotInputSchema = z.object({
   slotNumber: z.number().int().min(1).max(100),
   slotType: z.enum(["normal", "mega", "prize"]),
@@ -61,48 +65,42 @@ export const breakPrizeSlotInputSchema = z.object({
 });
 export type BreakPrizeSlotInput = z.infer<typeof breakPrizeSlotInputSchema>;
 
-const breakGeometryRefine = (
-  input: { totalSpots: number; floorSilverSpots: number; prizeSlots: { slotNumber: number }[] },
+export const breakTemplateRowInputSchema = z.object({
+  spotType: z.enum(["floor", "prize"]),
+  metal: z.enum(["gold", "silver"]),
+  grams: z.number().positive(),
+  quantity: z.number().int().min(1).max(200)
+});
+export type BreakTemplateRowInput = z.infer<typeof breakTemplateRowInputSchema>;
+
+const templateRowsQuantityRefine = (
+  input: { templateRows: { quantity: number }[] },
   ctx: z.RefinementCtx
 ) => {
-  const { totalSpots, floorSilverSpots, prizeSlots } = input;
-  if (floorSilverSpots + prizeSlots.length !== totalSpots) {
+  const totalQty = input.templateRows.reduce((s, r) => s + r.quantity, 0);
+  if (totalQty < 2 || totalQty > 200) {
     ctx.addIssue({
       code: z.ZodIssueCode.custom,
-      message: "floorSilverSpots plus prize slot count must equal totalSpots"
+      message: "Sum of row quantities must be between 2 and 200 (total spots)"
     });
-  }
-  const numbers = new Set<number>();
-  for (const slot of prizeSlots) {
-    if (numbers.has(slot.slotNumber)) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        message: `Duplicate slotNumber ${slot.slotNumber}`
-      });
-    }
-    numbers.add(slot.slotNumber);
   }
 };
 
 export const createBreakSchema = z
   .object({
     name: z.string().min(1).max(120),
-    totalSpots: z.number().int().min(2).max(200),
-    floorSilverSpots: z.number().int().min(0).max(200),
-    prizeSlots: z.array(breakPrizeSlotInputSchema).min(1).max(100)
+    templateRows: z.array(breakTemplateRowInputSchema).min(1).max(100)
   })
-  .superRefine(breakGeometryRefine);
+  .superRefine(templateRowsQuantityRefine);
 export type CreateBreakInput = z.infer<typeof createBreakSchema>;
 
 export const updateBreakSchema = z
   .object({
     name: z.string().min(1).max(120),
-    totalSpots: z.number().int().min(2).max(200),
-    floorSilverSpots: z.number().int().min(0).max(200),
-    prizeSlots: z.array(breakPrizeSlotInputSchema).min(1).max(100),
+    templateRows: z.array(breakTemplateRowInputSchema).min(1).max(100),
     status: z.enum(["draft", "active", "completed"]).optional()
   })
-  .superRefine(breakGeometryRefine);
+  .superRefine(templateRowsQuantityRefine);
 export type UpdateBreakInput = z.infer<typeof updateBreakSchema>;
 
 /** floorSpots = floor spots remaining when the run starts (streamer snapshot for tracking; not auto-updated). */
@@ -116,7 +114,8 @@ export const processBreakSpotSchema = z
   .object({
     streamId: streamIdSchema,
     streamBreakId: batchIdSchema,
-    outcomeType: z.enum(["silver", "prize"]),
+    /** Legacy breaks only — omitted when the next spot has template-driven spot_kind. */
+    outcomeType: z.enum(["silver", "prize"]).optional(),
     prizeSlotId: batchIdSchema.optional()
   })
   .superRefine((input, ctx) => {
@@ -124,7 +123,7 @@ export const processBreakSpotSchema = z
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         path: ["prizeSlotId"],
-        message: "prizeSlotId is required for prize spots"
+        message: "prizeSlotId is required for legacy prize spots"
       });
     }
   });

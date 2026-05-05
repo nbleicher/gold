@@ -72,7 +72,8 @@ const patchScheduleSchema = z
     startTime: z.string().min(1).optional(),
     endTime: z.string().min(1).optional(),
     streamerId: z.string().min(1).optional(),
-    hoursWorked: z.number().positive().optional()
+    hoursWorked: z.number().positive().optional(),
+    sortOrder: z.number().int().min(0).optional()
   })
   .superRefine((data, ctx) => {
     if (data.startTime?.trim() && data.endTime?.trim()) {
@@ -96,6 +97,23 @@ const reviewScheduleSchema = z.object({
   action: z.enum(["approve", "reject"]),
   reviewNote: z.string().trim().max(500).optional()
 });
+
+const reorderSchedulesSchema = z.object({
+  date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  orderedIds: z.array(z.string().min(1)).min(1)
+});
+
+const putStreamExpensesSchema = z.object({
+  items: z.array(z.object({ name: z.string().min(1), price: z.number().nonnegative() }))
+});
+
+async function nextScheduleSortOrder(date: string): Promise<number> {
+  const row = await one<{ n: number | null }>(
+    "select coalesce(max(sort_order), -1) + 1 as n from schedules where date = ?",
+    [date]
+  );
+  return Number(row?.n ?? 0);
+}
 
 const patchCompletedEarningsSchema = z.object({
   completedEarnings: z.number().nonnegative()
@@ -210,6 +228,7 @@ type CommissionStreamRowPreview = {
   startedAt: string;
   completedEarnings: number | null;
   cogs: number;
+  streamExpenses: number;
   net: number;
   missingCompletedEarnings: boolean;
 };
@@ -261,20 +280,30 @@ async function computeCommissionMetricsForUser(
     cogsByStream.set(it.stream_id, (cogsByStream.get(it.stream_id) ?? 0) + c);
   }
 
+  const expenseRows = await q<{ stream_id: string; s: number | null }>(
+    `select stream_id, sum(price) as s from stream_expenses where stream_id in (${ph}) group by stream_id`,
+    streamIds
+  );
+  const expenseByStream = new Map<string, number>(
+    expenseRows.map((r) => [r.stream_id, Number(r.s ?? 0)])
+  );
+
   let totalNet = 0;
   const rows = streams.map((st) => {
     const cogs = cogsByStream.get(st.id) ?? 0;
+    const extra = expenseByStream.get(st.id) ?? 0;
     const ce = st.completed_earnings;
     const completed =
       ce === null || ce === undefined || !Number.isFinite(Number(ce)) ? null : Number(ce);
     const missingCompletedEarnings = completed === null;
-    const net = missingCompletedEarnings ? 0 : completed - cogs;
+    const net = missingCompletedEarnings ? 0 : completed - cogs - extra;
     if (!missingCompletedEarnings) totalNet += net;
     return {
       streamId: st.id,
       startedAt: st.started_at,
       completedEarnings: completed,
       cogs,
+      streamExpenses: extra,
       net,
       missingCompletedEarnings
     };
@@ -584,11 +613,14 @@ export async function registerAdminRoutes(app: FastifyInstance) {
     const grossProfit = totalSpotValueNum - totalCogs;
     const expRow = await one<{ s: number | null }>("select sum(cost) as s from expenses");
     const totalExpenses = Number(expRow?.s ?? 0);
-    const netProfit = grossProfit - totalExpenses;
+    const streamExpRow = await one<{ s: number | null }>("select coalesce(sum(price), 0) as s from stream_expenses");
+    const totalStreamExpenses = Number(streamExpRow?.s ?? 0);
+    const netProfit = grossProfit - totalExpenses - totalStreamExpenses;
     return {
       totalSpotValue: totalSpotValueNum,
       totalCogs,
       totalExpenses,
+      totalStreamExpenses,
       grossProfit,
       netProfit,
       lineItemCount: items.length
@@ -778,6 +810,7 @@ export async function registerAdminRoutes(app: FastifyInstance) {
       date: string;
       start_time: string;
       end_time: string | null;
+      sort_order: number;
       streamer_id: string;
       created_at: string;
       entry_type: string;
@@ -795,7 +828,7 @@ export async function registerAdminRoutes(app: FastifyInstance) {
       reviewed_by_email: string | null;
       reviewed_by_display_name: string | null;
     }>(
-      `select s.id, s.date, s.start_time, s.end_time, s.streamer_id, s.created_at, s.entry_type, s.hours_worked, s.status, s.submitted_by, s.pending_submitted_at,
+      `select s.id, s.date, s.start_time, s.end_time, s.sort_order, s.streamer_id, s.created_at, s.entry_type, s.hours_worked, s.status, s.submitted_by, s.pending_submitted_at,
               s.reviewed_at, s.reviewed_by, s.review_note,
               u.username as streamer_email, u.display_name as streamer_display_name,
               su.username as submitted_by_email, su.display_name as submitted_by_display_name,
@@ -807,6 +840,7 @@ export async function registerAdminRoutes(app: FastifyInstance) {
        where s.date >= ? and s.date <= ?
        ${statusFilter ? "and s.status = ?" : ""}
        order by s.date asc,
+                s.sort_order asc,
                 s.start_time asc,
                 case when s.status = 'pending' then 0 else 1 end asc,
                 coalesce(s.pending_submitted_at, s.created_at) desc`,
@@ -830,15 +864,16 @@ export async function registerAdminRoutes(app: FastifyInstance) {
         throw new Error("Labor hours can only be assigned to shippers or baggers");
       }
       const hoursWorked = body.hoursWorked!;
+      const ord = await nextScheduleSortOrder(body.date);
       const ins = await one<{ id: string }>(
-        `insert into schedules (date, start_time, end_time, streamer_id, status, submitted_by, pending_submitted_at, reviewed_at, reviewed_by, entry_type, hours_worked)
-         values (?, '00:00', null, ?, 'approved', ?, now(), now(), ?, 'labor', ?)
+        `insert into schedules (date, start_time, end_time, streamer_id, status, submitted_by, pending_submitted_at, reviewed_at, reviewed_by, entry_type, hours_worked, sort_order)
+         values (?, '00:00', null, ?, 'approved', ?, now(), now(), ?, 'labor', ?, ?)
          returning id`,
-        [body.date, body.streamerId, actor, actor, hoursWorked]
+        [body.date, body.streamerId, actor, actor, hoursWorked, ord]
       );
       if (!ins) throw new Error("Schedule insert failed");
       return one(
-        `select s.id, s.date, s.start_time, s.end_time, s.streamer_id, s.created_at, s.entry_type, s.hours_worked, s.status, s.submitted_by, s.pending_submitted_at,
+        `select s.id, s.date, s.start_time, s.end_time, s.sort_order, s.streamer_id, s.created_at, s.entry_type, s.hours_worked, s.status, s.submitted_by, s.pending_submitted_at,
                 s.reviewed_at, s.reviewed_by, s.review_note,
                 u.username as streamer_email, u.display_name as streamer_display_name
          from schedules s
@@ -853,15 +888,16 @@ export async function registerAdminRoutes(app: FastifyInstance) {
     }
     const startTime = body.startTime!.trim();
     const endTimeVal = body.endTime?.trim() ? body.endTime.trim() : null;
+    const ord = await nextScheduleSortOrder(body.date);
     const ins = await one<{ id: string }>(
-      `insert into schedules (date, start_time, end_time, streamer_id, status, submitted_by, pending_submitted_at, reviewed_at, reviewed_by, entry_type, hours_worked)
-       values (?, ?, ?, ?, 'approved', ?, now(), now(), ?, 'stream', null)
+      `insert into schedules (date, start_time, end_time, streamer_id, status, submitted_by, pending_submitted_at, reviewed_at, reviewed_by, entry_type, hours_worked, sort_order)
+       values (?, ?, ?, ?, 'approved', ?, now(), now(), ?, 'stream', null, ?)
        returning id`,
-      [body.date, startTime, endTimeVal, body.streamerId, actor, actor]
+      [body.date, startTime, endTimeVal, body.streamerId, actor, actor, ord]
     );
     if (!ins) throw new Error("Schedule insert failed");
     return one(
-      `select s.id, s.date, s.start_time, s.end_time, s.streamer_id, s.created_at, s.entry_type, s.hours_worked, s.status, s.submitted_by, s.pending_submitted_at,
+      `select s.id, s.date, s.start_time, s.end_time, s.sort_order, s.streamer_id, s.created_at, s.entry_type, s.hours_worked, s.status, s.submitted_by, s.pending_submitted_at,
               s.reviewed_at, s.reviewed_by, s.review_note,
               u.username as streamer_email, u.display_name as streamer_display_name
        from schedules s
@@ -869,6 +905,25 @@ export async function registerAdminRoutes(app: FastifyInstance) {
        where s.id = ?`,
       [ins.id]
     );
+  });
+
+  app.patch("/v1/admin/schedules/reorder", adminPre, async (req) => {
+    const body = reorderSchedulesSchema.parse(req.body);
+    const streamSlots = await q<{ id: string }>(
+      "select id from schedules where date = ? and entry_type = 'stream'",
+      [body.date]
+    );
+    const expected = new Set(streamSlots.map((s) => s.id));
+    const got = new Set(body.orderedIds);
+    if (expected.size !== got.size || [...expected].some((sid) => !got.has(sid))) {
+      throw new Error("orderedIds must list every stream slot for that date exactly once");
+    }
+    await withWriteTx(async (tx) => {
+      for (let i = 0; i < body.orderedIds.length; i++) {
+        await txQ(tx, "update schedules set sort_order = ? where id = ?", [i, body.orderedIds[i]]);
+      }
+    });
+    return { ok: true };
   });
 
   app.patch("/v1/admin/schedules/:id", adminPre, async (req) => {
@@ -883,7 +938,8 @@ export async function registerAdminRoutes(app: FastifyInstance) {
       streamer_id: string;
       entry_type: string;
       hours_worked: number | null;
-    }>("select date, start_time, end_time, streamer_id, entry_type, hours_worked from schedules where id = ?", [id]);
+      sort_order: number;
+    }>("select date, start_time, end_time, streamer_id, entry_type, hours_worked, sort_order from schedules where id = ?", [id]);
     if (!row) throw new Error("Schedule slot not found");
 
     if (body.streamerId) {
@@ -910,9 +966,15 @@ export async function registerAdminRoutes(app: FastifyInstance) {
       if (hours === null || hours === undefined || !Number.isFinite(Number(hours)) || Number(hours) <= 0) {
         throw new Error("hoursWorked must be a positive number for labor entries");
       }
+      let nextSort = Number(row.sort_order ?? 0);
+      if (date !== row.date) {
+        nextSort = await nextScheduleSortOrder(date);
+      } else if (body.sortOrder !== undefined) {
+        nextSort = body.sortOrder;
+      }
       await q(
-        "update schedules set date = ?, start_time = '00:00', streamer_id = ?, hours_worked = ?, entry_type = 'labor' where id = ?",
-        [date, streamerId, Number(hours), id]
+        "update schedules set date = ?, start_time = '00:00', streamer_id = ?, hours_worked = ?, entry_type = 'labor', sort_order = ? where id = ?",
+        [date, streamerId, Number(hours), nextSort, id]
       );
     } else {
       if (body.hoursWorked !== undefined) {
@@ -935,14 +997,20 @@ export async function registerAdminRoutes(app: FastifyInstance) {
         if (sm === null || em === null) throw new Error("Invalid start or end time (use HH:MM)");
         if (em <= sm) throw new Error("endTime must be after startTime");
       }
+      let nextSort = Number(row.sort_order ?? 0);
+      if (date !== row.date) {
+        nextSort = await nextScheduleSortOrder(date);
+      } else if (body.sortOrder !== undefined) {
+        nextSort = body.sortOrder;
+      }
       await q(
-        "update schedules set date = ?, start_time = ?, end_time = ?, streamer_id = ?, hours_worked = null, entry_type = 'stream' where id = ?",
-        [date, startTime, endTimeVal, streamerId, id]
+        "update schedules set date = ?, start_time = ?, end_time = ?, streamer_id = ?, hours_worked = null, entry_type = 'stream', sort_order = ? where id = ?",
+        [date, startTime, endTimeVal, streamerId, nextSort, id]
       );
     }
 
     return one(
-      `select s.id, s.date, s.start_time, s.end_time, s.streamer_id, s.created_at, s.entry_type, s.hours_worked, s.status, s.submitted_by, s.pending_submitted_at,
+      `select s.id, s.date, s.start_time, s.end_time, s.sort_order, s.streamer_id, s.created_at, s.entry_type, s.hours_worked, s.status, s.submitted_by, s.pending_submitted_at,
               s.reviewed_at, s.reviewed_by, s.review_note,
               u.username as streamer_email, u.display_name as streamer_display_name
        from schedules s
@@ -987,6 +1055,7 @@ export async function registerAdminRoutes(app: FastifyInstance) {
       date: string;
       start_time: string;
       end_time: string | null;
+      sort_order: number;
       streamer_id: string;
       created_at: string;
       entry_type: string;
@@ -1000,12 +1069,12 @@ export async function registerAdminRoutes(app: FastifyInstance) {
       streamer_email: string;
       streamer_display_name: string | null;
     }>(
-      `select s.id, s.date, s.start_time, s.end_time, s.streamer_id, s.created_at, s.entry_type, s.hours_worked, s.status, s.submitted_by, s.pending_submitted_at,
+      `select s.id, s.date, s.start_time, s.end_time, s.sort_order, s.streamer_id, s.created_at, s.entry_type, s.hours_worked, s.status, s.submitted_by, s.pending_submitted_at,
               s.reviewed_at, s.reviewed_by, s.review_note, u.username as streamer_email, u.display_name as streamer_display_name
        from schedules s
        join users u on u.id = s.streamer_id
        ${where}
-       order by s.date asc, s.start_time asc, coalesce(s.pending_submitted_at, s.created_at) desc`,
+       order by s.date asc, s.sort_order asc, s.start_time asc, coalesce(s.pending_submitted_at, s.created_at) desc`,
       args
     );
   });
@@ -1051,15 +1120,16 @@ export async function registerAdminRoutes(app: FastifyInstance) {
     if (!userId) throw new Error("Unauthorized");
     const body = mineSchedulePostSchema.parse(req.body);
     const endTimeVal = body.endTime?.trim() ? body.endTime.trim() : null;
+    const ord = await nextScheduleSortOrder(body.date);
     const ins = await one<{ id: string }>(
-      `insert into schedules (date, start_time, end_time, streamer_id, status, submitted_by, pending_submitted_at, entry_type, hours_worked)
-       values (?, ?, ?, ?, 'pending', ?, now(), 'stream', null)
+      `insert into schedules (date, start_time, end_time, streamer_id, status, submitted_by, pending_submitted_at, entry_type, hours_worked, sort_order)
+       values (?, ?, ?, ?, 'pending', ?, now(), 'stream', null, ?)
        returning id`,
-      [body.date, body.startTime, endTimeVal, userId, userId]
+      [body.date, body.startTime, endTimeVal, userId, userId, ord]
     );
     if (!ins) throw new Error("Schedule insert failed");
     return one(
-      `select s.id, s.date, s.start_time, s.end_time, s.streamer_id, s.created_at, s.entry_type, s.hours_worked, s.status, s.submitted_by, s.pending_submitted_at,
+      `select s.id, s.date, s.start_time, s.end_time, s.sort_order, s.streamer_id, s.created_at, s.entry_type, s.hours_worked, s.status, s.submitted_by, s.pending_submitted_at,
               s.reviewed_at, s.reviewed_by, s.review_note, u.username as streamer_email, u.display_name as streamer_display_name
        from schedules s
        join users u on u.id = s.streamer_id
@@ -1081,7 +1151,8 @@ export async function registerAdminRoutes(app: FastifyInstance) {
       start_time: string;
       end_time: string | null;
       entry_type: string;
-    }>("select id, submitted_by, status, date, start_time, end_time, entry_type from schedules where id = ?", [id]);
+      sort_order: number;
+    }>("select id, submitted_by, status, date, start_time, end_time, entry_type, sort_order from schedules where id = ?", [id]);
     if (!existing || existing.submitted_by !== userId) return req.server.httpErrors.notFound("Schedule slot not found");
     if (existing.entry_type === "labor") {
       return req.server.httpErrors.conflict("Labor entries cannot be edited here");
@@ -1103,9 +1174,13 @@ export async function registerAdminRoutes(app: FastifyInstance) {
       if (sm === null || em === null) return req.server.httpErrors.badRequest("Invalid start or end time (use HH:MM)");
       if (em <= sm) return req.server.httpErrors.badRequest("endTime must be after startTime");
     }
+    let nextSort = Number(existing.sort_order ?? 0);
+    if (nextDate !== existing.date) {
+      nextSort = await nextScheduleSortOrder(nextDate);
+    }
     await q(
-      "update schedules set date = ?, start_time = ?, end_time = ?, pending_submitted_at = now() where id = ?",
-      [nextDate, nextStart, nextEnd, id]
+      "update schedules set date = ?, start_time = ?, end_time = ?, pending_submitted_at = now(), sort_order = ? where id = ?",
+      [nextDate, nextStart, nextEnd, nextSort, id]
     );
     return { ok: true, id };
   });
@@ -1232,6 +1307,17 @@ export async function registerAdminRoutes(app: FastifyInstance) {
       breakSilverRows.map((r) => [r.stream_id, Number(r.g)])
     );
 
+    const expenseRows = await q<{ stream_id: string; id: string; name: string; price: number }>(
+      `select stream_id, id, name, price from stream_expenses where stream_id in (${ph}) order by created_at asc`,
+      streamIds
+    );
+    const expensesByStream = new Map<string, Array<{ id: string; name: string; price: number }>>();
+    for (const er of expenseRows) {
+      const list = expensesByStream.get(er.stream_id) ?? [];
+      list.push({ id: er.id, name: er.name, price: Number(er.price) });
+      expensesByStream.set(er.stream_id, list);
+    }
+
     return {
       streams: streams.map((s) => {
         const ce = s.completed_earnings;
@@ -1241,14 +1327,20 @@ export async function registerAdminRoutes(app: FastifyInstance) {
         const items_cogs_total = cogsByStreamId.get(s.id) ?? 0;
         const items_spot_total = spotByStreamId.get(s.id) ?? 0;
         const items_break_floor_silver_grams = breakFloorSilverGramsByStream.get(s.id) ?? 0;
+        const stream_expenses = expensesByStream.get(s.id) ?? [];
+        const stream_expenses_total = stream_expenses.reduce((sum, e) => sum + e.price, 0);
         const net_profit =
-          ceNum !== null && Number.isFinite(items_cogs_total) ? ceNum - items_cogs_total : null;
+          ceNum !== null && Number.isFinite(items_cogs_total)
+            ? ceNum - items_cogs_total - stream_expenses_total
+            : null;
         return {
           ...s,
           completed_earnings: ceNum,
           items_spot_total,
           items_cogs_total,
           items_break_floor_silver_grams,
+          stream_expenses,
+          stream_expenses_total,
           net_profit,
           gold_batch_name: s.gold_batch_id ? batchNameById[s.gold_batch_id] ?? "—" : "—",
           silver_batch_name: s.silver_batch_id ? batchNameById[s.silver_batch_id] ?? "—" : "—",
@@ -1270,6 +1362,26 @@ export async function registerAdminRoutes(app: FastifyInstance) {
       return req.server.httpErrors.notFound("Stream not found");
     }
     await q("update streams set completed_earnings = ? where id = ?", [body.completedEarnings, id]);
+    return { ok: true };
+  });
+
+  app.put("/v1/admin/streams/:id/expenses", adminPre, async (req) => {
+    const { id } = req.params as { id: string };
+    const body = putStreamExpensesSchema.parse(req.body);
+    const stream = await one<{ id: string }>("select id from streams where id = ?", [id]);
+    if (!stream) {
+      return req.server.httpErrors.notFound("Stream not found");
+    }
+    await withWriteTx(async (tx) => {
+      await txQ(tx, "delete from stream_expenses where stream_id = ?", [id]);
+      for (const it of body.items) {
+        await txQ(tx, "insert into stream_expenses (stream_id, name, price) values (?, ?, ?)", [
+          id,
+          it.name,
+          it.price
+        ]);
+      }
+    });
     return { ok: true };
   });
 

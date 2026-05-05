@@ -259,7 +259,7 @@ Check activity in Supabase SQL Editor:
 ```sql
 select pid, state, wait_event_type, wait_event, now() - query_start as running_for, query
 from pg_stat_activity
-where datname = 'postgres'
+where datname = 'postgres'  
 order by query_start desc;
 ```
 

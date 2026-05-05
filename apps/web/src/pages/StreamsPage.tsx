@@ -29,6 +29,8 @@ type BreakRow = {
   fixed_silver_spots?: number;
   sold_prize_spots: number;
   prize_slot_count?: number;
+  template_floor_spots?: number;
+  template_estimated_cost?: number;
 };
 
 type ActiveBreakResponse = {
@@ -47,9 +49,12 @@ type ActiveBreakResponse = {
   spots: Array<{
     id: string;
     spot_number: number;
+    spot_kind?: "floor" | "prize" | null;
     outcome_type: "silver" | "prize" | null;
     processed_at: string | null;
     prize_slot_id: string | null;
+    metal?: string | null;
+    grams?: number | null;
   }>;
   prizeSlots: Array<{
     id: string;
@@ -65,6 +70,17 @@ type ActiveBreakResponse = {
 type BreakStats = {
   totalBreakCost: number;
   totalFloorSilverGrams: number;
+};
+
+type StreamBreakRunRow = {
+  id: string;
+  started_at: string;
+  ended_at: string | null;
+  floor_spots: number;
+  run_total_cost: number | null;
+  run_total_silver_grams: number | null;
+  ended_reason: string | null;
+  break_name: string;
 };
 
 export function StreamsPage() {
@@ -152,10 +168,17 @@ export function StreamsPage() {
     enabled: !!activeStreamId && !isStickerStream
   });
 
+  const breakRuns = useQuery({
+    queryKey: ["stream-break-runs", activeStreamId],
+    queryFn: () => api<StreamBreakRunRow[]>(`/v1/streams/${activeStreamId}/break-runs`),
+    enabled: !!activeStreamId && !isStickerStream
+  });
+
   useEffect(() => {
     const b = breaks.data?.find((x) => x.id === selectedBreakId);
-    if (b?.fixed_silver_spots != null) {
-      setFloorSpotsLeftInput(String(b.fixed_silver_spots));
+    const floorTotal = b?.template_floor_spots ?? b?.fixed_silver_spots;
+    if (floorTotal != null) {
+      setFloorSpotsLeftInput(String(floorTotal));
     }
   }, [selectedBreakId, breaks.data]);
 
@@ -209,6 +232,7 @@ export function StreamsPage() {
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ["active-stream-break", activeStreamId] });
       void qc.invalidateQueries({ queryKey: ["stream-break-stats", activeStreamId] });
+      void qc.invalidateQueries({ queryKey: ["stream-break-runs", activeStreamId] });
     }
   });
 
@@ -221,23 +245,32 @@ export function StreamsPage() {
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ["active-stream-break", activeStreamId] });
       void qc.invalidateQueries({ queryKey: ["stream-break-stats", activeStreamId] });
+      void qc.invalidateQueries({ queryKey: ["stream-break-runs", activeStreamId] });
       void qc.invalidateQueries({ queryKey: ["stream-items", activeStreamId] });
     }
   });
 
   const processSpotMutation = useMutation({
-    mutationFn: () =>
-      api(`/v1/streams/${activeStreamId}/breaks/${activeBreak.data?.streamBreak?.id}/process-spot`, {
+    mutationFn: () => {
+      const streamBreakId = activeBreak.data?.streamBreak?.id;
+      const nextSpot = activeBreak.data?.spots?.find((s) => !s.processed_at);
+      const guided = nextSpot?.spot_kind != null;
+      const bodyPayload = guided
+        ? {}
+        : {
+            outcomeType,
+            prizeSlotId: outcomeType === "prize" ? selectedPrizeSlotId : undefined
+          };
+      return api(`/v1/streams/${activeStreamId}/breaks/${streamBreakId}/process-spot`, {
         method: "POST",
-        body: JSON.stringify({
-          outcomeType,
-          prizeSlotId: outcomeType === "prize" ? selectedPrizeSlotId : undefined
-        })
-      }),
+        body: JSON.stringify(bodyPayload)
+      });
+    },
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ["stream-items", activeStreamId] });
       void qc.invalidateQueries({ queryKey: ["active-stream-break", activeStreamId] });
       void qc.invalidateQueries({ queryKey: ["stream-break-stats", activeStreamId] });
+      void qc.invalidateQueries({ queryKey: ["stream-break-runs", activeStreamId] });
       void qc.invalidateQueries({ queryKey: ["batches"] });
       void qc.invalidateQueries({ queryKey: ["admin-profit-metrics"] });
       void qc.invalidateQueries({ queryKey: ["admin-stream-log"] });
@@ -309,7 +342,15 @@ export function StreamsPage() {
   );
 
   const prizeTotal = activeBreak.data?.streamBreak?.prize_slot_count ?? 10;
-  const selectedBreakFloorTotal = breaks.data?.find((x) => x.id === selectedBreakId)?.fixed_silver_spots;
+  const selectedBreak = breaks.data?.find((x) => x.id === selectedBreakId);
+  const selectedBreakFloorTotal = selectedBreak?.template_floor_spots ?? selectedBreak?.fixed_silver_spots;
+  const selectedBreakCostEstimate = selectedBreak?.template_estimated_cost;
+
+  const nextSpotOpen = useMemo(
+    () => activeBreak.data?.spots?.find((s) => !s.processed_at),
+    [activeBreak.data?.spots]
+  );
+  const spotPlanGuided = nextSpotOpen?.spot_kind != null;
   const startDisabled = !user || startMutation.isPending || activeStreamId !== null;
 
   return (
@@ -410,20 +451,63 @@ export function StreamsPage() {
             </div>
           ) : null}
 
+          {!isStickerStream && breakRuns.data && breakRuns.data.length > 0 ? (
+            <div style={{ marginBottom: "1rem" }}>
+              <div style={{ fontSize: "0.65rem", letterSpacing: "0.08em", color: "var(--muted)", marginBottom: "0.35rem" }}>
+                BREAKS THIS SESSION
+              </div>
+              <div className="tbl-wrap">
+                <table className="tbl">
+                  <thead>
+                    <tr>
+                      <th>Break</th>
+                      <th>Started</th>
+                      <th>Ended</th>
+                      <th>Floor left @ add</th>
+                      <th>Run COGS</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {breakRuns.data.map((run) => (
+                      <tr key={run.id}>
+                        <td>{run.break_name}</td>
+                        <td style={{ fontSize: "0.7rem" }}>{new Date(run.started_at).toLocaleString()}</td>
+                        <td style={{ fontSize: "0.7rem" }}>
+                          {run.ended_at ? new Date(run.ended_at).toLocaleString() : "—"}
+                        </td>
+                        <td>{run.floor_spots}</td>
+                        <td className="tbl-green">${Number(run.run_total_cost ?? 0).toFixed(2)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          ) : null}
+
           {!isStickerStream && !activeBreak.data?.streamBreak ? (
             <div className="grid-form">
               <select value={selectedBreakId} onChange={(e) => setSelectedBreakId(e.target.value)}>
                 <option value="">Select break</option>
                 {(breaks.data ?? []).map((row) => (
                   <option key={row.id} value={row.id}>
-                    {row.name} · {row.total_spots ?? "?"} spots · {row.prize_slot_count ?? "?"} prizes
+                    {row.name} · {row.total_spots ?? "?"} spots
+                    {row.template_estimated_cost != null
+                      ? ` · est. $${row.template_estimated_cost.toFixed(2)}`
+                      : ""}
                   </option>
                 ))}
               </select>
+              {selectedBreakCostEstimate != null ? (
+                <p style={{ fontSize: "0.7rem", color: "var(--muted)", margin: "0.25rem 0 0" }}>
+                  Template estimated total cost:{" "}
+                  <strong style={{ color: "var(--text)" }}>${selectedBreakCostEstimate.toFixed(2)}</strong>
+                </p>
+              ) : null}
               <label style={{ fontSize: "0.7rem", color: "var(--muted)", display: "flex", flexDirection: "column", gap: "0.25rem" }}>
-                Floor spots left (when you start this run)
+                Floor spots left (when you add this break)
                 <span style={{ fontWeight: 400, opacity: 0.9 }}>
-                  Enter how many are left; total floor spots for this break come from the template.
+                  Enter how many floor spots are left on stream; total floor spots on template is shown below.
                 </span>
                 <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: "0.4rem" }}>
                   <input
@@ -449,7 +533,7 @@ export function StreamsPage() {
                 onClick={() => startBreakMutation.mutate()}
                 disabled={!selectedBreakId || startBreakMutation.isPending}
               >
-                Start break run
+                Add break
               </button>
             </div>
           ) : !isStickerStream ? (
@@ -466,30 +550,42 @@ export function StreamsPage() {
               </div>
               <div className="grid-form">
                 <input value={nextSpotNumber == null ? "Complete" : `Spot ${nextSpotNumber}`} readOnly />
-                <select
-                  value={outcomeType}
-                  onChange={(e) => setOutcomeType(e.target.value as "silver" | "prize")}
-                >
-                  <option value="silver">Silver (1g)</option>
-                  <option value="prize">Prize</option>
-                </select>
-                {outcomeType === "prize" ? (
-                  <select value={selectedPrizeSlotId} onChange={(e) => setSelectedPrizeSlotId(e.target.value)}>
-                    <option value="">Select prize slot</option>
-                    {availablePrizeSlots.map((slot) => (
-                      <option key={slot.id} value={slot.id}>
-                        Slot {slot.slot_number} {slot.slot_type} · {slot.grams}g {slot.metal}
-                      </option>
-                    ))}
-                  </select>
-                ) : null}
+                {!spotPlanGuided ? (
+                  <>
+                    <select
+                      value={outcomeType}
+                      onChange={(e) => setOutcomeType(e.target.value as "silver" | "prize")}
+                    >
+                      <option value="silver">Silver (1g)</option>
+                      <option value="prize">Prize</option>
+                    </select>
+                    {outcomeType === "prize" ? (
+                      <select value={selectedPrizeSlotId} onChange={(e) => setSelectedPrizeSlotId(e.target.value)}>
+                        <option value="">Select prize slot</option>
+                        {availablePrizeSlots.map((slot) => (
+                          <option key={slot.id} value={slot.id}>
+                            Slot {slot.slot_number} {slot.slot_type} · {slot.grams}g {slot.metal}
+                          </option>
+                        ))}
+                      </select>
+                    ) : null}
+                  </>
+                ) : (
+                  <span style={{ fontSize: "0.72rem", color: "var(--muted)" }}>
+                    Next:{" "}
+                    <strong>
+                      {nextSpotOpen?.spot_kind === "floor" ? "Floor" : "Prize"} · {nextSpotOpen?.grams ?? "?"}g{" "}
+                      {nextSpotOpen?.metal ?? ""}
+                    </strong>
+                  </span>
+                )}
                 <button
                   type="button"
                   onClick={() => processSpotMutation.mutate()}
                   disabled={
                     processSpotMutation.isPending ||
                     nextSpotNumber == null ||
-                    (outcomeType === "prize" && !selectedPrizeSlotId)
+                    (!spotPlanGuided && outcomeType === "prize" && !selectedPrizeSlotId)
                   }
                 >
                   Process spot

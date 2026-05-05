@@ -9,6 +9,7 @@ type ProfitMetrics = {
   totalSpotValue: number;
   totalCogs: number;
   totalExpenses: number;
+  totalStreamExpenses: number;
   grossProfit: number;
   netProfit: number;
   lineItemCount: number;
@@ -123,7 +124,8 @@ export function AdminDashboardPage() {
             {profitMetrics.isSuccess ? money(profitMetrics.data.netProfit) : "—"}
           </div>
           <div style={{ fontSize: "0.62rem", color: "var(--muted)", marginTop: "0.25rem" }}>
-            Gross − supplies ({profitMetrics.isSuccess ? money(profitMetrics.data.totalExpenses) : "—"})
+            Gross − supplies ({profitMetrics.isSuccess ? money(profitMetrics.data.totalExpenses) : "—"}) − stream
+            extras ({profitMetrics.isSuccess ? money(profitMetrics.data.totalStreamExpenses) : "—"})
           </div>
         </div>
       </div>

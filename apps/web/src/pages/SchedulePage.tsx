@@ -1,4 +1,11 @@
 import { FormEvent, useMemo, useState } from "react";
+
+function reorderIds(ids: string[], fromIndex: number, toIndex: number): string[] {
+  const next = [...ids];
+  const [x] = next.splice(fromIndex, 1);
+  next.splice(toIndex, 0, x);
+  return next;
+}
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "../lib/api";
 import { useAuth } from "../state/auth";
@@ -16,6 +23,7 @@ type ScheduleSlot = {
   date: string;
   start_time: string;
   end_time?: string | null;
+  sort_order?: number;
   streamer_id: string;
   created_at: string;
   entry_type?: string;
@@ -60,6 +68,7 @@ export function SchedulePage() {
   const [formEndTime, setFormEndTime] = useState("");
   const [formStreamer, setFormStreamer] = useState("");
   const [statusFilter, setStatusFilter] = useState<"all" | "pending" | "approved" | "rejected">("all");
+  const [dragStreamId, setDragStreamId] = useState<string | null>(null);
 
   const weekDates = useMemo(() => getWeekDates(weekOffset), [weekOffset]);
   const from = localYmd(weekDates[0]);
@@ -101,6 +110,9 @@ export function SchedulePage() {
     }
     for (const [, list] of m) {
       list.sort((a, b) => {
+        const ao = Number(a.sort_order ?? 0);
+        const bo = Number(b.sort_order ?? 0);
+        if (ao !== bo) return ao - bo;
         const byTime = a.start_time.localeCompare(b.start_time);
         if (byTime !== 0) return byTime;
         const at = a.pending_submitted_at ?? a.created_at;
@@ -177,6 +189,15 @@ export function SchedulePage() {
     onSuccess: () => qc.invalidateQueries({ queryKey: ["admin-schedules"] })
   });
 
+  const reorderMut = useMutation({
+    mutationFn: (payload: { date: string; orderedIds: string[] }) =>
+      api<{ ok: boolean }>("/v1/admin/schedules/reorder", {
+        method: "PATCH",
+        body: JSON.stringify(payload)
+      }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["admin-schedules"] })
+  });
+
   const closeModal = () => {
     setModalOpen(false);
     setEditingId(null);
@@ -249,8 +270,10 @@ export function SchedulePage() {
         Weekly stream schedule
       </p> */}
 
-      {(isAdmin && users.error) || schedules.error ? (
-        <p className="error">{String((users.error ?? schedules.error) as Error)}</p>
+      {(isAdmin && users.error) || schedules.error || reorderMut.error ? (
+        <p className="error">
+          {String((users.error ?? schedules.error ?? reorderMut.error) as Error)}
+        </p>
       ) : null}
 
       {isAdmin ? (
@@ -266,6 +289,12 @@ export function SchedulePage() {
             </button>
           ))}
         </div>
+      ) : null}
+
+      {isAdmin ? (
+        <p style={{ fontSize: "0.62rem", color: "var(--muted)", marginBottom: "0.75rem" }}>
+          Drag stream cards within a day to change display order (saved automatically).
+        </p>
       ) : null}
 
       <div style={{ display: "flex", alignItems: "center", gap: "1rem", marginBottom: "1.5rem" }}>
@@ -342,11 +371,28 @@ export function SchedulePage() {
                     return (
                     <div
                       key={s.id}
+                      draggable={isAdmin}
+                      onDragStart={() => setDragStreamId(s.id)}
+                      onDragEnd={() => setDragStreamId(null)}
+                      onDragOver={(e) => e.preventDefault()}
+                      onDrop={(e) => {
+                        e.preventDefault();
+                        if (!isAdmin || !dragStreamId || dragStreamId === s.id) return;
+                        const ids = slots.map((x) => x.id);
+                        const from = ids.indexOf(dragStreamId);
+                        const to = ids.indexOf(s.id);
+                        if (from < 0 || to < 0) return;
+                        const orderedIds = reorderIds(ids, from, to);
+                        reorderMut.mutate({ date: key, orderedIds });
+                        setDragStreamId(null);
+                      }}
                       style={{
                         background: "rgba(139,105,20,0.07)",
                         border: "1px solid var(--gold-dark)",
                         borderRadius: 2,
-                        padding: "0.45rem"
+                        padding: "0.45rem",
+                        cursor: isAdmin ? "grab" : undefined,
+                        opacity: dragStreamId === s.id ? 0.75 : 1
                       }}
                     >
                       <div

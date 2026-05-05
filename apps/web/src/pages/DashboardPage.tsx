@@ -1,4 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
+import { TROY_OUNCES_TO_GRAMS } from "@gold/shared";
 import { api } from "../lib/api";
 
 type HomeLastStream = {
@@ -92,11 +93,18 @@ function SpotMetalCard({
     );
   }
 
+  const spotOz = Number(row.price);
+  const spotGram = spotOz / TROY_OUNCES_TO_GRAMS;
+
   return (
     <div className={`spot-card${emphasize ? " active" : ""}`}>
       <div className="spot-label">{label}</div>
       <div className="spot-price">
-        {fmtMoney(Number(row.price))}
+        {fmtMoney(spotGram)}
+        <span className="spot-unit">/g</span>
+      </div>
+      <div style={{ fontSize: "0.62rem", color: "var(--muted)", marginTop: "0.25rem" }}>
+        {fmtMoney(spotOz)}
         <span className="spot-unit">/oz</span>
       </div>
       <div className="spot-live-text" style={{ marginTop: "0.35rem" }}>

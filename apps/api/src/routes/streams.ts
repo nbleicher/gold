@@ -1,10 +1,17 @@
 import type { FastifyInstance, FastifyRequest } from "fastify";
-import { createRawSaleSchema, createStickerSaleSchema } from "@gold/shared";
+import { createRawSaleSchema, createStickerSaleSchema, TROY_OUNCES_TO_GRAMS } from "@gold/shared";
 import { z } from "zod";
 import { one, q, txQ, txOne, withWriteTx } from "../db.js";
+import {
+  buildBatchMap,
+  buildComponentsByOrder,
+  buildOrderBySticker,
+  cogsForItem,
+  type BatchRow,
+  type ComponentRow,
+  type StreamItemCogsInput
+} from "../domain/streamCogs.js";
 import { requireAuth } from "./auth.js";
-
-const OZT_TO_GRAMS = 31.1034768;
 
 const startStreamBodySchema = z.object({
   userId: z.string().min(1),
@@ -177,8 +184,9 @@ export async function registerStreamRoutes(app: FastifyInstance) {
       metal: "gold" | "silver" | "mixed";
       primary_batch_id: string;
       actual_weight_grams: number;
+      sticker_code: string;
     }>(
-      "select id, metal, primary_batch_id, actual_weight_grams from bag_orders where sticker_code = ?",
+      "select id, metal, primary_batch_id, actual_weight_grams, sticker_code from bag_orders where upper(sticker_code) = ?",
       [saleBody.stickerCode.toUpperCase()]
     );
     if (!order) {
@@ -191,18 +199,42 @@ export async function registerStreamRoutes(app: FastifyInstance) {
     if (existing) {
       return req.server.httpErrors.conflict("Sticker already sold");
     }
-    const components = await q<{ metal: "gold" | "silver"; weight_grams: number }>(
-      "select metal, weight_grams from bag_order_components where bag_order_id = ?",
+    const components = await q<{ batch_id: string; weight_grams: number }>(
+      "select batch_id, weight_grams from bag_order_components where bag_order_id = ?",
       [order.id]
     );
-    let totalWeight = 0;
-    let totalSpotValue = 0;
     const compList = components ?? [];
+    const batchIdSet = new Set<string>();
+    batchIdSet.add(order.primary_batch_id);
+    for (const c of compList) {
+      batchIdSet.add(c.batch_id);
+    }
+    const batchIds = [...batchIdSet];
+    const bph = batchIds.map(() => "?").join(",");
+    const batchRows = await q<BatchRow>(
+      `select id, total_cost, grams from inventory_batches where id in (${bph})`,
+      batchIds
+    );
+    const batchById = buildBatchMap(batchRows);
+    const orderMap = buildOrderBySticker([
+      {
+        id: order.id,
+        primary_batch_id: order.primary_batch_id,
+        actual_weight_grams: order.actual_weight_grams,
+        sticker_code: String(order.sticker_code).trim().toUpperCase()
+      }
+    ]);
+    const compRows: ComponentRow[] = compList.map((c) => ({
+      bag_order_id: order.id,
+      batch_id: c.batch_id,
+      weight_grams: c.weight_grams
+    }));
+    const componentsByOrderId = buildComponentsByOrder(compRows);
+
+    let totalWeight = 0;
     if (compList.length > 0) {
       for (const c of compList) {
-        const spot = await getLatestSpot(c.metal);
         totalWeight += Number(c.weight_grams);
-        totalSpotValue += Number(c.weight_grams) * (spot / OZT_TO_GRAMS);
       }
     } else {
       const w = Number(order.actual_weight_grams);
@@ -210,19 +242,20 @@ export async function registerStreamRoutes(app: FastifyInstance) {
         return req.server.httpErrors.badRequest("Bag has no component weights and invalid total weight");
       }
       totalWeight = w;
-      if (order.metal === "mixed") {
-        const gSpot = await getLatestSpot("gold");
-        const sSpot = await getLatestSpot("silver");
-        const avgPerGram = (gSpot + sSpot) / 2 / OZT_TO_GRAMS;
-        totalSpotValue = w * avgPerGram;
-      } else {
-        const m = order.metal === "silver" ? "silver" : "gold";
-        const spot = await getLatestSpot(m);
-        totalSpotValue = w * (spot / OZT_TO_GRAMS);
-      }
     }
-    const spotPrice = totalWeight ? (totalSpotValue / totalWeight) * OZT_TO_GRAMS : 0;
+
     const codeUpper = saleBody.stickerCode.toUpperCase();
+    const itemInput: StreamItemCogsInput = {
+      id: "pending",
+      stream_id: saleBody.streamId,
+      sale_type: "sticker",
+      batch_id: order.primary_batch_id,
+      weight_grams: totalWeight,
+      sticker_code: codeUpper
+    };
+    /** Cost basis (same path as COGS / break-style inventory average), not live spot. */
+    const totalCogs = cogsForItem(itemInput, batchById, orderMap, componentsByOrderId);
+    const spotPrice = totalWeight > 0 ? (totalCogs / totalWeight) * TROY_OUNCES_TO_GRAMS : 0;
 
     return withWriteTx(async (tx) => {
       await txQ(
@@ -233,7 +266,7 @@ export async function registerStreamRoutes(app: FastifyInstance) {
           codeUpper,
           order.metal,
           totalWeight,
-          totalSpotValue,
+          totalCogs,
           spotPrice,
           codeUpper,
           order.primary_batch_id
@@ -318,7 +351,7 @@ export async function registerStreamRoutes(app: FastifyInstance) {
     }
 
     const spot = await getLatestSpot(body.metal);
-    const spotValue = body.weightGrams * (spot / OZT_TO_GRAMS);
+    const spotValue = body.weightGrams * (spot / TROY_OUNCES_TO_GRAMS);
     return withWriteTx(async (tx) => {
       await txQ(
         tx,
