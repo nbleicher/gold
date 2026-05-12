@@ -1,3 +1,5 @@
+import { METAL_POOL_COST_BASIS_METHOD } from "./bagPool.js";
+
 export type BatchRow = { id: string; total_cost: number; grams: number };
 
 export type StreamItemCogsInput = {
@@ -17,6 +19,9 @@ export type BagOrderRow = {
   primary_batch_id: string;
   actual_weight_grams: number;
   sticker_code: string;
+  cost_basis_method?: string | null;
+  cost_basis_usd?: number | null;
+  cost_basis_per_gram?: number | null;
 };
 
 export type ComponentRow = {
@@ -54,6 +59,10 @@ export function cogsForItem(
     if (!code) return 0;
     const order = orderByStickerUpper.get(code);
     if (!order) return 0;
+    if (order.cost_basis_method === METAL_POOL_COST_BASIS_METHOD && order.cost_basis_usd != null) {
+      const snap = Number(order.cost_basis_usd);
+      return Number.isFinite(snap) && snap >= 0 ? snap : 0;
+    }
     const comps = componentsByOrderId.get(order.id) ?? [];
     if (comps.length > 0) {
       let sum = 0;

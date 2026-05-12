@@ -194,7 +194,9 @@ async function computeCogsByItemIdForDbItems(items: StreamItemWithSpot[]): Promi
   if (uniqueStickers.length) {
     const ph = uniqueStickers.map(() => "?").join(",");
     orders = await q<BagOrderRow>(
-      `select id, primary_batch_id, actual_weight_grams, sticker_code from bag_orders where upper(sticker_code) in (${ph})`,
+      `select id, primary_batch_id, actual_weight_grams, sticker_code,
+              cost_basis_method, cost_basis_usd, cost_basis_per_gram
+       from bag_orders where upper(sticker_code) in (${ph})`,
       uniqueStickers
     );
     for (const o of orders) batchIdSet.add(o.primary_batch_id);

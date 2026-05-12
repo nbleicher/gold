@@ -7,6 +7,7 @@ import {
   cogsForItem,
   type StreamItemCogsInput
 } from "./streamCogs.js";
+import { METAL_POOL_COST_BASIS_METHOD } from "./bagPool.js";
 
 test("break raw line uses spot_value as COGS when batch_id is null", () => {
   const batchById = buildBatchMap([]);
@@ -77,6 +78,31 @@ test("sticker without components uses primary batch and actual_weight_grams", ()
   };
   const c = cogsForItem(item, batchById, orderBySticker, new Map());
   assert.equal(c, 25);
+});
+
+test("sticker sale uses bag-level DCA snapshot when present", () => {
+  const batchById = buildBatchMap([{ id: "p", total_cost: 50, grams: 5 }]);
+  const orderBySticker = buildOrderBySticker([
+    {
+      id: "bo3",
+      primary_batch_id: "p",
+      actual_weight_grams: 2.5,
+      sticker_code: "P1A",
+      cost_basis_method: METAL_POOL_COST_BASIS_METHOD,
+      cost_basis_usd: 42.5,
+      cost_basis_per_gram: 17
+    }
+  ]);
+  const item: StreamItemCogsInput = {
+    id: "i4",
+    stream_id: "s1",
+    sale_type: "sticker",
+    batch_id: "p",
+    weight_grams: 2.5,
+    sticker_code: "P1A"
+  };
+  const c = cogsForItem(item, batchById, orderBySticker, new Map());
+  assert.equal(c, 42.5);
 });
 
 test("commission payroll total scales net by rate", () => {

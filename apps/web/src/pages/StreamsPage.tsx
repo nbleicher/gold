@@ -1,8 +1,9 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "../lib/api";
 import { useAuth } from "../state/auth";
 import { hasSupabaseClient, supabase } from "../lib/supabase";
+import { playStreamSuccessSound } from "../utils/streamSounds";
 
 type Stream = {
   id: string;
@@ -84,11 +85,15 @@ type StreamBreakRunRow = {
 };
 
 export function StreamsPage() {
+  const SCAN_IDLE_MS = 140;
   const qc = useQueryClient();
   const { user } = useAuth();
   const [activeStreamId, setActiveStreamId] = useState<string | null>(null);
   const [pendingStartKind, setPendingStartKind] = useState<"break" | "sticker">("break");
   const [stickerCodeInput, setStickerCodeInput] = useState("");
+  const stickerInputRef = useRef<HTMLInputElement | null>(null);
+  const autoSubmitTimerRef = useRef<number | null>(null);
+  const lastAutoSubmittedRef = useRef("");
   const [selectedBreakId, setSelectedBreakId] = useState("");
   /** How many floor spots remain when starting this run (streamer-entered snapshot for tracking). */
   const [floorSpotsLeftInput, setFloorSpotsLeftInput] = useState("40");
@@ -201,22 +206,63 @@ export function StreamsPage() {
   });
 
   const stickerSaleMutation = useMutation({
-    mutationFn: () =>
+    mutationFn: (stickerCode: string) =>
       api("/v1/streams/sticker-sale", {
         method: "POST",
         body: JSON.stringify({
           streamId: activeStreamId,
-          stickerCode: stickerCodeInput.trim()
+          stickerCode
         })
       }),
     onSuccess: () => {
+      playStreamSuccessSound();
       setStickerCodeInput("");
       void qc.invalidateQueries({ queryKey: ["stream-items", activeStreamId] });
       void qc.invalidateQueries({ queryKey: ["bag-orders"] });
       void qc.invalidateQueries({ queryKey: ["admin-profit-metrics"] });
       void qc.invalidateQueries({ queryKey: ["admin-stream-log"] });
+      window.setTimeout(() => stickerInputRef.current?.focus(), 0);
     }
   });
+
+  const submitStickerCode = useCallback(
+    (candidate: string) => {
+      const normalized = candidate.trim().toUpperCase();
+      if (!normalized || !isStickerStream || !activeStreamId || stickerSaleMutation.isPending) return;
+      stickerSaleMutation.mutate(normalized);
+    },
+    [activeStreamId, isStickerStream, stickerSaleMutation]
+  );
+
+  useEffect(() => {
+    if (!isStickerStream || !activeStreamId) return;
+    stickerInputRef.current?.focus();
+  }, [activeStreamId, isStickerStream]);
+
+  useEffect(() => {
+    if (autoSubmitTimerRef.current != null) {
+      window.clearTimeout(autoSubmitTimerRef.current);
+      autoSubmitTimerRef.current = null;
+    }
+    if (!isStickerStream || !activeStreamId || stickerSaleMutation.isPending) return;
+    const normalized = stickerCodeInput.trim().toUpperCase();
+    if (normalized.length < 3 || normalized === lastAutoSubmittedRef.current) return;
+    autoSubmitTimerRef.current = window.setTimeout(() => {
+      lastAutoSubmittedRef.current = normalized;
+      submitStickerCode(normalized);
+    }, SCAN_IDLE_MS);
+    return () => {
+      if (autoSubmitTimerRef.current != null) {
+        window.clearTimeout(autoSubmitTimerRef.current);
+        autoSubmitTimerRef.current = null;
+      }
+    };
+  }, [SCAN_IDLE_MS, activeStreamId, isStickerStream, stickerCodeInput, stickerSaleMutation.isPending, submitStickerCode]);
+
+  useEffect(() => {
+    if (stickerCodeInput.trim()) return;
+    lastAutoSubmittedRef.current = "";
+  }, [stickerCodeInput]);
 
   const startBreakMutation = useMutation({
     mutationFn: () => {
@@ -267,6 +313,7 @@ export function StreamsPage() {
       });
     },
     onSuccess: () => {
+      playStreamSuccessSound();
       void qc.invalidateQueries({ queryKey: ["stream-items", activeStreamId] });
       void qc.invalidateQueries({ queryKey: ["active-stream-break", activeStreamId] });
       void qc.invalidateQueries({ queryKey: ["stream-break-stats", activeStreamId] });
@@ -411,20 +458,29 @@ export function StreamsPage() {
               <label style={{ fontSize: "0.7rem", color: "var(--muted)" }}>
                 Sticker code
                 <input
+                  ref={stickerInputRef}
                   className="form-input"
                   style={{ marginTop: "0.35rem" }}
                   value={stickerCodeInput}
-                  onChange={(e) => setStickerCodeInput(e.target.value.toUpperCase())}
+                  onChange={(e) => setStickerCodeInput(e.target.value.toUpperCase().replace(/\s+/g, ""))}
+                  onKeyDown={(e) => {
+                    if (e.key !== "Enter") return;
+                    e.preventDefault();
+                    submitStickerCode(stickerCodeInput);
+                  }}
                   placeholder="e.g. A31"
                   autoCapitalize="characters"
                   aria-label="Sticker code"
                 />
               </label>
+              <p style={{ fontSize: "0.68rem", color: "var(--muted)", margin: 0 }}>
+                Scanner-ready: barcode auto-logs after each scan.
+              </p>
               <button
                 type="button"
                 className="btn btn-gold"
                 disabled={stickerSaleMutation.isPending || !stickerCodeInput.trim()}
-                onClick={() => stickerSaleMutation.mutate()}
+                onClick={() => submitStickerCode(stickerCodeInput)}
               >
                 Log sticker sale
               </button>

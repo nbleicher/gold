@@ -25,7 +25,7 @@ function suggestStickerLetterFromUsedLetters(usedLettersCsv: string | null): str
 export async function registerInventoryRoutes(app: FastifyInstance) {
   app.get("/v1/inventory/batches", { preHandler: requireAuth }, async () => {
     return q(
-      "select id, date, metal, grams, remaining_grams, purchase_spot, total_cost, batch_number, batch_name, sticker_batch_letter, created_at from inventory_batches order by date desc"
+      "select id, date, metal, grams, remaining_grams, purchase_spot, total_cost, batch_number, batch_name, sticker_batch_letter, created_at from inventory_batches where is_virtual_pool = 0 order by date desc"
     );
   });
 
@@ -105,10 +105,14 @@ export async function registerInventoryRoutes(app: FastifyInstance) {
       .slice(0, 1);
     if (!L || L < "A" || L > "Z") throw new Error("Use letters A–Z");
 
-    const batch = await one<{ id: string; metal: string }>("select id, metal from inventory_batches where id = ?", [
-      id
-    ]);
+    const batch = await one<{ id: string; metal: string; is_virtual_pool: number }>(
+      "select id, metal, is_virtual_pool from inventory_batches where id = ?",
+      [id]
+    );
     if (!batch) throw new Error("Batch not found");
+    if (Number(batch.is_virtual_pool) === 1) {
+      throw new Error("Cannot update virtual metal pool batch");
+    }
 
     const conflict = await one<{ id: string }>(
       "select id from inventory_batches where metal = ? and id != ? and upper(sticker_batch_letter) = ? limit 1",
@@ -125,6 +129,15 @@ export async function registerInventoryRoutes(app: FastifyInstance) {
 
   app.delete("/v1/inventory/batches/:id", { preHandler: requireRole("admin") }, async (req) => {
     const { id } = req.params as { id: string };
+    const batch = await one<{ id: string; metal: string; is_virtual_pool: number }>(
+      "select id, metal, is_virtual_pool from inventory_batches where id = ?",
+      [id]
+    );
+    if (!batch) throw new Error("Batch not found");
+    if (Number(batch.is_virtual_pool) === 1) {
+      throw new Error("Cannot delete virtual metal pool batch");
+    }
+
     const compCount = await one<{ n: number }>(
       "select count(*) as n from bag_order_components where batch_id = ?",
       [id]

@@ -185,8 +185,13 @@ export async function registerStreamRoutes(app: FastifyInstance) {
       primary_batch_id: string;
       actual_weight_grams: number;
       sticker_code: string;
+      cost_basis_method: string | null;
+      cost_basis_usd: number | null;
+      cost_basis_per_gram: number | null;
     }>(
-      "select id, metal, primary_batch_id, actual_weight_grams, sticker_code from bag_orders where upper(sticker_code) = ?",
+      `select id, metal, primary_batch_id, actual_weight_grams, sticker_code,
+              cost_basis_method, cost_basis_usd, cost_basis_per_gram
+       from bag_orders where upper(sticker_code) = ?`,
       [saleBody.stickerCode.toUpperCase()]
     );
     if (!order) {
@@ -221,7 +226,10 @@ export async function registerStreamRoutes(app: FastifyInstance) {
         id: order.id,
         primary_batch_id: order.primary_batch_id,
         actual_weight_grams: order.actual_weight_grams,
-        sticker_code: String(order.sticker_code).trim().toUpperCase()
+        sticker_code: String(order.sticker_code).trim().toUpperCase(),
+        cost_basis_method: order.cost_basis_method,
+        cost_basis_usd: order.cost_basis_usd,
+        cost_basis_per_gram: order.cost_basis_per_gram
       }
     ]);
     const compRows: ComponentRow[] = compList.map((c) => ({

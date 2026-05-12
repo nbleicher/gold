@@ -11,6 +11,11 @@ type Batch = {
   remaining_grams: number;
 };
 
+type MetalPool = {
+  gold: { gramsOnHand: number; avgCostPerGram: number };
+  silver: { gramsOnHand: number; avgCostPerGram: number };
+};
+
 type BagComponent = { batch_id: string; metal: string; weight_grams: number };
 type BagOrder = {
   id: string;
@@ -24,13 +29,13 @@ type BagOrder = {
   bag_order_components: BagComponent[];
 };
 
-function batchLabel(order: BagOrder, batches: Batch[]): string {
+function sourceLabel(order: BagOrder, batches: Batch[]): string {
   const comps = order.bag_order_components ?? [];
-  if (!comps.length) return "—";
+  if (!comps.length) return "Metal pool";
   return comps
     .map((c) => {
       const bx = batches.find((b) => b.id === c.batch_id);
-      const name = bx?.batch_name ?? "—";
+      const name = bx?.batch_name ?? "Batch";
       return `${name} (${Number(c.weight_grams).toFixed(4)}g)`;
     })
     .join(" + ");
@@ -39,10 +44,8 @@ function batchLabel(order: BagOrder, batches: Batch[]): string {
 export function OrdersPage() {
   const qc = useQueryClient();
   const [metal, setMetal] = useState<"gold" | "silver">("gold");
-  const [primaryBatchId, setPrimaryBatchId] = useState("");
   const [primaryWeight, setPrimaryWeight] = useState("");
   const [mixed, setMixed] = useState(false);
-  const [secondBatchId, setSecondBatchId] = useState("");
   const [secondWeight, setSecondWeight] = useState("");
   const [formError, setFormError] = useState<string | null>(null);
 
@@ -51,24 +54,17 @@ export function OrdersPage() {
     queryFn: () => api<Batch[]>("/v1/inventory/batches")
   });
 
+  const metalPool = useQuery({
+    queryKey: ["metal-pool"],
+    queryFn: () => api<MetalPool>("/v1/inventory/metal-pool")
+  });
+
   const bagOrders = useQuery({
     queryKey: ["bag-orders"],
     queryFn: () => api<BagOrder[]>("/v1/bag-orders")
   });
 
   const secondMetal: "gold" | "silver" = metal === "gold" ? "silver" : "gold";
-
-  const primaryChoices = useMemo(
-    () =>
-      (batches.data ?? []).filter((b) => b.metal === metal && Number(b.remaining_grams) > 0),
-    [batches.data, metal]
-  );
-
-  const secondChoices = useMemo(
-    () =>
-      (batches.data ?? []).filter((b) => b.metal === secondMetal && Number(b.remaining_grams) > 0),
-    [batches.data, secondMetal]
-  );
 
   const tierPreview = useMemo(() => {
     const w = Number(primaryWeight) || 0;
@@ -81,25 +77,19 @@ export function OrdersPage() {
   }, [primaryWeight, secondWeight, mixed]);
 
   const createBag = useMutation({
-    mutationFn: () => {
-      const primary = (batches.data ?? []).find((b) => b.id === primaryBatchId);
-      if (!primary) throw new Error("Select primary batch");
-      const secondary = mixed ? (batches.data ?? []).find((b) => b.id === secondBatchId) : undefined;
-      if (mixed && !secondary) throw new Error("Select second metal batch");
-      return api<BagOrder>("/v1/bag-orders", {
+    mutationFn: () =>
+      api<BagOrder>("/v1/bag-orders", {
         method: "POST",
         body: JSON.stringify({
-          primaryBatchId,
-          primaryMetal: primary.metal,
+          primaryMetal: metal,
           primaryWeightGrams: Number(primaryWeight),
-          secondBatchId: mixed ? secondBatchId : undefined,
-          secondMetal: mixed && secondary ? secondary.metal : undefined,
+          secondMetal: mixed ? secondMetal : undefined,
           secondWeightGrams: mixed ? Number(secondWeight) : undefined
         })
-      });
-    },
+      }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["batches"] });
+      qc.invalidateQueries({ queryKey: ["metal-pool"] });
       qc.invalidateQueries({ queryKey: ["bag-orders"] });
       setPrimaryWeight("");
       setSecondWeight("");
@@ -117,6 +107,7 @@ export function OrdersPage() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["bag-orders"] });
       qc.invalidateQueries({ queryKey: ["batches"] });
+      qc.invalidateQueries({ queryKey: ["metal-pool"] });
     }
   });
 
@@ -124,15 +115,16 @@ export function OrdersPage() {
     e.preventDefault();
     const primaryWeightNumber = Number(primaryWeight);
     const secondWeightNumber = Number(secondWeight);
-    if (!primaryBatchId) return setFormError("Select a primary batch.");
     if (!(primaryWeightNumber > 0)) return setFormError("Enter a primary weight greater than 0.");
-    if (mixed) {
-      if (!secondBatchId) return setFormError("Select a second metal batch.");
-      if (!(secondWeightNumber > 0)) return setFormError("Enter a second metal weight greater than 0.");
+    if (mixed && !(secondWeightNumber > 0)) {
+      return setFormError("Enter a second metal weight greater than 0.");
     }
     setFormError(null);
     createBag.mutate();
   };
+
+  const primaryPool = metalPool.data?.[metal];
+  const secondPool = metalPool.data?.[secondMetal];
 
   return (
     <section className="card">
@@ -147,7 +139,7 @@ export function OrdersPage() {
           color: "var(--text-dim)"
         }}
       >
-        Bag from a batch · weight sets tier · sticker code auto-assigned
+        Bag from pooled metal · weight sets tier · sticker code auto-assigned
       </p>
       <p
         style={{
@@ -158,12 +150,12 @@ export function OrdersPage() {
           maxWidth: "42rem"
         }}
       >
-        Sticker codes use the primary batch&apos;s sticker letter (set in Batch Management), the tier digit from
-        total bag weight, and a sequence letter for each bag in that batch and tier (A, B, …).
+        Choose metal and weight only. Grams are allocated across inventory batches automatically using the
+        dollar-cost-average pool for that metal.
       </p>
 
-      {batches.error || bagOrders.error ? (
-        <p className="error">{String((batches.error ?? bagOrders.error) as Error)}</p>
+      {batches.error || bagOrders.error || metalPool.error ? (
+        <p className="error">{String((batches.error ?? bagOrders.error ?? metalPool.error) as Error)}</p>
       ) : null}
 
       <div className="card" style={{ marginBottom: "1.5rem", padding: "1.2rem", background: "var(--slate)" }}>
@@ -179,27 +171,10 @@ export function OrdersPage() {
                 value={metal}
                 onChange={(e) => {
                   setMetal(e.target.value as "gold" | "silver");
-                  setPrimaryBatchId("");
-                  setSecondBatchId("");
                 }}
               >
                 <option value="gold">Gold</option>
                 <option value="silver">Silver</option>
-              </select>
-            </div>
-            <div className="form-group" style={{ flex: "2 1 200px", minWidth: 200 }}>
-              <label className="form-label">Batch</label>
-              <select
-                className="form-input"
-                value={primaryBatchId}
-                onChange={(e) => setPrimaryBatchId(e.target.value)}
-              >
-                <option value="">{primaryChoices.length ? "Select batch" : `No ${metal} batches with stock`}</option>
-                {primaryChoices.map((b) => (
-                  <option key={b.id} value={b.id}>
-                    {b.batch_name ?? b.id} · {Number(b.remaining_grams).toFixed(4)}g left
-                  </option>
-                ))}
               </select>
             </div>
             <div className="form-group" style={{ minWidth: 140 }}>
@@ -218,6 +193,12 @@ export function OrdersPage() {
               Create sticker
             </button>
           </div>
+          {primaryPool ? (
+            <p style={{ fontSize: "0.68rem", color: "var(--muted)", marginTop: "0.55rem" }}>
+              {metal[0].toUpperCase() + metal.slice(1)} pool: {Number(primaryPool.gramsOnHand).toFixed(4)}g on hand · avg $
+              {Number(primaryPool.avgCostPerGram).toFixed(4)}/g
+            </p>
+          ) : null}
           <label
             style={{
               cursor: "pointer",
@@ -242,15 +223,8 @@ export function OrdersPage() {
           {mixed ? (
             <div className="grid-form" style={{ marginTop: "0.75rem", display: "flex", flexWrap: "wrap", gap: "0.75rem" }}>
               <div className="form-group" style={{ minWidth: 180 }}>
-                <label className="form-label">Second metal batch</label>
-                <select className="form-input" value={secondBatchId} onChange={(e) => setSecondBatchId(e.target.value)}>
-                  <option value="">{secondChoices.length ? "Select batch" : `No ${secondMetal} batches with stock`}</option>
-                  {secondChoices.map((b) => (
-                    <option key={b.id} value={b.id}>
-                      {b.batch_name ?? b.id} · {Number(b.remaining_grams).toFixed(4)}g left
-                    </option>
-                  ))}
-                </select>
+                <label className="form-label">Second metal</label>
+                <input className="form-input" value={secondMetal[0].toUpperCase() + secondMetal.slice(1)} readOnly />
               </div>
               <div className="form-group" style={{ minWidth: 140 }}>
                 <label className="form-label">Second metal weight (g)</label>
@@ -266,6 +240,12 @@ export function OrdersPage() {
               </div>
             </div>
           ) : null}
+          {mixed && secondPool ? (
+            <p style={{ fontSize: "0.68rem", color: "var(--muted)", marginTop: "0.55rem" }}>
+              {secondMetal[0].toUpperCase() + secondMetal.slice(1)} pool: {Number(secondPool.gramsOnHand).toFixed(4)}g on hand ·
+              avg ${Number(secondPool.avgCostPerGram).toFixed(4)}/g
+            </p>
+          ) : null}
           <p style={{ fontSize: "0.7rem", color: "var(--muted)", marginTop: "0.55rem" }}>{tierPreview}</p>
           {formError ? <p className="error">{formError}</p> : null}
           {createBag.error ? <p className="error">{(createBag.error as Error).message}</p> : null}
@@ -280,7 +260,7 @@ export function OrdersPage() {
           <thead>
             <tr>
               <th>Sticker</th>
-              <th>Batch</th>
+              <th>Sources</th>
               <th>Metal</th>
               <th>Weight (g)</th>
               <th>Tier</th>
@@ -300,7 +280,7 @@ export function OrdersPage() {
               (bagOrders.data ?? []).map((o) => (
                 <tr key={o.id}>
                   <td className="tbl-gold">{o.sticker_code}</td>
-                  <td>{batchLabel(o, batches.data ?? [])}</td>
+                  <td>{sourceLabel(o, batches.data ?? [])}</td>
                   <td>{o.metal[0].toUpperCase() + o.metal.slice(1)}</td>
                   <td>{Number(o.actual_weight_grams).toFixed(4)}</td>
                   <td>{o.tier_index}</td>

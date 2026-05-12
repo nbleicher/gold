@@ -1,12 +1,8 @@
-const LABEL_SERVER = "http://127.0.0.1:4242";
+import JsBarcode from "jsbarcode";
 
 /**
- * Send a print job to the local label-server.js bridge, which talks to the
- * Katasymbol T50M Pro over USB HID.
- *
- * Prerequisites:
- *   1. label-server.js is running (`node label-server.js` from project root)
- *   2. The T50M Pro is connected via USB
+ * Print a single bag label via the browser's native print flow.
+ * The barcode encodes the bag's existing sticker code.
  */
 export async function printLabel(stickerCode: string, weightGrams: number): Promise<void> {
   const code = String(stickerCode ?? "").trim();
@@ -22,69 +18,119 @@ export async function printLabel(stickerCode: string, weightGrams: number): Prom
   }
 
   try {
-    const res = await fetch(`${LABEL_SERVER}/print`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ stickerCode: code, weightGrams: w }),
-    });
-
-    if (!res.ok) {
-      const message = await readErrorBody(res);
-      throw new Error(message);
-    }
-  } catch (err) {
-    const e = err as Error;
-    const msg = e?.message ?? String(err);
-
-    // Connection refused / blocked = label-server not reachable
-    if (
-      msg.includes("Failed to fetch") ||
-      msg.includes("NetworkError") ||
-      msg.includes("ECONNREFUSED") ||
-      msg.includes("Load failed")
-    ) {
-      alert(
-        "Label server is not running or the browser blocked the request.\n\n" +
-          "1. Open a terminal in the project root and run:\n\n" +
-          "       node label-server.js\n\n" +
-          "2. If the site is HTTPS, allow localhost or use HTTP for dev.\n" +
-          "3. Keep the T50M Pro connected via USB."
-      );
+    const popup = window.open("", "_blank", "noopener,noreferrer,width=420,height=640");
+    if (!popup) {
+      alert("Print window was blocked. Allow pop-ups for this site and try again.");
       return;
     }
 
-    alert(`Print failed: ${msg}`);
+    const doc = popup.document;
+    doc.open();
+    doc.write(`<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>Bag Label ${escapeHtml(code)}</title>
+    <style>
+      :root {
+        color-scheme: light;
+      }
+      @page {
+        margin: 0.12in;
+      }
+      html,
+      body {
+        margin: 0;
+        padding: 0;
+        background: #fff;
+        color: #000;
+        font-family: Arial, Helvetica, sans-serif;
+      }
+      body {
+        display: flex;
+        justify-content: center;
+        align-items: flex-start;
+      }
+      .label {
+        width: 3.0in;
+        border: 1px solid #000;
+        border-radius: 3px;
+        padding: 0.1in 0.1in 0.08in;
+        box-sizing: border-box;
+      }
+      .meta {
+        font-size: 10px;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        margin-bottom: 0.06in;
+      }
+      .barcode-wrap {
+        width: 100%;
+        overflow: hidden;
+        margin-bottom: 0.05in;
+      }
+      .barcode-wrap svg {
+        width: 100%;
+        height: auto;
+        display: block;
+      }
+      .code {
+        font-size: 14px;
+        font-weight: 700;
+        letter-spacing: 0.08em;
+        margin-bottom: 0.02in;
+      }
+      .weight {
+        font-size: 12px;
+      }
+    </style>
+  </head>
+  <body>
+    <main class="label">
+      <div class="meta">Bag Sticker</div>
+      <div class="barcode-wrap"><svg id="bag-barcode" aria-label="Bag barcode"></svg></div>
+      <div class="code" id="code"></div>
+      <div class="weight" id="weight"></div>
+    </main>
+  </body>
+</html>`);
+    doc.close();
+
+    const barcodeSvg = doc.getElementById("bag-barcode") as SVGSVGElement | null;
+    const codeText = doc.getElementById("code");
+    const weightText = doc.getElementById("weight");
+    if (!barcodeSvg || !codeText || !weightText) {
+      popup.close();
+      throw new Error("Failed to create print layout.");
+    }
+
+    JsBarcode(barcodeSvg, code, {
+      format: "CODE128",
+      displayValue: false,
+      lineColor: "#000000",
+      margin: 0,
+      width: 2,
+      height: 70
+    });
+
+    codeText.textContent = code;
+    weightText.textContent = `${w.toFixed(4)} g`;
+
+    window.setTimeout(() => {
+      popup.focus();
+      popup.print();
+    }, 40);
+  } catch (err) {
+    const e = err as Error;
+    alert(`Print failed: ${e?.message ?? String(err)}`);
   }
 }
 
-async function readErrorBody(res: Response): Promise<string> {
-  const status = `HTTP ${res.status}`;
-  const ct = res.headers.get("content-type") ?? "";
-
-  if (ct.includes("application/json")) {
-    try {
-      const body = (await res.json()) as { error?: string };
-      if (typeof body?.error === "string" && body.error.trim()) {
-        return body.error.trim();
-      }
-    } catch {
-      /* fall through */
-    }
-    return status;
-  }
-
-  if (res.status === 404) {
-    return "Label server returned 404 — wrong URL or old server. Restart with: node label-server.js";
-  }
-
-  try {
-    const text = (await res.text()).trim();
-    if (text) {
-      return text.length > 240 ? `${text.slice(0, 240)}…` : text;
-    }
-  } catch {
-    /* ignore */
-  }
-
-  return res.statusText ? `${status}: ${res.statusText}` : status;
+function escapeHtml(value: string): string {
+  return value
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#39;");
 }

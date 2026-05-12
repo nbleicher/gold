@@ -3,41 +3,37 @@ import assert from "node:assert/strict";
 import { createBagOrderSchema } from "@gold/shared";
 
 const primaryPayload = {
-  primaryBatchId: "0123456789abcdef0123456789abcdef",
   primaryMetal: "gold" as const,
   primaryWeightGrams: 0.2
 };
 
-test("createBagOrderSchema accepts 32-char hex primaryBatchId", () => {
+test("createBagOrderSchema accepts single-metal payload", () => {
   const result = createBagOrderSchema.safeParse(primaryPayload);
   assert.equal(result.success, true);
 });
 
-test("createBagOrderSchema rejects invalid primaryBatchId format", () => {
+test("createBagOrderSchema requires second metal fields together", () => {
   const result = createBagOrderSchema.safeParse({
     ...primaryPayload,
-    primaryBatchId: "not-a-valid-batch-id"
+    secondWeightGrams: 0.1
   });
   assert.equal(result.success, false);
 });
 
-test("createBagOrderSchema requires all mixed secondary fields together", () => {
+test("createBagOrderSchema rejects duplicate metals in mixed payload", () => {
   const result = createBagOrderSchema.safeParse({
     ...primaryPayload,
-    secondBatchId: "fedcba9876543210fedcba9876543210"
+    secondMetal: "gold" as const,
+    secondWeightGrams: 0.1
   });
   assert.equal(result.success, false);
 });
 
-test("createBagOrderSchema accepts complete mixed and single-metal payloads", () => {
+test("createBagOrderSchema accepts complete mixed payload", () => {
   const mixedResult = createBagOrderSchema.safeParse({
     ...primaryPayload,
-    secondBatchId: "fedcba9876543210fedcba9876543210",
     secondMetal: "silver" as const,
     secondWeightGrams: 0.1
   });
   assert.equal(mixedResult.success, true);
-
-  const singleResult = createBagOrderSchema.safeParse(primaryPayload);
-  assert.equal(singleResult.success, true);
 });

@@ -23,20 +23,24 @@ export type BagComponent = z.infer<typeof bagComponentSchema>;
 
 export const createBagOrderSchema = z
   .object({
-    primaryBatchId: batchIdSchema,
     primaryMetal: z.enum(["gold", "silver"]),
     primaryWeightGrams: z.number().positive(),
-    secondBatchId: batchIdSchema.optional(),
     secondMetal: z.enum(["gold", "silver"]).optional(),
     secondWeightGrams: z.number().positive().optional()
   })
   .superRefine((input, ctx) => {
-    const secondFields = [input.secondBatchId, input.secondMetal, input.secondWeightGrams];
+    const secondFields = [input.secondMetal, input.secondWeightGrams];
     const presentCount = secondFields.filter((value) => value !== undefined).length;
-    if (presentCount > 0 && presentCount < 3) {
+    if (presentCount > 0 && presentCount < 2) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
-        message: "secondBatchId, secondMetal, and secondWeightGrams must all be provided together"
+        message: "secondMetal and secondWeightGrams must be provided together"
+      });
+    }
+    if (input.secondMetal && input.secondMetal === input.primaryMetal) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "secondMetal must differ from primaryMetal"
       });
     }
   });
