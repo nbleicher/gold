@@ -3,32 +3,33 @@ import JsBarcode from "jsbarcode";
 /** DK-2210 continuous tape on Brother QL-600 (29mm / 1.1" wide). */
 const LABEL_PROFILE = {
   pageWidthMm: 29,
-  pageHeightMm: 30,
+  minPageHeightMm: 24,
+  maxPageHeightMm: 55,
+  pageHeightSafetyMm: 0.75,
   paddingTopMm: 2,
   paddingRightMm: 2,
   paddingBottomMm: 2,
   paddingLeftMm: 3.5,
   codeFontPx: 11,
   weightFontPx: 9,
-  barcodeHeight: 32,
+  barcodeHeight: 30,
   barcodeQuietZone: 8,
-  barcodeMaxHeightMm: 11
+  barcodeMaxHeightMm: 10
 } as const;
 
 export const LABEL_PRINT_SETUP_HINT =
-  "In print settings: choose Brother QL-600, 29mm continuous tape (DK-2210), scale 100%, and turn off headers/footers.";
+  "Print setup: Brother QL-600, 29mm continuous tape (DK-2210), portrait orientation, scale 100%, default margins, and headers/footers off.";
 
-const LABEL_HTML = (code: string) => `<!doctype html>
+const LABEL_HTML = `<!doctype html>
 <html>
   <head>
     <meta charset="utf-8" />
-    <title>Bag Label ${escapeHtml(code)}</title>
+    <title>&#8203;</title>
     <style>
       :root {
         color-scheme: light;
       }
       @page {
-        size: ${LABEL_PROFILE.pageWidthMm}mm ${LABEL_PROFILE.pageHeightMm}mm;
         margin: 0;
       }
       html,
@@ -36,10 +37,6 @@ const LABEL_HTML = (code: string) => `<!doctype html>
         margin: 0;
         padding: 0;
         width: ${LABEL_PROFILE.pageWidthMm}mm;
-        height: ${LABEL_PROFILE.pageHeightMm}mm;
-        max-width: ${LABEL_PROFILE.pageWidthMm}mm;
-        max-height: ${LABEL_PROFILE.pageHeightMm}mm;
-        overflow: hidden;
         background: #fff;
         color: #000;
         font-family: Arial, Helvetica, sans-serif;
@@ -49,9 +46,8 @@ const LABEL_HTML = (code: string) => `<!doctype html>
       }
       .label {
         width: 100%;
-        height: 100%;
-        padding: ${LABEL_PROFILE.paddingTopMm}mm ${LABEL_PROFILE.paddingRightMm}mm ${LABEL_PROFILE.paddingBottomMm}mm ${LABEL_PROFILE.paddingLeftMm}mm;
         box-sizing: border-box;
+        padding: ${LABEL_PROFILE.paddingTopMm}mm ${LABEL_PROFILE.paddingRightMm}mm ${LABEL_PROFILE.paddingBottomMm}mm ${LABEL_PROFILE.paddingLeftMm}mm;
         display: flex;
         flex-direction: column;
         align-items: center;
@@ -86,12 +82,6 @@ const LABEL_HTML = (code: string) => `<!doctype html>
         margin: 0;
       }
       @media print {
-        html,
-        body {
-          width: ${LABEL_PROFILE.pageWidthMm}mm;
-          height: ${LABEL_PROFILE.pageHeightMm}mm;
-          overflow: hidden;
-        }
         .label,
         .barcode-wrap,
         .code,
@@ -112,6 +102,56 @@ const LABEL_HTML = (code: string) => `<!doctype html>
     </main>
   </body>
 </html>`;
+
+function pxToMm(px: number): number {
+  return (px * 25.4) / 96;
+}
+
+function clampPageHeightMm(heightMm: number): number {
+  return Math.min(
+    LABEL_PROFILE.maxPageHeightMm,
+    Math.max(LABEL_PROFILE.minPageHeightMm, heightMm)
+  );
+}
+
+function measureLabelHeightMm(label: HTMLElement): number {
+  const heightPx = Math.max(label.scrollHeight, label.getBoundingClientRect().height);
+  return clampPageHeightMm(pxToMm(heightPx) + LABEL_PROFILE.pageHeightSafetyMm);
+}
+
+function applyPageSize(doc: Document, iframe: HTMLIFrameElement, pageHeightMm: number): void {
+  const pageWidthMm = LABEL_PROFILE.pageWidthMm;
+  const pageSize = `${pageWidthMm}mm ${pageHeightMm}mm`;
+
+  let pageStyle = doc.getElementById("label-page-size") as HTMLStyleElement | null;
+  if (!pageStyle) {
+    pageStyle = doc.createElement("style");
+    pageStyle.id = "label-page-size";
+    doc.head.appendChild(pageStyle);
+  }
+
+  pageStyle.textContent = `
+    @page {
+      size: ${pageSize};
+      margin: 0;
+    }
+    html,
+    body {
+      width: ${pageWidthMm}mm;
+      height: ${pageHeightMm}mm;
+    }
+    @media print {
+      html,
+      body {
+        width: ${pageWidthMm}mm;
+        height: ${pageHeightMm}mm;
+      }
+    }
+  `;
+
+  iframe.style.width = `${pageWidthMm}mm`;
+  iframe.style.height = `${pageHeightMm}mm`;
+}
 
 function barcodeModuleWidthForCode(code: string): number {
   const printableWidthMm =
@@ -156,7 +196,7 @@ export function printLabel(stickerCode: string, weightGrams: number): void {
     iframe.style.left = "0";
     iframe.style.top = "0";
     iframe.style.width = `${LABEL_PROFILE.pageWidthMm}mm`;
-    iframe.style.height = `${LABEL_PROFILE.pageHeightMm}mm`;
+    iframe.style.height = `${LABEL_PROFILE.minPageHeightMm}mm`;
     iframe.style.border = "0";
     iframe.style.visibility = "hidden";
     document.body.appendChild(iframe);
@@ -168,13 +208,14 @@ export function printLabel(stickerCode: string, weightGrams: number): void {
     }
 
     doc.open();
-    doc.write(LABEL_HTML(code));
+    doc.write(LABEL_HTML);
     doc.close();
 
+    const label = doc.querySelector(".label") as HTMLElement | null;
     const barcodeSvg = doc.getElementById("bag-barcode") as SVGSVGElement | null;
     const codeText = doc.getElementById("code");
     const weightText = doc.getElementById("weight");
-    if (!barcodeSvg || !codeText || !weightText) {
+    if (!label || !barcodeSvg || !codeText || !weightText) {
       throw new Error("Failed to create print layout.");
     }
 
@@ -195,29 +236,26 @@ export function printLabel(stickerCode: string, weightGrams: number): void {
     frameWindow.addEventListener("afterprint", cleanup, { once: true });
     window.setTimeout(cleanup, 60_000);
 
-    const print = () => {
-      frameWindow.focus();
-      frameWindow.print();
+    const printWhenReady = () => {
+      frameWindow.requestAnimationFrame(() => {
+        const pageHeightMm = measureLabelHeightMm(label);
+        applyPageSize(doc, iframe!, pageHeightMm);
+        frameWindow.requestAnimationFrame(() => {
+          frameWindow.focus();
+          frameWindow.print();
+        });
+      });
     };
 
     if (doc.readyState === "complete") {
-      print();
+      printWhenReady();
       return;
     }
 
-    iframe.addEventListener("load", print, { once: true });
+    iframe.addEventListener("load", printWhenReady, { once: true });
   } catch (err) {
     cleanup();
     const e = err as Error;
     alert(`Print failed: ${e?.message ?? String(err)}\n\n${LABEL_PRINT_SETUP_HINT}`);
   }
-}
-
-function escapeHtml(value: string): string {
-  return value
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;")
-    .replaceAll("'", "&#39;");
 }
