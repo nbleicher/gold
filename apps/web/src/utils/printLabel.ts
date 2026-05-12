@@ -3,12 +3,16 @@ import JsBarcode from "jsbarcode";
 /** DK-2210 continuous tape on Brother QL-600 (29mm / 1.1" wide). */
 const LABEL_PROFILE = {
   pageWidthMm: 29,
-  paddingMm: 1.5,
-  metaFontPx: 6,
-  codeFontPx: 8,
-  weightFontPx: 7,
-  barcodeModuleWidth: 1,
-  barcodeHeight: 30
+  pageHeightMm: 22,
+  paddingTopMm: 2,
+  paddingRightMm: 2,
+  paddingBottomMm: 2.5,
+  paddingLeftMm: 4,
+  metaFontPx: 8,
+  codeFontPx: 12,
+  weightFontPx: 10,
+  barcodeHeight: 44,
+  barcodeQuietZone: 10
 } as const;
 
 export const LABEL_PRINT_SETUP_HINT =
@@ -24,7 +28,7 @@ const LABEL_HTML = (code: string) => `<!doctype html>
         color-scheme: light;
       }
       @page {
-        size: ${LABEL_PROFILE.pageWidthMm}mm auto;
+        size: ${LABEL_PROFILE.pageWidthMm}mm ${LABEL_PROFILE.pageHeightMm}mm;
         margin: 0;
       }
       html,
@@ -37,44 +41,56 @@ const LABEL_HTML = (code: string) => `<!doctype html>
       }
       body {
         width: ${LABEL_PROFILE.pageWidthMm}mm;
+        min-height: ${LABEL_PROFILE.pageHeightMm}mm;
+        display: flex;
+        align-items: center;
+        justify-content: center;
       }
       .label {
         width: ${LABEL_PROFILE.pageWidthMm}mm;
         max-width: ${LABEL_PROFILE.pageWidthMm}mm;
-        padding: ${LABEL_PROFILE.paddingMm}mm;
+        padding: ${LABEL_PROFILE.paddingTopMm}mm ${LABEL_PROFILE.paddingRightMm}mm ${LABEL_PROFILE.paddingBottomMm}mm ${LABEL_PROFILE.paddingLeftMm}mm;
         box-sizing: border-box;
         page-break-after: avoid;
         break-inside: avoid;
+        text-align: center;
       }
       .meta {
         font-size: ${LABEL_PROFILE.metaFontPx}px;
-        letter-spacing: 0.04em;
+        letter-spacing: 0.05em;
         text-transform: uppercase;
-        margin: 0 0 0.8mm;
-        line-height: 1.1;
+        margin: 0 0 1mm;
+        line-height: 1.15;
       }
       .barcode-wrap {
         width: 100%;
-        overflow: hidden;
-        margin: 0 0 0.8mm;
+        margin: 0 0 1mm;
       }
       .barcode-wrap svg {
         width: 100%;
+        max-width: 100%;
         height: auto;
         display: block;
+        margin: 0 auto;
       }
       .code {
         font-size: ${LABEL_PROFILE.codeFontPx}px;
         font-weight: 700;
-        letter-spacing: 0.04em;
-        margin: 0 0 0.4mm;
-        line-height: 1.1;
-        word-break: break-all;
+        letter-spacing: 0.05em;
+        margin: 0 0 0.6mm;
+        line-height: 1.15;
       }
       .weight {
         font-size: ${LABEL_PROFILE.weightFontPx}px;
-        line-height: 1.1;
+        line-height: 1.15;
         margin: 0;
+      }
+      @media print {
+        html,
+        body {
+          width: ${LABEL_PROFILE.pageWidthMm}mm;
+          min-height: ${LABEL_PROFILE.pageHeightMm}mm;
+        }
       }
     </style>
   </head>
@@ -87,6 +103,14 @@ const LABEL_HTML = (code: string) => `<!doctype html>
     </main>
   </body>
 </html>`;
+
+function barcodeModuleWidthForCode(code: string): number {
+  const printableWidthMm =
+    LABEL_PROFILE.pageWidthMm - LABEL_PROFILE.paddingLeftMm - LABEL_PROFILE.paddingRightMm;
+  const estimatedModules = 35 + code.length * 11;
+  const target = printableWidthMm / estimatedModules;
+  return Math.min(2.4, Math.max(1.6, target));
+}
 
 /**
  * Print a single bag label via the browser's native print flow.
@@ -147,10 +171,12 @@ export function printLabel(stickerCode: string, weightGrams: number): void {
       format: "CODE128",
       displayValue: false,
       lineColor: "#000000",
-      margin: 0,
-      width: LABEL_PROFILE.barcodeModuleWidth,
+      margin: LABEL_PROFILE.barcodeQuietZone,
+      width: barcodeModuleWidthForCode(code),
       height: LABEL_PROFILE.barcodeHeight
     });
+
+    barcodeSvg.setAttribute("preserveAspectRatio", "xMidYMid meet");
 
     codeText.textContent = code;
     weightText.textContent = `${w.toFixed(4)} g`;
