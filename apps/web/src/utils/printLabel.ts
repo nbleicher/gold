@@ -1,32 +1,6 @@
 import JsBarcode from "jsbarcode";
 
-/**
- * Print a single bag label via the browser's native print flow.
- * The barcode encodes the bag's existing sticker code.
- */
-export async function printLabel(stickerCode: string, weightGrams: number): Promise<void> {
-  const code = String(stickerCode ?? "").trim();
-  const w = Number(weightGrams);
-
-  if (!code) {
-    alert("Cannot print: missing sticker code.");
-    return;
-  }
-  if (!Number.isFinite(w) || w <= 0) {
-    alert("Cannot print: weight must be a positive number.");
-    return;
-  }
-
-  try {
-    const popup = window.open("", "_blank", "noopener,noreferrer,width=420,height=640");
-    if (!popup) {
-      alert("Print window was blocked. Allow pop-ups for this site and try again.");
-      return;
-    }
-
-    const doc = popup.document;
-    doc.open();
-    doc.write(`<!doctype html>
+const LABEL_HTML = (code: string) => `<!doctype html>
 <html>
   <head>
     <meta charset="utf-8" />
@@ -93,14 +67,60 @@ export async function printLabel(stickerCode: string, weightGrams: number): Prom
       <div class="weight" id="weight"></div>
     </main>
   </body>
-</html>`);
+</html>`;
+
+/**
+ * Print a single bag label via the browser's native print flow.
+ * The barcode encodes the bag's existing sticker code.
+ */
+export function printLabel(stickerCode: string, weightGrams: number): void {
+  const code = String(stickerCode ?? "").trim();
+  const w = Number(weightGrams);
+
+  if (!code) {
+    alert("Cannot print: missing sticker code.");
+    return;
+  }
+  if (!Number.isFinite(w) || w <= 0) {
+    alert("Cannot print: weight must be a positive number.");
+    return;
+  }
+
+  let iframe: HTMLIFrameElement | null = null;
+  let cleanedUp = false;
+
+  const cleanup = () => {
+    if (cleanedUp) return;
+    cleanedUp = true;
+    iframe?.remove();
+    iframe = null;
+  };
+
+  try {
+    iframe = document.createElement("iframe");
+    iframe.setAttribute("aria-hidden", "true");
+    iframe.setAttribute("tabindex", "-1");
+    iframe.style.position = "fixed";
+    iframe.style.width = "0";
+    iframe.style.height = "0";
+    iframe.style.border = "0";
+    iframe.style.visibility = "hidden";
+    document.body.appendChild(iframe);
+
+    const frameWindow = iframe.contentWindow;
+    const doc = frameWindow?.document;
+    if (!frameWindow || !doc) {
+      throw new Error("Failed to create print frame.");
+    }
+
+    doc.open();
+    doc.write(LABEL_HTML(code));
     doc.close();
 
     const barcodeSvg = doc.getElementById("bag-barcode") as SVGSVGElement | null;
     const codeText = doc.getElementById("code");
     const weightText = doc.getElementById("weight");
     if (!barcodeSvg || !codeText || !weightText) {
-      popup.close();
       throw new Error("Failed to create print layout.");
     }
 
@@ -116,11 +136,22 @@ export async function printLabel(stickerCode: string, weightGrams: number): Prom
     codeText.textContent = code;
     weightText.textContent = `${w.toFixed(4)} g`;
 
-    window.setTimeout(() => {
-      popup.focus();
-      popup.print();
-    }, 40);
+    frameWindow.addEventListener("afterprint", cleanup, { once: true });
+    window.setTimeout(cleanup, 60_000);
+
+    const print = () => {
+      frameWindow.focus();
+      frameWindow.print();
+    };
+
+    if (doc.readyState === "complete") {
+      print();
+      return;
+    }
+
+    iframe.addEventListener("load", print, { once: true });
   } catch (err) {
+    cleanup();
     const e = err as Error;
     alert(`Print failed: ${e?.message ?? String(err)}`);
   }
