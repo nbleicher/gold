@@ -32,7 +32,7 @@ async function allocateMetalFromPool(
     `select id, remaining_grams
      from inventory_batches
      where metal = ?
-       and is_virtual_pool = 0
+       and is_virtual_pool = false
        and remaining_grams > 0
      order by created_at asc, id asc`,
     [metal]
@@ -63,7 +63,7 @@ export async function createBagOrderFromInput(body: CreateBagOrderInput) {
 
   const primaryPoolBatchId = virtualPoolBatchIdForMetal(body.primaryMetal);
   const poolBatch = await one<{ id: string; sticker_batch_letter: string }>(
-    "select id, sticker_batch_letter from inventory_batches where id = ? and is_virtual_pool = 1",
+    "select id, sticker_batch_letter from inventory_batches where id = ? and is_virtual_pool = true",
     [primaryPoolBatchId]
   );
   if (!poolBatch) throw new Error("Metal pool batch missing");

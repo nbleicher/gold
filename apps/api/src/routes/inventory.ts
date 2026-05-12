@@ -22,10 +22,14 @@ function suggestStickerLetterFromUsedLetters(usedLettersCsv: string | null): str
   return "X";
 }
 
+function isVirtualPoolBatch(value: boolean | number | null | undefined): boolean {
+  return value === true || Number(value) === 1;
+}
+
 export async function registerInventoryRoutes(app: FastifyInstance) {
   app.get("/v1/inventory/batches", { preHandler: requireAuth }, async () => {
     return q(
-      "select id, date, metal, grams, remaining_grams, purchase_spot, total_cost, batch_number, batch_name, sticker_batch_letter, created_at from inventory_batches where is_virtual_pool = 0 order by date desc"
+      "select id, date, metal, grams, remaining_grams, purchase_spot, total_cost, batch_number, batch_name, sticker_batch_letter, created_at from inventory_batches where is_virtual_pool = false order by date desc"
     );
   });
 
@@ -42,7 +46,7 @@ export async function registerInventoryRoutes(app: FastifyInstance) {
     const plan = await one<{ n: number; used_letters: string | null }>(
       `select
          (select count(*) from inventory_batches where metal = ?) as n,
-         (select group_concat(upper(sticker_batch_letter), ',') from inventory_batches where metal = ?) as used_letters`,
+         (select string_agg(upper(sticker_batch_letter), ',') from inventory_batches where metal = ?) as used_letters`,
       [body.metal, body.metal]
     );
     const planMs = msSince(t0);
@@ -105,12 +109,12 @@ export async function registerInventoryRoutes(app: FastifyInstance) {
       .slice(0, 1);
     if (!L || L < "A" || L > "Z") throw new Error("Use letters A–Z");
 
-    const batch = await one<{ id: string; metal: string; is_virtual_pool: number }>(
+    const batch = await one<{ id: string; metal: string; is_virtual_pool: boolean | number }>(
       "select id, metal, is_virtual_pool from inventory_batches where id = ?",
       [id]
     );
     if (!batch) throw new Error("Batch not found");
-    if (Number(batch.is_virtual_pool) === 1) {
+    if (isVirtualPoolBatch(batch.is_virtual_pool)) {
       throw new Error("Cannot update virtual metal pool batch");
     }
 
@@ -129,12 +133,12 @@ export async function registerInventoryRoutes(app: FastifyInstance) {
 
   app.delete("/v1/inventory/batches/:id", { preHandler: requireRole("admin") }, async (req) => {
     const { id } = req.params as { id: string };
-    const batch = await one<{ id: string; metal: string; is_virtual_pool: number }>(
+    const batch = await one<{ id: string; metal: string; is_virtual_pool: boolean | number }>(
       "select id, metal, is_virtual_pool from inventory_batches where id = ?",
       [id]
     );
     if (!batch) throw new Error("Batch not found");
-    if (Number(batch.is_virtual_pool) === 1) {
+    if (isVirtualPoolBatch(batch.is_virtual_pool)) {
       throw new Error("Cannot delete virtual metal pool batch");
     }
 
