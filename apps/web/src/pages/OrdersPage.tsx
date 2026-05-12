@@ -2,7 +2,7 @@ import { FormEvent, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "../lib/api";
 import { getTierIndex } from "../lib/tiers";
-import { printLabel } from "../utils/printLabel";
+import { printLabel, LABEL_PRINT_SETUP_HINT } from "../utils/printLabel";
 
 type Batch = {
   id: string;
@@ -255,6 +255,9 @@ export function OrdersPage() {
       <div style={{ fontSize: "0.65rem", letterSpacing: "0.12em", color: "var(--muted)", marginBottom: "0.75rem" }}>
         RECENT BAGS
       </div>
+      <p style={{ fontSize: "0.62rem", color: "var(--muted)", margin: "0 0 0.75rem", maxWidth: "42rem", lineHeight: 1.45 }}>
+        {LABEL_PRINT_SETUP_HINT}
+      </p>
       <div className="tbl-wrap">
         <table className="tbl">
           <thead>
