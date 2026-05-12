@@ -3,20 +3,20 @@ import JsBarcode from "jsbarcode";
 /** DK-2210 continuous tape on Brother QL-600 (29mm / 1.1" wide). */
 const LABEL_PROFILE = {
   pageWidthMm: 29,
-  pageHeightMm: 22,
+  pageHeightMm: 30,
   paddingTopMm: 2,
   paddingRightMm: 2,
-  paddingBottomMm: 2.5,
-  paddingLeftMm: 4,
-  metaFontPx: 8,
-  codeFontPx: 12,
-  weightFontPx: 10,
-  barcodeHeight: 44,
-  barcodeQuietZone: 10
+  paddingBottomMm: 2,
+  paddingLeftMm: 3.5,
+  codeFontPx: 11,
+  weightFontPx: 9,
+  barcodeHeight: 32,
+  barcodeQuietZone: 8,
+  barcodeMaxHeightMm: 11
 } as const;
 
 export const LABEL_PRINT_SETUP_HINT =
-  "In the print dialog, choose Brother QL-600 with 29mm continuous tape (DK-2210).";
+  "In print settings: choose Brother QL-600, 29mm continuous tape (DK-2210), scale 100%, and turn off headers/footers.";
 
 const LABEL_HTML = (code: string) => `<!doctype html>
 <html>
@@ -35,68 +35,77 @@ const LABEL_HTML = (code: string) => `<!doctype html>
       body {
         margin: 0;
         padding: 0;
+        width: ${LABEL_PROFILE.pageWidthMm}mm;
+        height: ${LABEL_PROFILE.pageHeightMm}mm;
+        max-width: ${LABEL_PROFILE.pageWidthMm}mm;
+        max-height: ${LABEL_PROFILE.pageHeightMm}mm;
+        overflow: hidden;
         background: #fff;
         color: #000;
         font-family: Arial, Helvetica, sans-serif;
       }
       body {
-        width: ${LABEL_PROFILE.pageWidthMm}mm;
-        min-height: ${LABEL_PROFILE.pageHeightMm}mm;
-        display: flex;
-        align-items: center;
-        justify-content: center;
+        box-sizing: border-box;
       }
       .label {
-        width: ${LABEL_PROFILE.pageWidthMm}mm;
-        max-width: ${LABEL_PROFILE.pageWidthMm}mm;
+        width: 100%;
+        height: 100%;
         padding: ${LABEL_PROFILE.paddingTopMm}mm ${LABEL_PROFILE.paddingRightMm}mm ${LABEL_PROFILE.paddingBottomMm}mm ${LABEL_PROFILE.paddingLeftMm}mm;
         box-sizing: border-box;
-        page-break-after: avoid;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 0.8mm;
+        page-break-inside: avoid;
         break-inside: avoid;
         text-align: center;
       }
-      .meta {
-        font-size: ${LABEL_PROFILE.metaFontPx}px;
-        letter-spacing: 0.05em;
-        text-transform: uppercase;
-        margin: 0 0 1mm;
-        line-height: 1.15;
-      }
       .barcode-wrap {
         width: 100%;
-        margin: 0 0 1mm;
+        line-height: 0;
       }
       .barcode-wrap svg {
+        display: block;
         width: 100%;
         max-width: 100%;
+        max-height: ${LABEL_PROFILE.barcodeMaxHeightMm}mm;
         height: auto;
-        display: block;
         margin: 0 auto;
       }
       .code {
         font-size: ${LABEL_PROFILE.codeFontPx}px;
         font-weight: 700;
         letter-spacing: 0.05em;
-        margin: 0 0 0.6mm;
-        line-height: 1.15;
+        line-height: 1.1;
+        margin: 0;
       }
       .weight {
         font-size: ${LABEL_PROFILE.weightFontPx}px;
-        line-height: 1.15;
+        line-height: 1.1;
         margin: 0;
       }
       @media print {
         html,
         body {
           width: ${LABEL_PROFILE.pageWidthMm}mm;
-          min-height: ${LABEL_PROFILE.pageHeightMm}mm;
+          height: ${LABEL_PROFILE.pageHeightMm}mm;
+          overflow: hidden;
+        }
+        .label,
+        .barcode-wrap,
+        .code,
+        .weight {
+          page-break-inside: avoid;
+          break-inside: avoid;
+          page-break-after: avoid;
+          break-after: avoid;
         }
       }
     </style>
   </head>
   <body>
     <main class="label">
-      <div class="meta">Bag Sticker</div>
       <div class="barcode-wrap"><svg id="bag-barcode" aria-label="Bag barcode"></svg></div>
       <div class="code" id="code"></div>
       <div class="weight" id="weight"></div>
@@ -109,7 +118,7 @@ function barcodeModuleWidthForCode(code: string): number {
     LABEL_PROFILE.pageWidthMm - LABEL_PROFILE.paddingLeftMm - LABEL_PROFILE.paddingRightMm;
   const estimatedModules = 35 + code.length * 11;
   const target = printableWidthMm / estimatedModules;
-  return Math.min(2.4, Math.max(1.6, target));
+  return Math.min(2.2, Math.max(1.5, target));
 }
 
 /**
@@ -144,8 +153,10 @@ export function printLabel(stickerCode: string, weightGrams: number): void {
     iframe.setAttribute("aria-hidden", "true");
     iframe.setAttribute("tabindex", "-1");
     iframe.style.position = "fixed";
-    iframe.style.width = "0";
-    iframe.style.height = "0";
+    iframe.style.left = "0";
+    iframe.style.top = "0";
+    iframe.style.width = `${LABEL_PROFILE.pageWidthMm}mm`;
+    iframe.style.height = `${LABEL_PROFILE.pageHeightMm}mm`;
     iframe.style.border = "0";
     iframe.style.visibility = "hidden";
     document.body.appendChild(iframe);
