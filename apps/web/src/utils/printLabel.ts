@@ -2,23 +2,24 @@ import JsBarcode from "jsbarcode";
 
 /** DK-2210 continuous tape on Brother QL-600 (29mm / 1.1" wide). */
 const LABEL_PROFILE = {
-  pageWidthMm: 29,
-  minPageHeightMm: 24,
-  maxPageHeightMm: 55,
-  pageHeightSafetyMm: 0.75,
+  tapeWidthMm: 29,
+  rotateDegrees: 90,
+  minFeedLengthMm: 24,
+  maxFeedLengthMm: 55,
+  feedLengthSafetyMm: 0.75,
   paddingTopMm: 2,
   paddingRightMm: 2,
   paddingBottomMm: 2,
   paddingLeftMm: 3.5,
-  codeFontPx: 11,
-  weightFontPx: 9,
-  barcodeHeight: 30,
+  codeFontPx: 10,
+  weightFontPx: 8,
+  barcodeHeight: 26,
   barcodeQuietZone: 8,
-  barcodeMaxHeightMm: 10
+  barcodeMaxHeightMm: 9
 } as const;
 
 export const LABEL_PRINT_SETUP_HINT =
-  "Print setup: Brother QL-600, 29mm continuous tape (DK-2210), portrait orientation, scale 100%, default margins, and headers/footers off.";
+  "Print setup: Brother QL-600, 29mm continuous tape (DK-2210), scale 100%, default margins, headers/footers off. If orientation is offered, try landscape when portrait still splits.";
 
 const LABEL_HTML = `<!doctype html>
 <html>
@@ -36,16 +37,26 @@ const LABEL_HTML = `<!doctype html>
       body {
         margin: 0;
         padding: 0;
-        width: ${LABEL_PROFILE.pageWidthMm}mm;
         background: #fff;
         color: #000;
         font-family: Arial, Helvetica, sans-serif;
       }
       body {
+        position: relative;
         box-sizing: border-box;
+        overflow: visible;
+      }
+      .labelStage {
+        position: absolute;
+        top: 0;
+        left: ${LABEL_PROFILE.tapeWidthMm}mm;
+        transform: rotate(${LABEL_PROFILE.rotateDegrees}deg);
+        transform-origin: top left;
+        page-break-inside: avoid;
+        break-inside: avoid;
       }
       .label {
-        width: 100%;
+        width: ${LABEL_PROFILE.tapeWidthMm}mm;
         box-sizing: border-box;
         padding: ${LABEL_PROFILE.paddingTopMm}mm ${LABEL_PROFILE.paddingRightMm}mm ${LABEL_PROFILE.paddingBottomMm}mm ${LABEL_PROFILE.paddingLeftMm}mm;
         display: flex;
@@ -82,6 +93,7 @@ const LABEL_HTML = `<!doctype html>
         margin: 0;
       }
       @media print {
+        .labelStage,
         .label,
         .barcode-wrap,
         .code,
@@ -95,11 +107,13 @@ const LABEL_HTML = `<!doctype html>
     </style>
   </head>
   <body>
-    <main class="label">
-      <div class="barcode-wrap"><svg id="bag-barcode" aria-label="Bag barcode"></svg></div>
-      <div class="code" id="code"></div>
-      <div class="weight" id="weight"></div>
-    </main>
+    <div class="labelStage">
+      <main class="label">
+        <div class="barcode-wrap"><svg id="bag-barcode" aria-label="Bag barcode"></svg></div>
+        <div class="code" id="code"></div>
+        <div class="weight" id="weight"></div>
+      </main>
+    </div>
   </body>
 </html>`;
 
@@ -107,21 +121,27 @@ function pxToMm(px: number): number {
   return (px * 25.4) / 96;
 }
 
-function clampPageHeightMm(heightMm: number): number {
+function clampFeedLengthMm(lengthMm: number): number {
   return Math.min(
-    LABEL_PROFILE.maxPageHeightMm,
-    Math.max(LABEL_PROFILE.minPageHeightMm, heightMm)
+    LABEL_PROFILE.maxFeedLengthMm,
+    Math.max(LABEL_PROFILE.minFeedLengthMm, lengthMm)
   );
 }
 
-function measureLabelHeightMm(label: HTMLElement): number {
-  const heightPx = Math.max(label.scrollHeight, label.getBoundingClientRect().height);
-  return clampPageHeightMm(pxToMm(heightPx) + LABEL_PROFILE.pageHeightSafetyMm);
+function measureFeedLengthMm(label: HTMLElement, labelStage: HTMLElement): number {
+  const labelLengthPx = Math.max(label.scrollHeight, label.getBoundingClientRect().height);
+  const stageLengthPx = Math.max(
+    labelStage.scrollHeight,
+    labelStage.getBoundingClientRect().width,
+    labelStage.getBoundingClientRect().height
+  );
+  const lengthPx = Math.max(labelLengthPx, stageLengthPx);
+  return clampFeedLengthMm(pxToMm(lengthPx) + LABEL_PROFILE.feedLengthSafetyMm);
 }
 
-function applyPageSize(doc: Document, iframe: HTMLIFrameElement, pageHeightMm: number): void {
-  const pageWidthMm = LABEL_PROFILE.pageWidthMm;
-  const pageSize = `${pageWidthMm}mm ${pageHeightMm}mm`;
+function applyPageSize(doc: Document, iframe: HTMLIFrameElement, feedLengthMm: number): void {
+  const tapeWidthMm = LABEL_PROFILE.tapeWidthMm;
+  const pageSize = `${feedLengthMm}mm ${tapeWidthMm}mm`;
 
   let pageStyle = doc.getElementById("label-page-size") as HTMLStyleElement | null;
   if (!pageStyle) {
@@ -137,25 +157,25 @@ function applyPageSize(doc: Document, iframe: HTMLIFrameElement, pageHeightMm: n
     }
     html,
     body {
-      width: ${pageWidthMm}mm;
-      height: ${pageHeightMm}mm;
+      width: ${feedLengthMm}mm;
+      height: ${tapeWidthMm}mm;
     }
     @media print {
       html,
       body {
-        width: ${pageWidthMm}mm;
-        height: ${pageHeightMm}mm;
+        width: ${feedLengthMm}mm;
+        height: ${tapeWidthMm}mm;
       }
     }
   `;
 
-  iframe.style.width = `${pageWidthMm}mm`;
-  iframe.style.height = `${pageHeightMm}mm`;
+  iframe.style.width = `${feedLengthMm}mm`;
+  iframe.style.height = `${tapeWidthMm}mm`;
 }
 
 function barcodeModuleWidthForCode(code: string): number {
   const printableWidthMm =
-    LABEL_PROFILE.pageWidthMm - LABEL_PROFILE.paddingLeftMm - LABEL_PROFILE.paddingRightMm;
+    LABEL_PROFILE.tapeWidthMm - LABEL_PROFILE.paddingLeftMm - LABEL_PROFILE.paddingRightMm;
   const estimatedModules = 35 + code.length * 11;
   const target = printableWidthMm / estimatedModules;
   return Math.min(2.2, Math.max(1.5, target));
@@ -195,8 +215,8 @@ export function printLabel(stickerCode: string, weightGrams: number): void {
     iframe.style.position = "fixed";
     iframe.style.left = "0";
     iframe.style.top = "0";
-    iframe.style.width = `${LABEL_PROFILE.pageWidthMm}mm`;
-    iframe.style.height = `${LABEL_PROFILE.minPageHeightMm}mm`;
+    iframe.style.width = `${LABEL_PROFILE.minFeedLengthMm}mm`;
+    iframe.style.height = `${LABEL_PROFILE.tapeWidthMm}mm`;
     iframe.style.border = "0";
     iframe.style.visibility = "hidden";
     document.body.appendChild(iframe);
@@ -211,11 +231,12 @@ export function printLabel(stickerCode: string, weightGrams: number): void {
     doc.write(LABEL_HTML);
     doc.close();
 
+    const labelStage = doc.querySelector(".labelStage") as HTMLElement | null;
     const label = doc.querySelector(".label") as HTMLElement | null;
     const barcodeSvg = doc.getElementById("bag-barcode") as SVGSVGElement | null;
     const codeText = doc.getElementById("code");
     const weightText = doc.getElementById("weight");
-    if (!label || !barcodeSvg || !codeText || !weightText) {
+    if (!labelStage || !label || !barcodeSvg || !codeText || !weightText) {
       throw new Error("Failed to create print layout.");
     }
 
@@ -238,8 +259,8 @@ export function printLabel(stickerCode: string, weightGrams: number): void {
 
     const printWhenReady = () => {
       frameWindow.requestAnimationFrame(() => {
-        const pageHeightMm = measureLabelHeightMm(label);
-        applyPageSize(doc, iframe!, pageHeightMm);
+        const feedLengthMm = measureFeedLengthMm(label, labelStage);
+        applyPageSize(doc, iframe!, feedLengthMm);
         frameWindow.requestAnimationFrame(() => {
           frameWindow.focus();
           frameWindow.print();
