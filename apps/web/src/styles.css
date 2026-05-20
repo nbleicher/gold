@@ -837,6 +837,49 @@ body {
   padding-bottom: 3.5rem;
 }
 
+.stream-sticker-scan-wrap {
+  padding: 0.65rem 0.75rem;
+  border-radius: 8px;
+  border: 1px solid transparent;
+  transition:
+    border-color 0.15s ease,
+    background 0.15s ease,
+    box-shadow 0.15s ease;
+}
+
+.stream-sticker-scan-wrap.is-focused {
+  border-color: rgba(212, 175, 55, 0.45);
+  background: rgba(212, 175, 55, 0.06);
+  box-shadow: 0 0 0 1px rgba(212, 175, 55, 0.12);
+}
+
+.stream-sticker-scan-label-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.stream-sticker-scan-ready {
+  font-size: 0.62rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--gold);
+  font-weight: 600;
+}
+
+.stream-sticker-scan-input:focus {
+  border-color: var(--gold-dark);
+}
+
+.stream-sticker-scan-input:focus-visible {
+  outline: 2px solid var(--gold);
+  outline-offset: 2px;
+  border-color: var(--gold);
+  box-shadow: 0 0 0 3px rgba(212, 175, 55, 0.25);
+}
+
 .stream-live-bar {
   display: flex;
   align-items: center;

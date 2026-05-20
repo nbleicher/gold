@@ -91,6 +91,7 @@ export function StreamsPage() {
   const [activeStreamId, setActiveStreamId] = useState<string | null>(null);
   const [pendingStartKind, setPendingStartKind] = useState<"break" | "sticker">("break");
   const [stickerCodeInput, setStickerCodeInput] = useState("");
+  const [scanFocused, setScanFocused] = useState(false);
   const stickerInputRef = useRef<HTMLInputElement | null>(null);
   const autoSubmitTimerRef = useRef<number | null>(null);
   const lastAutoSubmittedRef = useRef("");
@@ -225,13 +226,23 @@ export function StreamsPage() {
     }
   });
 
+  const clearIdleSubmitTimer = useCallback(() => {
+    if (autoSubmitTimerRef.current != null) {
+      window.clearTimeout(autoSubmitTimerRef.current);
+      autoSubmitTimerRef.current = null;
+    }
+  }, []);
+
   const submitStickerCode = useCallback(
     (candidate: string) => {
       const normalized = candidate.trim().toUpperCase();
       if (!normalized || !isStickerStream || !activeStreamId || stickerSaleMutation.isPending) return;
+      if (normalized === lastAutoSubmittedRef.current) return;
+      clearIdleSubmitTimer();
+      lastAutoSubmittedRef.current = normalized;
       stickerSaleMutation.mutate(normalized);
     },
-    [activeStreamId, isStickerStream, stickerSaleMutation]
+    [activeStreamId, clearIdleSubmitTimer, isStickerStream, stickerSaleMutation]
   );
 
   useEffect(() => {
@@ -248,7 +259,6 @@ export function StreamsPage() {
     const normalized = stickerCodeInput.trim().toUpperCase();
     if (normalized.length < 3 || normalized === lastAutoSubmittedRef.current) return;
     autoSubmitTimerRef.current = window.setTimeout(() => {
-      lastAutoSubmittedRef.current = normalized;
       submitStickerCode(normalized);
     }, SCAN_IDLE_MS);
     return () => {
@@ -454,17 +464,29 @@ export function StreamsPage() {
           </p>
 
           {isStickerStream ? (
-            <div style={{ marginBottom: "1rem" }} className="grid-form">
+            <div
+              style={{ marginBottom: "1rem" }}
+              className={`grid-form stream-sticker-scan-wrap${scanFocused ? " is-focused" : ""}`}
+            >
               <label style={{ fontSize: "0.7rem", color: "var(--muted)" }}>
-                Sticker code
+                <span className="stream-sticker-scan-label-row">
+                  Sticker code
+                  {scanFocused ? (
+                    <span className="stream-sticker-scan-ready" aria-live="polite">
+                      Ready to scan
+                    </span>
+                  ) : null}
+                </span>
                 <input
                   ref={stickerInputRef}
-                  className="form-input"
+                  className="form-input stream-sticker-scan-input"
                   style={{ marginTop: "0.35rem" }}
                   value={stickerCodeInput}
                   onChange={(e) => setStickerCodeInput(e.target.value.toUpperCase().replace(/\s+/g, ""))}
+                  onFocus={() => setScanFocused(true)}
+                  onBlur={() => setScanFocused(false)}
                   onKeyDown={(e) => {
-                    if (e.key !== "Enter") return;
+                    if (e.key !== "Enter" && e.key !== "NumpadEnter") return;
                     e.preventDefault();
                     submitStickerCode(stickerCodeInput);
                   }}
@@ -474,7 +496,7 @@ export function StreamsPage() {
                 />
               </label>
               <p style={{ fontSize: "0.68rem", color: "var(--muted)", margin: 0 }}>
-                Scanner-ready: barcode auto-logs after each scan.
+                Scanner-ready: wedge scanners can send Enter after each scan, or auto-log after a short pause.
               </p>
               <button
                 type="button"
