@@ -8,3 +8,5 @@ coverage
 .turbo
 .vercel
 *.log
+turso-export.json
+turso-export-no-spots.json

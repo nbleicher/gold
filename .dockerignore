@@ -1,0 +1,32 @@
+# Migration exports (large; not used at API runtime)
+turso-export.json
+turso-export-no-spots.json
+
+# Dependencies and build output (rebuilt in image)
+node_modules
+**/node_modules
+dist
+**/dist
+.git
+
+# Web app (deployed on Cloudflare Pages, not Railway API)
+apps/web
+!apps/web/package.json
+
+# Dev / ops artifacts not needed for API image
+packaging
+docs
+goldstream-app.html
+label-server.js
+spot_scraper.py
+Untitled
+
+# Local secrets and logs
+.env
+.env.*
+!.env.example
+*.log
+.DS_Store
+coverage
+.turbo
+.vercel

@@ -11,7 +11,7 @@
 
 1. Create Railway service from repo root.
 2. Set service root/build context to repository root.
-3. **Build:** [`railway.toml`](railway.toml) runs `npm --workspace @gold/shared run build && npm --workspace @gold/api run build` so TypeScript compiles during deploy (not on every container boot).
+3. **Build:** [`railway.toml`](railway.toml) runs `npm --workspace @gold/shared run build && npm --workspace @gold/api run build` so TypeScript compiles during deploy (not on every container boot). Railpack uses [`.node-version`](../.node-version) / [`railpack.json`](../railpack.json) (Node 20) and [`.dockerignore`](../.dockerignore) to keep the upload snapshot small.
 4. Set start command:
    - `npm --workspace @gold/api run start` (runs `node dist/server.js` only)
 5. Configure env vars:
@@ -72,6 +72,14 @@
 
 4. Custom domain: attach `gold.jawnix.com` to the Pages project.
 5. If you need the Worker wrapper in production, deploy it separately with the command above (or host static-only on Pages; `/health` can live on the Railway API instead).
+
+## Troubleshooting: Railway build fails on `apt-get` / `libatomic1`
+
+If deploy logs show **`No space left on device`** during `apt-get update` and then **`Unable to locate package libatomic1`**, the builder ran out of disk while preparing the runtime image — `libatomic1` is usually a follow-on error, not the root cause.
+
+1. **Retry the deploy once** (Metal builders can hit transient disk limits).
+2. Confirm the repo includes **`.dockerignore`** and that **`turso-export.json`** / **`turso-export-no-spots.json`** are **not** tracked in git (migration-only; regenerate locally with `npm run migrate:turso:export -- ./turso-export.json`).
+3. Confirm **`.node-version`** / **`railpack.json`** pin Node 20 so Railpack does not pull Node 22’s extra runtime apt steps when unnecessary.
 
 ## CORS
 
