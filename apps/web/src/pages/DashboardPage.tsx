@@ -1,7 +1,9 @@
 import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { Link } from "react-router-dom";
 import { TROY_OUNCES_TO_GRAMS } from "../lib/metal";
 import { api } from "../lib/api";
+import { EmptyState, InlineAlert, PageHeader, StatusBadge } from "../components/ui";
 
 type HomeLastStream = {
   id: string;
@@ -195,6 +197,30 @@ function ProfitLossChart({ rows }: { rows: DailyProfitLoss[] }) {
   );
 }
 
+function TodayAction({
+  title,
+  detail,
+  to,
+  action,
+  tone = "neutral"
+}: {
+  title: string;
+  detail: string;
+  to: string;
+  action: string;
+  tone?: "neutral" | "success" | "warning";
+}) {
+  return (
+    <Link className={`today-action today-action-${tone}`} to={to}>
+      <span>
+        <strong>{title}</strong>
+        <small>{detail}</small>
+      </span>
+      <b>{action}</b>
+    </Link>
+  );
+}
+
 export function DashboardPage() {
   const home = useQuery({
     queryKey: ["dashboard-home"],
@@ -212,6 +238,8 @@ export function DashboardPage() {
   const admin = home.data?.admin;
   const last = home.data?.lastStream ?? null;
   const next = home.data?.nextSchedule ?? null;
+  const openRecentStreams = admin?.recentStreams.filter((s) => !s.endedAt).length ?? 0;
+  const unsoldStickerCount = admin ? Math.max(0, admin.bags.total - admin.bags.sold) : 0;
   const newestSpotMs = Math.max(
     spot.data?.gold?.createdAt ? parseTs(spot.data.gold.createdAt).getTime() : 0,
     spot.data?.silver?.createdAt ? parseTs(spot.data.silver.createdAt).getTime() : 0
@@ -220,19 +248,87 @@ export function DashboardPage() {
 
   return (
     <section className="dashboard-page">
-      <div className="page-head">
-        <div>
-          <h1>Dashboard</h1>
-          <p>Live metals, stream activity, and operating performance.</p>
-        </div>
-      </div>
+      <PageHeader
+        title="Today"
+        description="The next work to do, live metals, and current operating performance."
+        action={
+          <Link className="btn btn-gold" to="/streams">
+            Start stream
+          </Link>
+        }
+      />
 
       {(home.error || spot.error) ? (
         <p className="error">{((home.error ?? spot.error) as Error).message}</p>
       ) : null}
 
-      {spot.data?.partial ? <div className="notice">Spot feed is partial. One metal is missing a valid snapshot.</div> : null}
-      {isSpotStale ? <div className="notice">Spot feed looks stale. Check the VPS push job and API secret.</div> : null}
+      {spot.data?.partial ? <InlineAlert tone="warning">Spot feed is partial. One metal is missing a valid snapshot.</InlineAlert> : null}
+      {isSpotStale ? <InlineAlert tone="warning">Spot feed looks stale. Check the spot price updater.</InlineAlert> : null}
+
+      <div className="dashboard-section today-workspace">
+        <div className="section-title-row">
+          <div>
+            <h2>Today Workspace</h2>
+            <p className="section-description">Quick links for the work most likely to happen during a shift.</p>
+          </div>
+          <StatusBadge tone={next ? "success" : "neutral"}>
+            {next ? "Scheduled" : "No approved stream"}
+          </StatusBadge>
+        </div>
+        <div className="today-grid">
+          <TodayAction
+            title={next ? "Next stream" : "No stream scheduled"}
+            detail={next ? formatUpcomingSchedule(next) : "Go to Schedule to request or add one."}
+            to={next ? "/streams" : "/schedule"}
+            action={next ? "Open stream" : "Open schedule"}
+            tone={next ? "success" : "neutral"}
+          />
+          {admin ? (
+            <>
+              <TodayAction
+                title="Create stickers"
+                detail={`${unsoldStickerCount} unsold stickers available`}
+                to="/admin/operations/inventory#create-stickers"
+                action="Create"
+              />
+              <TodayAction
+                title="Add metal"
+                detail={`${admin.inventory.remainingGrams.toFixed(2)}g currently on hand`}
+                to="/admin/operations/inventory#add-metal"
+                action="Add"
+              />
+              <TodayAction
+                title="Review past streams"
+                detail={openRecentStreams > 0 ? `${openRecentStreams} stream still open` : "Check earnings, expenses, and results."}
+                to="/admin/stream-log"
+                action="Review"
+                tone={openRecentStreams > 0 ? "warning" : "neutral"}
+              />
+            </>
+          ) : (
+            <>
+              <TodayAction
+                title="Start stream"
+                detail="Open live stream controls when sales begin."
+                to="/streams"
+                action="Open"
+              />
+              <TodayAction
+                title="My schedule"
+                detail="Request or review upcoming stream slots."
+                to="/schedule"
+                action="Open"
+              />
+              <TodayAction
+                title={last ? "Last stream" : "First stream"}
+                detail={last ? `${last.itemCount} entries logged last time.` : "No streams have been logged yet."}
+                to="/streams"
+                action={last ? "Review" : "Start"}
+              />
+            </>
+          )}
+        </div>
+      </div>
 
       <div className="metric-grid dashboard-prices">
         <SpotCard label="Gold spot" spot={spot.data?.gold ?? null} />
@@ -325,7 +421,7 @@ export function DashboardPage() {
               </div>
             </div>
           ) : (
-            <div className="empty-state">No streams have been logged for this account.</div>
+            <EmptyState title="No streams yet" description="Start a stream when sales begin." />
           )}
         </div>
 
@@ -344,7 +440,7 @@ export function DashboardPage() {
                   <b>{s.completedEarnings == null ? "Open" : money(s.completedEarnings)}</b>
                 </div>
               ))}
-              {!admin.recentStreams.length ? <div className="empty-state">No stream history yet.</div> : null}
+              {!admin.recentStreams.length ? <EmptyState title="No past streams yet" description="Completed streams will appear here." /> : null}
             </div>
           </div>
         ) : null}

@@ -146,7 +146,7 @@ function Shell() {
                   Users
                 </NavLink>
                 <NavLink to="/admin/stream-log" className={navTabClass} onClick={() => setMobileNavOpen(false)}>
-                  Stream Log
+                  Past Streams
                 </NavLink>
                 <NavLink to="/admin/schedule" className={navTabClass} onClick={() => setMobileNavOpen(false)}>
                   Schedule
@@ -182,7 +182,7 @@ function Shell() {
               Users
             </NavLink>
             <NavLink to="/admin/stream-log" className={navSubTabClass}>
-              Stream Log
+              Past Streams
             </NavLink>
           </nav>
         </div>

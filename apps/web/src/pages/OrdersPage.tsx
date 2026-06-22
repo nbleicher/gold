@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "../lib/api";
 import { getTierIndex } from "../lib/tiers";
 import { printLabel, LABEL_PRINT_SETUP_HINT } from "../utils/printLabel";
+import { StatusBadge } from "../components/ui";
 
 type Batch = {
   id: string;
@@ -238,8 +239,8 @@ export function OrdersPage() {
   const canStartSession = sessionMetal !== CUSTOM_METAL_VALUE || customSessionMetal.trim().length > 0;
 
   return (
-    <section className="card">
-      <h2>Inventory Management</h2>
+    <section className="card" id="create-stickers">
+      <h2>Create Stickers</h2>
       <p
         className="pg-sub"
         style={{
@@ -250,7 +251,7 @@ export function OrdersPage() {
           color: "var(--text-dim)"
         }}
       >
-        Bag from pooled metal · weight sets tier · sticker code auto-assigned
+        Turn inventory into labeled bags for stream sales
       </p>
       <p
         style={{
@@ -269,14 +270,14 @@ export function OrdersPage() {
         <p className="error">{String((batches.error ?? bagOrders.error ?? metalPool.error ?? activeSession.error ?? adminSessions.error) as Error)}</p>
       ) : null}
 
-      <div className="card" style={{ marginBottom: "1.5rem", padding: "1.2rem", background: "var(--slate)" }}>
+      <div className="workflow-panel">
         <div style={{ fontSize: "0.65rem", letterSpacing: "0.12em", color: "var(--muted)", marginBottom: "0.75rem" }}>
-          INVENTORY SESSION
+          STICKER SESSION
         </div>
         {session ? (
           <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: "0.75rem" }}>
             <div style={{ fontSize: "0.72rem", color: "var(--text-dim)" }}>
-              Active session:{" "}
+              Current sticker session:{" "}
               <strong style={{ color: "var(--text)" }}>
                 {formatMetalLabel(session.metal)}
               </strong>{" "}
@@ -288,7 +289,7 @@ export function OrdersPage() {
               disabled={endSession.isPending}
               onClick={() => endSession.mutate(session.id)}
             >
-              End session
+              Finish sticker session
             </button>
           </div>
         ) : (
@@ -326,7 +327,7 @@ export function OrdersPage() {
               disabled={startSession.isPending || !canStartSession}
               onClick={() => startSession.mutate()}
             >
-              Start session
+              Start sticker session
             </button>
           </div>
         )}
@@ -334,9 +335,9 @@ export function OrdersPage() {
         {endSession.error ? <p className="error">{(endSession.error as Error).message}</p> : null}
       </div>
 
-      <div className="card" style={{ marginBottom: "1.5rem", padding: "1.2rem", background: "var(--slate)" }}>
+      <div className="workflow-panel">
         <div style={{ fontSize: "0.65rem", letterSpacing: "0.12em", color: "var(--muted)", marginBottom: "0.75rem" }}>
-          NEW BAG
+          NEW STICKER
         </div>
         <form onSubmit={onSubmit}>
           <div className="grid-form" style={{ display: "flex", flexWrap: "wrap", gap: "0.75rem", alignItems: "flex-end" }}>
@@ -446,7 +447,7 @@ export function OrdersPage() {
       </div>
 
       <div style={{ fontSize: "0.65rem", letterSpacing: "0.12em", color: "var(--muted)", marginBottom: "0.75rem" }}>
-        RECENT BAGS
+        RECENT STICKERS
       </div>
       <p style={{ fontSize: "0.62rem", color: "var(--muted)", margin: "0 0 0.75rem", maxWidth: "42rem", lineHeight: 1.45 }}>
         {LABEL_PRINT_SETUP_HINT}
@@ -469,7 +470,7 @@ export function OrdersPage() {
             {(bagOrders.data ?? []).length === 0 ? (
               <tr>
                 <td colSpan={8} className="tbl-empty">
-                  No bag orders yet
+                  No stickers created yet
                 </td>
               </tr>
             ) : (
@@ -485,9 +486,9 @@ export function OrdersPage() {
                   </td>
                   <td>
                     {o.sold ? (
-                      <span className="badge badge-evening">Sold</span>
+                      <StatusBadge tone="success">Sold</StatusBadge>
                     ) : (
-                      <span className="badge badge-morning">Open</span>
+                      <StatusBadge>Available</StatusBadge>
                     )}
                   </td>
                   <td>
@@ -511,7 +512,7 @@ export function OrdersPage() {
                             removeBag.mutate(o.id);
                           }}
                         >
-                          Remove
+                          Remove sticker
                         </button>
                         <button
                           type="button"
@@ -519,7 +520,7 @@ export function OrdersPage() {
                           title="Print label"
                           onClick={() => printLabel(o.sticker_code, Number(o.actual_weight_grams))}
                         >
-                          Print
+                          Print label
                         </button>
                       </div>
                     ) : null}
@@ -533,7 +534,7 @@ export function OrdersPage() {
       {removeBag.error ? <p className="error">{(removeBag.error as Error).message}</p> : null}
 
       <div style={{ fontSize: "0.65rem", letterSpacing: "0.12em", color: "var(--muted)", margin: "1.5rem 0 0.75rem" }}>
-        RECENT INVENTORY SESSIONS
+        RECENT STICKER SESSIONS
       </div>
       <div className="tbl-wrap">
         <table className="tbl">
@@ -552,7 +553,7 @@ export function OrdersPage() {
             {(adminSessions.data ?? []).length === 0 ? (
               <tr>
                 <td colSpan={7} className="tbl-empty">
-                  No inventory sessions yet
+                  No sticker sessions yet
                 </td>
               </tr>
             ) : (
