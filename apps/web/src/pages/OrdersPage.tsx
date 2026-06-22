@@ -16,6 +16,10 @@ type MetalPool = {
   silver: { gramsOnHand: number; avgCostPerGram: number };
 };
 
+type PoolMetal = "gold" | "silver";
+
+const CUSTOM_METAL_VALUE = "__custom__";
+
 type BagComponent = { batch_id: string; metal: string; weight_grams: number };
 type BagOrder = {
   id: string;
@@ -33,7 +37,7 @@ type BagOrder = {
 type InventorySession = {
   id: string;
   user_id: string;
-  metal: "gold" | "silver";
+  metal: string;
   started_at: string;
   ended_at: string | null;
   username: string;
@@ -62,6 +66,16 @@ type AdminInventorySession = InventorySession & {
   }>;
 };
 
+function isPoolMetal(metal: string): metal is PoolMetal {
+  return metal === "gold" || metal === "silver";
+}
+
+function formatMetalLabel(metal: string): string {
+  const value = metal.trim();
+  if (!value) return "Metal";
+  return value[0].toUpperCase() + value.slice(1);
+}
+
 function sourceLabel(order: BagOrder, batches: Batch[]): string {
   const comps = order.bag_order_components ?? [];
   if (!comps.length) return "Metal pool";
@@ -76,8 +90,9 @@ function sourceLabel(order: BagOrder, batches: Batch[]): string {
 
 export function OrdersPage() {
   const qc = useQueryClient();
-  const [sessionMetal, setSessionMetal] = useState<"gold" | "silver">("gold");
-  const [metal, setMetal] = useState<"gold" | "silver">("gold");
+  const [sessionMetal, setSessionMetal] = useState<PoolMetal | typeof CUSTOM_METAL_VALUE>("gold");
+  const [customSessionMetal, setCustomSessionMetal] = useState("");
+  const [metal, setMetal] = useState<PoolMetal>("gold");
   const [primaryWeight, setPrimaryWeight] = useState("");
   const [mixed, setMixed] = useState(false);
   const [secondWeight, setSecondWeight] = useState("");
@@ -110,12 +125,18 @@ export function OrdersPage() {
 
   useEffect(() => {
     if (!activeSession.data) return;
-    setMetal(activeSession.data.metal);
-    setSessionMetal(activeSession.data.metal);
+    if (isPoolMetal(activeSession.data.metal)) {
+      setMetal(activeSession.data.metal);
+      setSessionMetal(activeSession.data.metal);
+      setCustomSessionMetal("");
+    } else {
+      setSessionMetal(CUSTOM_METAL_VALUE);
+      setCustomSessionMetal(activeSession.data.metal);
+    }
     setMixed(false);
   }, [activeSession.data]);
 
-  const secondMetal: "gold" | "silver" = metal === "gold" ? "silver" : "gold";
+  const secondMetal: PoolMetal = metal === "gold" ? "silver" : "gold";
 
   const tierPreview = useMemo(() => {
     const w = Number(primaryWeight) || 0;
@@ -136,6 +157,7 @@ export function OrdersPage() {
           primaryWeightGrams: Number(primaryWeight),
           secondMetal: mixed ? secondMetal : undefined,
           secondWeightGrams: mixed ? Number(secondWeight) : undefined,
+          stickerMetal: activeSession.data?.metal,
           inventorySessionId: activeSession.data?.id
         })
       }),
@@ -169,11 +191,19 @@ export function OrdersPage() {
     mutationFn: () =>
       api<InventorySession>("/v1/inventory/sessions/start", {
         method: "POST",
-        body: JSON.stringify({ metal: sessionMetal })
+        body: JSON.stringify({
+          metal: sessionMetal === CUSTOM_METAL_VALUE ? customSessionMetal.trim() : sessionMetal
+        })
       }),
     onSuccess: (session) => {
-      setMetal(session.metal);
-      setSessionMetal(session.metal);
+      if (isPoolMetal(session.metal)) {
+        setMetal(session.metal);
+        setSessionMetal(session.metal);
+        setCustomSessionMetal("");
+      } else {
+        setSessionMetal(CUSTOM_METAL_VALUE);
+        setCustomSessionMetal(session.metal);
+      }
       setMixed(false);
       qc.invalidateQueries({ queryKey: ["inventory-session-active"] });
       qc.invalidateQueries({ queryKey: ["admin-inventory-sessions"] });
@@ -204,6 +234,8 @@ export function OrdersPage() {
   const primaryPool = metalPool.data?.[metal];
   const secondPool = metalPool.data?.[secondMetal];
   const session = activeSession.data;
+  const sessionIsPoolMetal = Boolean(session && isPoolMetal(session.metal));
+  const canStartSession = sessionMetal !== CUSTOM_METAL_VALUE || customSessionMetal.trim().length > 0;
 
   return (
     <section className="card">
@@ -246,7 +278,7 @@ export function OrdersPage() {
             <div style={{ fontSize: "0.72rem", color: "var(--text-dim)" }}>
               Active session:{" "}
               <strong style={{ color: "var(--text)" }}>
-                {session.metal[0].toUpperCase() + session.metal.slice(1)}
+                {formatMetalLabel(session.metal)}
               </strong>{" "}
               since {new Date(session.started_at).toLocaleString()}
             </div>
@@ -266,16 +298,32 @@ export function OrdersPage() {
               <select
                 className="form-input"
                 value={sessionMetal}
-                onChange={(e) => setSessionMetal(e.target.value as "gold" | "silver")}
+                onChange={(e) => {
+                  setSessionMetal(e.target.value as PoolMetal | typeof CUSTOM_METAL_VALUE);
+                  if (e.target.value !== CUSTOM_METAL_VALUE) setCustomSessionMetal("");
+                }}
               >
                 <option value="gold">Gold</option>
                 <option value="silver">Silver</option>
+                <option value={CUSTOM_METAL_VALUE}>Add new metal...</option>
               </select>
             </div>
+            {sessionMetal === CUSTOM_METAL_VALUE ? (
+              <div className="form-group" style={{ minWidth: 180 }}>
+                <label className="form-label">New metal</label>
+                <input
+                  className="form-input"
+                  value={customSessionMetal}
+                  maxLength={40}
+                  placeholder="Metal name"
+                  onChange={(e) => setCustomSessionMetal(e.target.value)}
+                />
+              </div>
+            ) : null}
             <button
               type="button"
               className="btn btn-gold"
-              disabled={startSession.isPending}
+              disabled={startSession.isPending || !canStartSession}
               onClick={() => startSession.mutate()}
             >
               Start session
@@ -293,14 +341,14 @@ export function OrdersPage() {
         <form onSubmit={onSubmit}>
           <div className="grid-form" style={{ display: "flex", flexWrap: "wrap", gap: "0.75rem", alignItems: "flex-end" }}>
             <div className="form-group" style={{ minWidth: 120 }}>
-              <label className="form-label">Metal</label>
+              <label className="form-label">{session && !sessionIsPoolMetal ? "Inventory source" : "Metal"}</label>
               <select
                 className="form-input"
                 value={metal}
                 onChange={(e) => {
-                  setMetal(e.target.value as "gold" | "silver");
+                  setMetal(e.target.value as PoolMetal);
                 }}
-                disabled={Boolean(session)}
+                disabled={sessionIsPoolMetal}
               >
                 <option value="gold">Gold</option>
                 <option value="silver">Silver</option>
@@ -329,8 +377,13 @@ export function OrdersPage() {
           </div>
           {primaryPool ? (
             <p style={{ fontSize: "0.68rem", color: "var(--muted)", marginTop: "0.55rem" }}>
-              {metal[0].toUpperCase() + metal.slice(1)} pool: {Number(primaryPool.gramsOnHand).toFixed(4)}g on hand · avg $
+              {formatMetalLabel(metal)} pool: {Number(primaryPool.gramsOnHand).toFixed(4)}g on hand · avg $
               {Number(primaryPool.avgCostPerGram).toFixed(4)}/g
+            </p>
+          ) : null}
+          {session && !sessionIsPoolMetal ? (
+            <p style={{ fontSize: "0.68rem", color: "var(--muted)", marginTop: "0.55rem" }}>
+              Sticker metal label: {formatMetalLabel(session.metal)}
             </p>
           ) : null}
           <label
@@ -359,7 +412,7 @@ export function OrdersPage() {
             <div className="grid-form" style={{ marginTop: "0.75rem", display: "flex", flexWrap: "wrap", gap: "0.75rem" }}>
               <div className="form-group" style={{ minWidth: 180 }}>
                 <label className="form-label">Second metal</label>
-                <input className="form-input" value={secondMetal[0].toUpperCase() + secondMetal.slice(1)} readOnly />
+                <input className="form-input" value={formatMetalLabel(secondMetal)} readOnly />
               </div>
               <div className="form-group" style={{ minWidth: 140 }}>
                 <label className="form-label">Second metal weight (g)</label>
@@ -377,7 +430,7 @@ export function OrdersPage() {
           ) : null}
           {mixed && secondPool ? (
             <p style={{ fontSize: "0.68rem", color: "var(--muted)", marginTop: "0.55rem" }}>
-              {secondMetal[0].toUpperCase() + secondMetal.slice(1)} pool: {Number(secondPool.gramsOnHand).toFixed(4)}g on hand ·
+              {formatMetalLabel(secondMetal)} pool: {Number(secondPool.gramsOnHand).toFixed(4)}g on hand ·
               avg ${Number(secondPool.avgCostPerGram).toFixed(4)}/g
             </p>
           ) : null}
@@ -424,7 +477,7 @@ export function OrdersPage() {
                 <tr key={o.id}>
                   <td className="tbl-gold">{o.sticker_code}</td>
                   <td>{sourceLabel(o, batches.data ?? [])}</td>
-                  <td>{o.metal[0].toUpperCase() + o.metal.slice(1)}</td>
+                  <td>{formatMetalLabel(o.metal)}</td>
                   <td>{Number(o.actual_weight_grams).toFixed(4)}</td>
                   <td>{o.tier_index}</td>
                   <td style={{ fontSize: "0.62rem", color: "var(--muted)" }}>
@@ -506,7 +559,7 @@ export function OrdersPage() {
               (adminSessions.data ?? []).map((s) => (
                 <tr key={s.id}>
                   <td className="tbl-gold">{s.display_name?.trim() || s.username}</td>
-                  <td>{s.metal[0].toUpperCase() + s.metal.slice(1)}</td>
+                  <td>{formatMetalLabel(s.metal)}</td>
                   <td style={{ fontSize: "0.62rem", color: "var(--muted)" }}>
                     {new Date(s.started_at).toLocaleString()}
                   </td>

@@ -594,6 +594,41 @@ body {
   margin-bottom: 1rem;
 }
 
+.collapsible-panel > summary {
+  list-style: none;
+}
+
+.collapsible-panel > summary::-webkit-details-marker {
+  display: none;
+}
+
+.collapsible-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  cursor: pointer;
+}
+
+.collapsible-summary h2 {
+  margin-bottom: 0.35rem;
+}
+
+.collapsible-toggle {
+  flex: 0 0 auto;
+  border: 1px solid var(--border);
+  color: var(--muted);
+  font-size: 0.58rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  padding: 0.4rem 0.65rem;
+  border-radius: 2px;
+}
+
+.collapsible-panel[open] .collapsible-summary {
+  margin-bottom: 1.25rem;
+}
+
 /* ── FORM ELEMENTS ── */
 .form-row {
   display: flex;

@@ -1,7 +1,7 @@
 create table if not exists inventory_sessions (
   id text primary key default replace(gen_random_uuid()::text, '-', ''),
   user_id text not null references users(id) on delete restrict,
-  metal text not null check (metal in ('gold', 'silver')),
+  metal text not null,
   started_at timestamptz not null default now(),
   ended_at timestamptz
 );
