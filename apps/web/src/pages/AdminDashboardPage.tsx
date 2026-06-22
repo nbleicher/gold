@@ -74,14 +74,14 @@ export function AdminDashboardPage() {
           <div className="stat-val">{money(metrics.supplyTotalCost)}</div>
         </div>
         <div className="stat-box">
-          <div className="stat-lbl">Batch Management</div>
+          <div className="stat-lbl">Inventory on hand</div>
           <div className="stat-val">{metrics.batchRemainingPct.toFixed(2)}%</div>
           <div style={{ fontSize: "0.62rem", color: "var(--muted)", marginTop: "0.25rem" }}>
             {money(metrics.batchTotalCost)} total cost
           </div>
         </div>
         <div className="stat-box">
-          <div className="stat-lbl">Inventory Management</div>
+          <div className="stat-lbl">Created stickers</div>
           <div className="stat-val">{metrics.totalBags}</div>
           <div style={{ fontSize: "0.62rem", color: "var(--muted)", marginTop: "0.25rem" }}>Total bags</div>
         </div>
@@ -92,7 +92,7 @@ export function AdminDashboardPage() {
           <div className="stat-lbl">Total cost</div>
           <div className="stat-val">{money(metrics.totalCost)}</div>
           <div style={{ fontSize: "0.62rem", color: "var(--muted)", marginTop: "0.25rem" }}>
-            Supplies + Batch Management
+            Supplies + inventory purchases
           </div>
         </div>
         <div className="stat-box">

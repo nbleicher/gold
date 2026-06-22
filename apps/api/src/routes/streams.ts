@@ -164,8 +164,7 @@ export async function registerStreamRoutes(app: FastifyInstance) {
       id: string;
       ended_at: string | null;
       user_id: string;
-      stream_kind: string;
-    }>("select id, ended_at, user_id, stream_kind from streams where id = ?", [saleBody.streamId]);
+    }>("select id, ended_at, user_id from streams where id = ?", [saleBody.streamId]);
     if (!stream) {
       return req.server.httpErrors.notFound("Stream not found");
     }
@@ -175,10 +174,6 @@ export async function registerStreamRoutes(app: FastifyInstance) {
     if (stream.ended_at) {
       return req.server.httpErrors.conflict("Stream is not live");
     }
-    if (stream.stream_kind !== "sticker") {
-      return req.server.httpErrors.badRequest("Sticker sales only apply to sticker streams");
-    }
-
     const order = await one<{
       id: string;
       metal: "gold" | "silver" | "mixed";

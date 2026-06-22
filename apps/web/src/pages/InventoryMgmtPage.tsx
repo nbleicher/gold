@@ -1,6 +1,7 @@
 import { FormEvent, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "../lib/api";
+import { EmptyState } from "../components/ui";
 
 type Batch = {
   id: string;
@@ -25,7 +26,7 @@ function todayYmd(): string {
 
 export function InventoryMgmtPage() {
   const qc = useQueryClient();
-  const [batchOpen, setBatchOpen] = useState(false);
+  const [batchOpen, setBatchOpen] = useState(true);
   const [modalOpen, setModalOpen] = useState(false);
   const [date, setDate] = useState(todayYmd);
   const [metal, setMetal] = useState<"gold" | "silver">("gold");
@@ -104,7 +105,7 @@ export function InventoryMgmtPage() {
   };
 
   return (
-    <section className="card batch-management-card">
+    <section className="card batch-management-card" id="inventory-on-hand">
       <details
         className="collapsible-panel"
         open={batchOpen}
@@ -112,7 +113,7 @@ export function InventoryMgmtPage() {
       >
         <summary className="collapsible-summary">
           <div>
-            <h2>Batch Management</h2>
+            <h2>Inventory On Hand</h2>
             <p
               className="pg-sub"
               style={{
@@ -123,7 +124,7 @@ export function InventoryMgmtPage() {
                 color: "var(--text-dim)"
               }}
             >
-              Metal batches · remaining weight after bagging &amp; stream sales
+              Purchased metal and remaining weight after stickers and stream sales
             </p>
           </div>
           <span className="collapsible-toggle">{batchOpen ? "Hide" : `Show (${stats.count})`}</span>
@@ -158,16 +159,15 @@ export function InventoryMgmtPage() {
         </div>
         </div>
 
+        <div id="add-metal" className="workflow-anchor" />
         <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: "1rem" }}>
         <button type="button" className="btn btn-gold" onClick={openModal}>
-          + Add batch
+          Record metal purchase
         </button>
         </div>
 
         {items.length === 0 ? (
-        <div style={{ textAlign: "center", padding: "3rem", color: "var(--muted)", fontSize: "0.7rem" }}>
-          No batches yet
-        </div>
+        <EmptyState title="No metal recorded yet" description="Use Record metal purchase to add your first gold or silver purchase." />
         ) : (
         byDate.map(([dateKey, group]) => {
           const groupCost = group.reduce((s, b) => s + Number(b.total_cost), 0);
@@ -268,7 +268,7 @@ export function InventoryMgmtPage() {
           <button type="button" className="modal-close" onClick={() => setModalOpen(false)} aria-label="Close">
             ✕
           </button>
-          <div className="modal-title">Add batch — Batch Management</div>
+          <div className="modal-title">Record metal purchase</div>
           <form onSubmit={onSubmitModal}>
             <div className="form-group">
               <label className="form-label" htmlFor="bm-date">
@@ -350,7 +350,7 @@ export function InventoryMgmtPage() {
                 Cancel
               </button>
               <button type="submit" className="btn btn-gold" disabled={createBatch.isPending}>
-                Save batch
+                Add metal to inventory
               </button>
             </div>
           </form>

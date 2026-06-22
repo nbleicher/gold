@@ -189,7 +189,7 @@ export function ExpensesPage() {
                 Cancel
               </button>
               <button type="submit" className="btn btn-gold" disabled={create.isPending}>
-                Save
+                Record supply expense
               </button>
             </div>
           </form>

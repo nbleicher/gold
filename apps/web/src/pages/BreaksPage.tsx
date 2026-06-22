@@ -208,7 +208,7 @@ export function BreaksPage() {
     setTemplateRows((prev) => (prev.length <= 1 ? prev : prev.slice(0, -1)));
   };
 
-  const cardTitle = cardMode === "edit" ? "Edit break" : cardMode === "create" ? "New break" : "";
+  const cardTitle = cardMode === "edit" ? "Edit break template" : cardMode === "create" ? "New break template" : "";
   const formDisabled =
     (cardMode === "edit" && (formBreak.isLoading || !formBreak.data)) ||
     createBreak.isPending ||
@@ -223,14 +223,14 @@ export function BreaksPage() {
     <section className="card">
       <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", justifyContent: "space-between", gap: "0.75rem", marginBottom: "1rem" }}>
         <div>
-          <h2 style={{ marginBottom: "0.25rem" }}>Break Management</h2>
+          <h2 style={{ marginBottom: "0.25rem" }}>Break Templates</h2>
           <p className="pg-sub" style={{ margin: 0 }}>
-            Templates: each row is spot type (floor/prize), grams, metal, and quantity. Cost uses pooled average cost
+            Build reusable break templates. Each row is spot type, grams, metal, and quantity. Cost uses pooled average cost
             per gram by metal.
           </p>
         </div>
         <button type="button" className="btn btn-gold" onClick={openCreate} disabled={cardMode !== "closed"}>
-          Add new break
+          Create break template
         </button>
       </div>
 
@@ -260,7 +260,7 @@ export function BreaksPage() {
             ) : (breaks.data ?? []).length === 0 ? (
               <tr>
                 <td colSpan={8} style={{ fontSize: "0.75rem", color: "var(--muted)" }}>
-                  No breaks yet. Use Add new break.
+                  No break templates yet. Create one to use during a stream.
                 </td>
               </tr>
             ) : (
@@ -292,11 +292,11 @@ export function BreaksPage() {
                         className="btn btn-danger btn-sm"
                         disabled={cardMode !== "closed" || deleteBreak.isPending}
                         onClick={() => {
-                          if (!window.confirm(`Delete break “${row.name}”? This cannot be undone.`)) return;
+                          if (!window.confirm(`Delete break template “${row.name}”? This cannot be undone.`)) return;
                           deleteBreak.mutate(row.id);
                         }}
                       >
-                        Delete
+                        Delete template
                       </button>
                     </div>
                   </td>
@@ -332,7 +332,7 @@ export function BreaksPage() {
           ) : (
             <form onSubmit={onSubmit}>
               <div className="form-group">
-                <label className="form-label">Break name</label>
+                <label className="form-label">Template name</label>
                 <input className="form-input" value={name} onChange={(e) => setName(e.target.value)} required disabled={formDisabled} />
               </div>
 
@@ -456,7 +456,7 @@ export function BreaksPage() {
 
               <div style={{ display: "flex", gap: "0.6rem", marginTop: "1rem" }}>
                 <button type="submit" className="btn btn-gold" disabled={formDisabled}>
-                  {cardMode === "edit" ? "Save break" : "Create break"}
+                  {cardMode === "edit" ? "Save template" : "Create template"}
                 </button>
                 <button type="button" className="btn btn-outline" onClick={closeCard} disabled={createBreak.isPending || updateBreak.isPending}>
                   Cancel

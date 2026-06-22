@@ -222,9 +222,9 @@ export function StreamLogPage() {
 
   return (
     <section className="card">
-      <h2>Stream Log</h2>
+      <h2>Past Streams</h2>
       <p className="pg-sub" style={{ marginBottom: "1rem", fontSize: "0.65rem", color: "var(--text-dim)" }}>
-        All streaming sessions
+        Review completed and open streaming sessions
       </p>
 
       {q.error ? <p className="error">{(q.error as Error).message}</p> : null}
@@ -283,7 +283,7 @@ export function StreamLogPage() {
             {streams.length === 0 ? (
               <tr>
                 <td colSpan={14} className="tbl-empty">
-                  No streams logged yet
+                  No past streams yet
                 </td>
               </tr>
             ) : (
@@ -362,7 +362,7 @@ export function StreamLogPage() {
                                 });
                               }}
                             >
-                              Save
+                              Save earnings
                             </button>
                             <button
                               type="button"
@@ -403,7 +403,7 @@ export function StreamLogPage() {
                             setEarningsDraft("");
                           }}
                         >
-                          Add Completed Earnings
+                          Add completed earnings
                         </button>
                       )}
                     </td>
@@ -415,7 +415,7 @@ export function StreamLogPage() {
                           disabled={saveStreamExpensesMutation.isPending}
                           onClick={() => openExpenseModal(st)}
                         >
-                          Expenses
+                          Add expenses
                         </button>
                         <button
                           type="button"
@@ -431,7 +431,7 @@ export function StreamLogPage() {
                           disabled={deleteMutation.isPending}
                           onClick={() => requestDelete(st)}
                         >
-                          Delete
+                          Delete stream
                         </button>
                       </div>
                     </td>
@@ -511,7 +511,7 @@ export function StreamLogPage() {
                                 patchSessionMutation.mutate({ streamId: st.id, body });
                               }}
                             >
-                              Save session
+                              Save session times
                             </button>
                             <button
                               type="button"
@@ -568,7 +568,7 @@ export function StreamLogPage() {
                                         deleteItemMutation.mutate(it.id);
                                       }}
                                     >
-                                      Remove
+                                      Remove line item
                                     </button>
                                   </td>
                                 </tr>
@@ -619,14 +619,14 @@ export function StreamLogPage() {
               ✕
             </button>
             <div id="stream-expenses-title" className="modal-title">
-              Stream extras
+              Stream expenses
               {(() => {
                 const st = streams.find((x) => x.id === expenseModalStreamId);
                 return st ? ` · ${hostLabel(st)}` : "";
               })()}
             </div>
             <p style={{ fontSize: "0.62rem", color: "var(--muted)", marginBottom: "0.75rem" }}>
-              Name and price per line. Saved extras reduce net profit for this session and roll into global net profit.
+              Name and price per line. Saved expenses reduce net profit for this session and roll into global net profit.
             </p>
             <div className="tbl-wrap">
               <table className="tbl">
@@ -706,7 +706,7 @@ export function StreamLogPage() {
                 ])
               }
             >
-              + Add expense
+              Add expense
             </button>
             <div className="modal-actions" style={{ marginTop: "1rem" }}>
               <button
@@ -738,7 +738,7 @@ export function StreamLogPage() {
                   });
                 }}
               >
-                Save extras
+                Save expenses
               </button>
             </div>
           </div>

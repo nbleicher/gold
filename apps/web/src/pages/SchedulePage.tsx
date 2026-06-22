@@ -594,7 +594,7 @@ export function SchedulePage() {
                 Cancel
               </button>
               <button type="submit" className="btn btn-gold" disabled={pending}>
-                {isAdmin ? "Save" : "Submit"}
+                {isAdmin ? "Save scheduled stream" : "Request stream"}
               </button>
             </div>
           </form>
