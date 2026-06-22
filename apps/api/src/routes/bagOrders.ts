@@ -100,8 +100,9 @@ export async function createBagOrderFromInput(body: CreateBagOrderInput) {
          sticker_code,
          cost_basis_method,
          cost_basis_usd,
-         cost_basis_per_gram
-       ) values (?, ?, ?, ?, ?, ?, ?, ?)`,
+         cost_basis_per_gram,
+         inventory_session_id
+       ) values (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         primaryPoolBatchId,
         body.secondWeightGrams ? "mixed" : body.primaryMetal,
@@ -110,7 +111,8 @@ export async function createBagOrderFromInput(body: CreateBagOrderInput) {
         stickerCode,
         METAL_POOL_COST_BASIS_METHOD,
         costBasisUsd,
-        costBasisPerGram
+        costBasisPerGram,
+        body.inventorySessionId ?? null
       ]
     );
 
@@ -141,6 +143,7 @@ export async function registerBagOrderRoutes(app: FastifyInstance) {
   app.get("/v1/bag-orders", { preHandler: requireAuth }, async () => {
     const orders = await q<Record<string, unknown>>(
       `select id, primary_batch_id, metal, actual_weight_grams, tier_index, sticker_code, created_at, sold_at,
+              inventory_session_id,
               cost_basis_method, cost_basis_usd, cost_basis_per_gram
        from bag_orders order by created_at desc`
     );
@@ -175,7 +178,42 @@ export async function registerBagOrderRoutes(app: FastifyInstance) {
       });
     }
     try {
+      const actorId = req.authUser?.sub ?? null;
+      if (!actorId) {
+        return req.server.httpErrors.unauthorized();
+      }
+      const sessionId = parsed.data.inventorySessionId;
+      if (!sessionId) {
+        return req.server.httpErrors.badRequest("Start an inventory session before creating stickers");
+      }
+      const session = await one<{ id: string; user_id: string; metal: "gold" | "silver"; ended_at: string | null }>(
+        "select id, user_id, metal, ended_at from inventory_sessions where id = ?",
+        [sessionId]
+      );
+      if (!session || session.ended_at) {
+        return req.server.httpErrors.badRequest("Inventory session is not active");
+      }
+      if (session.user_id !== actorId) {
+        return req.server.httpErrors.forbidden("Inventory session belongs to another user");
+      }
+      if (session.metal !== parsed.data.primaryMetal) {
+        return req.server.httpErrors.badRequest("Sticker metal must match the active inventory session");
+      }
       const row = await createBagOrderFromInput(parsed.data);
+      await q(
+        `insert into inventory_session_events (session_id, user_id, action, entity_type, entity_id, metadata)
+         values (?, ?, 'create_sticker', 'bag_order', ?, ?)`,
+        [
+          sessionId,
+          actorId,
+          (row as { id?: string } | null)?.id ?? null,
+          JSON.stringify({
+            stickerCode: (row as { sticker_code?: string } | null)?.sticker_code ?? null,
+            metal: (row as { metal?: string } | null)?.metal ?? parsed.data.primaryMetal,
+            weightGrams: (row as { actual_weight_grams?: number } | null)?.actual_weight_grams ?? null
+          })
+        ]
+      );
       return row;
     } catch (e) {
       const msg = e instanceof Error ? e.message : "Bag order failed";

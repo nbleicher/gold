@@ -1,5 +1,6 @@
 import type { FastifyInstance } from "fastify";
 import { performance } from "node:perf_hooks";
+import { z } from "zod";
 import { one, q } from "../db.js";
 import { requireAuth, requireRole } from "./auth.js";
 
@@ -26,7 +27,128 @@ function isVirtualPoolBatch(value: boolean | number | null | undefined): boolean
   return value === true || Number(value) === 1;
 }
 
+const startInventorySessionSchema = z.object({
+  metal: z.enum(["gold", "silver"])
+});
+
 export async function registerInventoryRoutes(app: FastifyInstance) {
+  app.get("/v1/inventory/sessions/active", { preHandler: requireAuth }, async (req) => {
+    const userId = req.authUser?.sub;
+    if (!userId) throw new Error("Unauthorized");
+    return one(
+      `select s.id, s.user_id, s.metal, s.started_at, s.ended_at,
+              u.username, u.display_name
+       from inventory_sessions s
+       join users u on u.id = s.user_id
+       where s.user_id = ? and s.ended_at is null
+       order by s.started_at desc
+       limit 1`,
+      [userId]
+    );
+  });
+
+  app.post("/v1/inventory/sessions/start", { preHandler: requireAuth }, async (req) => {
+    const userId = req.authUser?.sub;
+    if (!userId) throw new Error("Unauthorized");
+    const body = startInventorySessionSchema.parse(req.body);
+
+    const existing = await one<{ id: string; metal: string }>(
+      "select id, metal from inventory_sessions where user_id = ? and ended_at is null order by started_at desc limit 1",
+      [userId]
+    );
+    if (existing) {
+      if (existing.metal !== body.metal) {
+        return req.server.httpErrors.conflict("End the active inventory session before starting a different metal");
+      }
+      return one(
+        `select s.id, s.user_id, s.metal, s.started_at, s.ended_at,
+                u.username, u.display_name
+         from inventory_sessions s
+         join users u on u.id = s.user_id
+         where s.id = ?`,
+        [existing.id]
+      );
+    }
+
+    const row = await one<{ id: string }>(
+      "insert into inventory_sessions (user_id, metal) values (?, ?) returning id",
+      [userId, body.metal]
+    );
+    if (!row) throw new Error("Failed to start inventory session");
+    await q(
+      "insert into inventory_session_events (session_id, user_id, action, entity_type, entity_id, metadata) values (?, ?, 'start_session', 'inventory_session', ?, ?)",
+      [row.id, userId, row.id, JSON.stringify({ metal: body.metal })]
+    );
+    return one(
+      `select s.id, s.user_id, s.metal, s.started_at, s.ended_at,
+              u.username, u.display_name
+       from inventory_sessions s
+       join users u on u.id = s.user_id
+       where s.id = ?`,
+      [row.id]
+    );
+  });
+
+  app.post("/v1/inventory/sessions/:id/end", { preHandler: requireAuth }, async (req) => {
+    const userId = req.authUser?.sub;
+    const isAdmin = req.authUser?.role === "admin";
+    if (!userId) throw new Error("Unauthorized");
+    const { id } = req.params as { id: string };
+    const session = await one<{ id: string; user_id: string; ended_at: string | null }>(
+      "select id, user_id, ended_at from inventory_sessions where id = ?",
+      [id]
+    );
+    if (!session) return req.server.httpErrors.notFound("Inventory session not found");
+    if (!isAdmin && session.user_id !== userId) return req.server.httpErrors.forbidden();
+    if (!session.ended_at) {
+      await q("update inventory_sessions set ended_at = now() where id = ?", [id]);
+      await q(
+        "insert into inventory_session_events (session_id, user_id, action, entity_type, entity_id, metadata) values (?, ?, 'end_session', 'inventory_session', ?, ?)",
+        [id, userId, id, JSON.stringify({})]
+      );
+    }
+    return { ok: true, id };
+  });
+
+  app.get("/v1/admin/inventory/sessions", { preHandler: requireRole("admin") }, async () => {
+    const sessions = await q<Record<string, unknown>>(
+      `select s.id, s.user_id, s.metal, s.started_at, s.ended_at,
+              u.username, u.display_name,
+              count(b.id)::int as sticker_count,
+              coalesce(sum(b.actual_weight_grams), 0) as total_grams
+       from inventory_sessions s
+       join users u on u.id = s.user_id
+       left join bag_orders b on b.inventory_session_id = s.id
+       group by s.id, s.user_id, s.metal, s.started_at, s.ended_at, u.username, u.display_name
+       order by s.started_at desc
+       limit 100`
+    );
+    const sessionIds = sessions.map((s) => s.id as string);
+    const bags = sessionIds.length
+      ? await q<Record<string, unknown>>(
+          `select id, inventory_session_id, sticker_code, metal, actual_weight_grams, tier_index, sold_at, created_at
+           from bag_orders
+           where inventory_session_id in (${sessionIds.map(() => "?").join(",")})
+           order by created_at desc`,
+          sessionIds
+        )
+      : [];
+    const events = sessionIds.length
+      ? await q<Record<string, unknown>>(
+          `select id, session_id, user_id, action, entity_type, entity_id, metadata, created_at
+           from inventory_session_events
+           where session_id in (${sessionIds.map(() => "?").join(",")})
+           order by created_at desc`,
+          sessionIds
+        )
+      : [];
+    return sessions.map((s) => ({
+      ...s,
+      bag_orders: bags.filter((b) => b.inventory_session_id === s.id),
+      events: events.filter((e) => e.session_id === s.id)
+    }));
+  });
+
   app.get("/v1/inventory/batches", { preHandler: requireAuth }, async () => {
     return q(
       "select id, date, metal, grams, remaining_grams, purchase_spot, total_cost, batch_number, batch_name, sticker_batch_letter, created_at from inventory_batches where is_virtual_pool = false order by date desc"

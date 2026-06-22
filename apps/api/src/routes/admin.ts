@@ -38,7 +38,7 @@ const adminCreateScheduleBodySchema = z
     streamerId: z.string().min(1),
     startTime: z.string().min(1).optional(),
     endTime: z.string().min(1).optional(),
-    hoursWorked: z.number().positive().optional()
+    hoursWorked: z.number().positive().max(12).optional()
   })
   .superRefine((data, ctx) => {
     const isLabor = data.hoursWorked != null;
@@ -77,7 +77,7 @@ const patchScheduleSchema = z
     startTime: z.string().min(1).optional(),
     endTime: z.string().min(1).optional(),
     streamerId: z.string().min(1).optional(),
-    hoursWorked: z.number().positive().optional(),
+    hoursWorked: z.number().positive().max(12).optional(),
     sortOrder: z.number().int().min(0).optional()
   })
   .superRefine((data, ctx) => {
@@ -151,8 +151,7 @@ const patchUserCredentialsSchema = z
 const putPayrollLaborDaySchema = z.object({
   userId: z.string().min(1),
   date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
-  startTime: z.string().optional(),
-  endTime: z.string().optional()
+  hoursWorked: z.number().min(0).max(12)
 });
 
 function payrollMinutesFromHHMM(hhmm: string): number | null {
@@ -744,10 +743,9 @@ export async function registerAdminRoutes(app: FastifyInstance) {
       return req.server.httpErrors.badRequest("Labor hours can only be set for shippers and baggers");
     }
 
-    const startRaw = (body.startTime ?? "").trim();
-    const endRaw = (body.endTime ?? "").trim();
+    const hours = Number(body.hoursWorked);
 
-    if (!startRaw && !endRaw) {
+    if (!(hours > 0)) {
       await withWriteTx(async (tx) => {
         await txQ(tx, "delete from schedules where streamer_id = ? and date = ? and entry_type = 'labor'", [
           body.userId,
@@ -764,26 +762,9 @@ export async function registerAdminRoutes(app: FastifyInstance) {
       };
     }
 
-    if (!startRaw || !endRaw) {
-      return req.server.httpErrors.badRequest("startTime and endTime are both required to set a shift (or omit both to clear)");
+    if (!Number.isFinite(hours) || hours > 12) {
+      return req.server.httpErrors.badRequest("hoursWorked must be between 0 and 12");
     }
-
-    const startM = payrollMinutesFromHHMM(startRaw);
-    const endM = payrollMinutesFromHHMM(endRaw);
-    if (startM === null || endM === null) {
-      return req.server.httpErrors.badRequest("Invalid time format (use HH:MM)");
-    }
-    if (endM <= startM) {
-      return req.server.httpErrors.badRequest("End time must be after start time on the same day");
-    }
-
-    const hours = (endM - startM) / 60;
-    if (hours <= 0 || !Number.isFinite(hours)) {
-      return req.server.httpErrors.badRequest("Computed hours must be positive");
-    }
-
-    const startNorm = `${String(Math.floor(startM / 60)).padStart(2, "0")}:${String(startM % 60).padStart(2, "0")}`;
-    const endNorm = `${String(Math.floor(endM / 60)).padStart(2, "0")}:${String(endM % 60).padStart(2, "0")}`;
 
     await withWriteTx(async (tx) => {
       await txQ(tx, "delete from schedules where streamer_id = ? and date = ? and entry_type = 'labor'", [
@@ -794,7 +775,7 @@ export async function registerAdminRoutes(app: FastifyInstance) {
         tx,
         `insert into schedules (date, start_time, end_time, streamer_id, status, submitted_by, pending_submitted_at, reviewed_at, reviewed_by, entry_type, hours_worked)
          values (?, ?, ?, ?, 'approved', ?, now(), now(), ?, 'labor', ?)`,
-        [body.date, startNorm, endNorm, body.userId, actor, actor, hours]
+        [body.date, "00:00", null, body.userId, actor, actor, hours]
       );
     });
 
@@ -802,8 +783,8 @@ export async function registerAdminRoutes(app: FastifyInstance) {
       ok: true as const,
       userId: body.userId,
       date: body.date,
-      startTime: startNorm,
-      endTime: endNorm,
+      startTime: "00:00",
+      endTime: null,
       hours
     };
   });

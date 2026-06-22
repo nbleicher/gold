@@ -30,7 +30,7 @@
 1. Confirm API `/health` and web boot.
 2. Verify `/v1/auth/me` succeeds with both legacy JWT and Supabase token.
 3. Validate realtime stream updates in streamer UI.
-4. Validate payroll CSV upload writes storage path.
+4. Validate payroll weekly hours save and totals update.
 5. Validate spot ingestion endpoint.
 
 ## Rollback criteria

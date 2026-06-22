@@ -39,6 +39,6 @@ This file catalogs Turso/SQLite-specific behavior that must be handled for a ful
 - `apps/web/src/lib/supabase.js`
   - Supabase client stub exists; no active integration.
 - `apps/web/src/pages/PayrollPage.tsx`
-  - Payroll CSV import currently metadata-only; candidate for Supabase Storage upload.
+  - Payroll uses weekly total hours per day and no longer imports CSV files.
 - `apps/web/src/pages/StreamsPage.tsx`
   - React Query invalidation-only flow; candidate for Supabase Realtime subscriptions.
