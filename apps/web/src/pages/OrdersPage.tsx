@@ -1,4 +1,4 @@
-import { FormEvent, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "../lib/api";
 import { getTierIndex } from "../lib/tiers";
@@ -20,6 +20,7 @@ type BagComponent = { batch_id: string; metal: string; weight_grams: number };
 type BagOrder = {
   id: string;
   primary_batch_id: string;
+  inventory_session_id: string | null;
   metal: string;
   actual_weight_grams: number;
   tier_index: number;
@@ -27,6 +28,38 @@ type BagOrder = {
   created_at: string;
   sold: boolean;
   bag_order_components: BagComponent[];
+};
+
+type InventorySession = {
+  id: string;
+  user_id: string;
+  metal: "gold" | "silver";
+  started_at: string;
+  ended_at: string | null;
+  username: string;
+  display_name: string | null;
+};
+
+type AdminInventorySession = InventorySession & {
+  sticker_count: number;
+  total_grams: number;
+  bag_orders: Array<{
+    id: string;
+    sticker_code: string;
+    metal: string;
+    actual_weight_grams: number;
+    tier_index: number;
+    sold_at: string | null;
+    created_at: string;
+  }>;
+  events: Array<{
+    id: string;
+    action: string;
+    entity_type: string;
+    entity_id: string | null;
+    metadata: unknown;
+    created_at: string;
+  }>;
 };
 
 function sourceLabel(order: BagOrder, batches: Batch[]): string {
@@ -43,6 +76,7 @@ function sourceLabel(order: BagOrder, batches: Batch[]): string {
 
 export function OrdersPage() {
   const qc = useQueryClient();
+  const [sessionMetal, setSessionMetal] = useState<"gold" | "silver">("gold");
   const [metal, setMetal] = useState<"gold" | "silver">("gold");
   const [primaryWeight, setPrimaryWeight] = useState("");
   const [mixed, setMixed] = useState(false);
@@ -59,10 +93,27 @@ export function OrdersPage() {
     queryFn: () => api<MetalPool>("/v1/inventory/metal-pool")
   });
 
+  const activeSession = useQuery({
+    queryKey: ["inventory-session-active"],
+    queryFn: () => api<InventorySession | null>("/v1/inventory/sessions/active")
+  });
+
+  const adminSessions = useQuery({
+    queryKey: ["admin-inventory-sessions"],
+    queryFn: () => api<AdminInventorySession[]>("/v1/admin/inventory/sessions")
+  });
+
   const bagOrders = useQuery({
     queryKey: ["bag-orders"],
     queryFn: () => api<BagOrder[]>("/v1/bag-orders")
   });
+
+  useEffect(() => {
+    if (!activeSession.data) return;
+    setMetal(activeSession.data.metal);
+    setSessionMetal(activeSession.data.metal);
+    setMixed(false);
+  }, [activeSession.data]);
 
   const secondMetal: "gold" | "silver" = metal === "gold" ? "silver" : "gold";
 
@@ -84,13 +135,15 @@ export function OrdersPage() {
           primaryMetal: metal,
           primaryWeightGrams: Number(primaryWeight),
           secondMetal: mixed ? secondMetal : undefined,
-          secondWeightGrams: mixed ? Number(secondWeight) : undefined
+          secondWeightGrams: mixed ? Number(secondWeight) : undefined,
+          inventorySessionId: activeSession.data?.id
         })
       }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["batches"] });
       qc.invalidateQueries({ queryKey: ["metal-pool"] });
       qc.invalidateQueries({ queryKey: ["bag-orders"] });
+      qc.invalidateQueries({ queryKey: ["admin-inventory-sessions"] });
       setPrimaryWeight("");
       setSecondWeight("");
       setFormError(null);
@@ -108,11 +161,36 @@ export function OrdersPage() {
       qc.invalidateQueries({ queryKey: ["bag-orders"] });
       qc.invalidateQueries({ queryKey: ["batches"] });
       qc.invalidateQueries({ queryKey: ["metal-pool"] });
+      qc.invalidateQueries({ queryKey: ["admin-inventory-sessions"] });
+    }
+  });
+
+  const startSession = useMutation({
+    mutationFn: () =>
+      api<InventorySession>("/v1/inventory/sessions/start", {
+        method: "POST",
+        body: JSON.stringify({ metal: sessionMetal })
+      }),
+    onSuccess: (session) => {
+      setMetal(session.metal);
+      setSessionMetal(session.metal);
+      setMixed(false);
+      qc.invalidateQueries({ queryKey: ["inventory-session-active"] });
+      qc.invalidateQueries({ queryKey: ["admin-inventory-sessions"] });
+    }
+  });
+
+  const endSession = useMutation({
+    mutationFn: (id: string) => api<{ ok: boolean }>(`/v1/inventory/sessions/${id}/end`, { method: "POST" }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["inventory-session-active"] });
+      qc.invalidateQueries({ queryKey: ["admin-inventory-sessions"] });
     }
   });
 
   const onSubmit = (e: FormEvent) => {
     e.preventDefault();
+    if (!activeSession.data?.id) return setFormError("Start an inventory session before creating stickers.");
     const primaryWeightNumber = Number(primaryWeight);
     const secondWeightNumber = Number(secondWeight);
     if (!(primaryWeightNumber > 0)) return setFormError("Enter a primary weight greater than 0.");
@@ -125,6 +203,7 @@ export function OrdersPage() {
 
   const primaryPool = metalPool.data?.[metal];
   const secondPool = metalPool.data?.[secondMetal];
+  const session = activeSession.data;
 
   return (
     <section className="card">
@@ -154,9 +233,58 @@ export function OrdersPage() {
         dollar-cost-average pool for that metal.
       </p>
 
-      {batches.error || bagOrders.error || metalPool.error ? (
-        <p className="error">{String((batches.error ?? bagOrders.error ?? metalPool.error) as Error)}</p>
+      {batches.error || bagOrders.error || metalPool.error || activeSession.error || adminSessions.error ? (
+        <p className="error">{String((batches.error ?? bagOrders.error ?? metalPool.error ?? activeSession.error ?? adminSessions.error) as Error)}</p>
       ) : null}
+
+      <div className="card" style={{ marginBottom: "1.5rem", padding: "1.2rem", background: "var(--slate)" }}>
+        <div style={{ fontSize: "0.65rem", letterSpacing: "0.12em", color: "var(--muted)", marginBottom: "0.75rem" }}>
+          INVENTORY SESSION
+        </div>
+        {session ? (
+          <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: "0.75rem" }}>
+            <div style={{ fontSize: "0.72rem", color: "var(--text-dim)" }}>
+              Active session:{" "}
+              <strong style={{ color: "var(--text)" }}>
+                {session.metal[0].toUpperCase() + session.metal.slice(1)}
+              </strong>{" "}
+              since {new Date(session.started_at).toLocaleString()}
+            </div>
+            <button
+              type="button"
+              className="btn btn-outline btn-sm"
+              disabled={endSession.isPending}
+              onClick={() => endSession.mutate(session.id)}
+            >
+              End session
+            </button>
+          </div>
+        ) : (
+          <div style={{ display: "flex", flexWrap: "wrap", gap: "0.75rem", alignItems: "flex-end" }}>
+            <div className="form-group" style={{ minWidth: 120 }}>
+              <label className="form-label">Metal</label>
+              <select
+                className="form-input"
+                value={sessionMetal}
+                onChange={(e) => setSessionMetal(e.target.value as "gold" | "silver")}
+              >
+                <option value="gold">Gold</option>
+                <option value="silver">Silver</option>
+              </select>
+            </div>
+            <button
+              type="button"
+              className="btn btn-gold"
+              disabled={startSession.isPending}
+              onClick={() => startSession.mutate()}
+            >
+              Start session
+            </button>
+          </div>
+        )}
+        {startSession.error ? <p className="error">{(startSession.error as Error).message}</p> : null}
+        {endSession.error ? <p className="error">{(endSession.error as Error).message}</p> : null}
+      </div>
 
       <div className="card" style={{ marginBottom: "1.5rem", padding: "1.2rem", background: "var(--slate)" }}>
         <div style={{ fontSize: "0.65rem", letterSpacing: "0.12em", color: "var(--muted)", marginBottom: "0.75rem" }}>
@@ -172,6 +300,7 @@ export function OrdersPage() {
                 onChange={(e) => {
                   setMetal(e.target.value as "gold" | "silver");
                 }}
+                disabled={Boolean(session)}
               >
                 <option value="gold">Gold</option>
                 <option value="silver">Silver</option>
@@ -189,7 +318,12 @@ export function OrdersPage() {
                 onChange={(e) => setPrimaryWeight(e.target.value)}
               />
             </div>
-            <button type="submit" className="btn btn-gold" disabled={createBag.isPending} style={{ alignSelf: "flex-end" }}>
+            <button
+              type="submit"
+              className="btn btn-gold"
+              disabled={createBag.isPending || !session}
+              style={{ alignSelf: "flex-end" }}
+            >
               Create sticker
             </button>
           </div>
@@ -213,6 +347,7 @@ export function OrdersPage() {
             <input
               type="checkbox"
               checked={mixed}
+              disabled={Boolean(session)}
               onChange={(e) => {
                 setMixed(e.target.checked);
                 setFormError(null);
@@ -248,6 +383,11 @@ export function OrdersPage() {
           ) : null}
           <p style={{ fontSize: "0.7rem", color: "var(--muted)", marginTop: "0.55rem" }}>{tierPreview}</p>
           {formError ? <p className="error">{formError}</p> : null}
+          {!session ? (
+            <p style={{ fontSize: "0.68rem", color: "var(--muted)", marginTop: "0.55rem" }}>
+              Start an inventory session before creating stickers.
+            </p>
+          ) : null}
           {createBag.error ? <p className="error">{(createBag.error as Error).message}</p> : null}
         </form>
       </div>
@@ -338,6 +478,54 @@ export function OrdersPage() {
         </table>
       </div>
       {removeBag.error ? <p className="error">{(removeBag.error as Error).message}</p> : null}
+
+      <div style={{ fontSize: "0.65rem", letterSpacing: "0.12em", color: "var(--muted)", margin: "1.5rem 0 0.75rem" }}>
+        RECENT INVENTORY SESSIONS
+      </div>
+      <div className="tbl-wrap">
+        <table className="tbl">
+          <thead>
+            <tr>
+              <th>User</th>
+              <th>Metal</th>
+              <th>Started</th>
+              <th>Ended</th>
+              <th>Stickers</th>
+              <th>Total grams</th>
+              <th>Sticker codes</th>
+            </tr>
+          </thead>
+          <tbody>
+            {(adminSessions.data ?? []).length === 0 ? (
+              <tr>
+                <td colSpan={7} className="tbl-empty">
+                  No inventory sessions yet
+                </td>
+              </tr>
+            ) : (
+              (adminSessions.data ?? []).map((s) => (
+                <tr key={s.id}>
+                  <td className="tbl-gold">{s.display_name?.trim() || s.username}</td>
+                  <td>{s.metal[0].toUpperCase() + s.metal.slice(1)}</td>
+                  <td style={{ fontSize: "0.62rem", color: "var(--muted)" }}>
+                    {new Date(s.started_at).toLocaleString()}
+                  </td>
+                  <td style={{ fontSize: "0.62rem", color: "var(--muted)" }}>
+                    {s.ended_at ? new Date(s.ended_at).toLocaleString() : <span className="badge badge-morning">Active</span>}
+                  </td>
+                  <td>{Number(s.sticker_count ?? 0)}</td>
+                  <td>{Number(s.total_grams ?? 0).toFixed(4)}</td>
+                  <td style={{ fontSize: "0.62rem", color: "var(--muted)", maxWidth: "22rem" }}>
+                    {s.bag_orders.length
+                      ? s.bag_orders.map((b) => b.sticker_code).join(", ")
+                      : "-"}
+                  </td>
+                </tr>
+              ))
+            )}
+          </tbody>
+        </table>
+      </div>
     </section>
   );
 }

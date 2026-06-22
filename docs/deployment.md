@@ -4,8 +4,7 @@
 
 1. Create Supabase project.
 2. Apply SQL migrations in `supabase/migrations` (or run `supabase db push`).
-3. Configure Storage bucket `payroll-csv` (private) for payroll CSV uploads.
-4. Enable Realtime for public tables used by streams (`streams`, `stream_items`, `break_spots`).
+3. Enable Realtime for public tables used by streams (`streams`, `stream_items`, `break_spots`).
 
 ## Railway (API + Spot Job)
 

@@ -223,6 +223,10 @@ export function StreamsPage() {
       void qc.invalidateQueries({ queryKey: ["admin-profit-metrics"] });
       void qc.invalidateQueries({ queryKey: ["admin-stream-log"] });
       window.setTimeout(() => stickerInputRef.current?.focus(), 0);
+    },
+    onError: () => {
+      lastAutoSubmittedRef.current = "";
+      window.setTimeout(() => stickerInputRef.current?.focus(), 0);
     }
   });
 
@@ -487,7 +491,7 @@ export function StreamsPage() {
                   className="form-input stream-sticker-scan-input"
                   style={{ marginTop: "0.35rem" }}
                   value={stickerCodeInput}
-                  onChange={(e) => setStickerCodeInput(e.target.value.toUpperCase().replace(/\s+/g, ""))}
+                  onChange={(e) => setStickerCodeInput(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, ""))}
                   onFocus={() => setScanFocused(true)}
                   onBlur={() => setScanFocused(false)}
                   onKeyDown={(e) => {

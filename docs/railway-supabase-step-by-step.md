@@ -47,7 +47,7 @@ In Supabase dashboard:
 
 1. Create/select your project.
 2. Create Storage bucket:
-   - Name: `payroll-csv`
+   - Payroll CSV storage is no longer required.
    - Public bucket: OFF (private)
 3. Enable Realtime for:
    - `streams`
@@ -317,7 +317,7 @@ Run these checks immediately:
   - inventory updates
   - streams start/end
   - break spot processing
-  - payroll records + storage path
+  - payroll weekly hours and pay summary
   - spot ingestion
 - Realtime:
   - stream page updates without manual refresh
@@ -341,4 +341,4 @@ If critical failures persist beyond your rollback threshold, execute rollback qu
 - Tighten/verify RLS policies by role.
 - Remove temporary compatibility columns after data normalization.
 - Update importer to map legacy Turso column names to canonical Postgres names.
-- Add smoke tests for auth, stream processing, payroll storage, and spot ingest.
+- Add smoke tests for auth, stream processing, payroll weekly hours, and spot ingest.
