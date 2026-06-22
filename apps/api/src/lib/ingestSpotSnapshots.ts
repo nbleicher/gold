@@ -29,11 +29,12 @@ export async function applySpotPayloadToDb(data: SpotPayload): Promise<void> {
   try {
     await withWriteTx(async (tx) => {
       for (const row of rows) {
-        await txQ(tx, "insert into spot_snapshots (metal, price, source_state) values (?, ?, ?)", [
-          row.metal,
-          row.price,
-          row.source_state
-        ]);
+        await txQ(
+          tx,
+          `insert into spot_snapshots (metal, price, price_per_oz_usd, source_state, source)
+           values (?, ?, ?, ?, ?)`,
+          [row.metal, row.price, row.price, row.source_state, row.source_state]
+        );
       }
     });
   } catch (err) {

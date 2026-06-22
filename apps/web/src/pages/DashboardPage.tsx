@@ -1,3 +1,4 @@
+import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { TROY_OUNCES_TO_GRAMS } from "../lib/metal";
 import { api } from "../lib/api";
@@ -20,18 +21,56 @@ type HomeNextSchedule = {
   status: string;
 };
 
+type DailyProfitLoss = {
+  date: string;
+  revenue: number;
+  cogs: number;
+  streamExpenses: number;
+  expenses: number;
+  net: number;
+};
+
+type AdminDashboardSummary = {
+  profitMetrics: {
+    totalSpotValue: number;
+    totalCogs: number;
+    totalExpenses: number;
+    totalStreamExpenses: number;
+    grossProfit: number;
+    netProfit: number;
+    lineItemCount: number;
+  };
+  inventory: {
+    batchCount: number;
+    totalGrams: number;
+    remainingGrams: number;
+    remainingPercent: number;
+    totalCost: number;
+  };
+  bags: { total: number; sold: number };
+  dailyProfitLoss: DailyProfitLoss[];
+  recentStreams: Array<{
+    id: string;
+    startedAt: string;
+    endedAt: string | null;
+    completedEarnings: number | null;
+    host: string;
+  }>;
+};
+
 type HomeResponse = {
   streamsToday: number;
   lastStream: HomeLastStream | null;
   nextSchedule: HomeNextSchedule | null;
+  admin?: AdminDashboardSummary;
 };
 
 type SpotSnapshot = {
   id: string;
-  metal: string;
+  metal: "gold" | "silver";
   price: number;
-  source_state: string;
-  created_at: string;
+  sourceState: string;
+  createdAt: string;
 };
 
 type SpotLatestResponse = {
@@ -42,18 +81,23 @@ type SpotLatestResponse = {
   updatedAt: string;
 };
 
-function fmtMoney(n: number) {
-  return `$${n.toFixed(2)}`;
+function money(value: number): string {
+  const sign = value < 0 ? "-" : "";
+  const abs = Math.abs(value);
+  return `${sign}$${abs.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
-function spotStatusClass(state: string) {
-  if (state === "primary" || state === "kitco") return "spot-status primary";
-  if (state === "fallback") return "spot-status fallback";
-  return "spot-status offline";
+function compactMoney(value: number): string {
+  return value.toLocaleString("en-US", {
+    style: "currency",
+    currency: "USD",
+    notation: "compact",
+    maximumFractionDigits: 1
+  });
 }
 
-function parseSqlUtc(ts: string): Date {
-  return new Date(ts.replace(" ", "T") + "Z");
+function parseTs(ts: string): Date {
+  return new Date(ts.includes("T") ? ts : ts.replace(" ", "T") + "Z");
 }
 
 function formatUpcomingSchedule(s: HomeNextSchedule): string {
@@ -64,57 +108,89 @@ function formatUpcomingSchedule(s: HomeNextSchedule): string {
     weekday: "short",
     month: "short",
     day: "numeric",
-    year: "numeric",
     hour: "numeric",
     minute: "2-digit"
   });
 }
 
-function SpotMetalCard({
+function statusClass(state: string): string {
+  const s = state.toLowerCase();
+  if (s === "primary" || s === "kitco") return "metric-status live";
+  if (s === "fallback") return "metric-status warn";
+  return "metric-status muted";
+}
+
+function MetricCard({
   label,
-  row,
-  emphasize
+  value,
+  detail,
+  tone
 }: {
   label: string;
-  row: SpotSnapshot | null;
-  emphasize?: boolean;
+  value: string | number;
+  detail?: string;
+  tone?: "good" | "bad";
 }) {
-  if (!row) {
+  return (
+    <div className="metric-card">
+      <div className="metric-label">{label}</div>
+      <div className={`metric-value${tone ? ` ${tone}` : ""}`}>{value}</div>
+      {detail ? <div className="metric-detail">{detail}</div> : null}
+    </div>
+  );
+}
+
+function SpotCard({ label, spot }: { label: string; spot: SpotSnapshot | null }) {
+  if (!spot) {
     return (
-      <div className={`spot-card${emphasize ? " active" : ""}`}>
-        <div className="spot-label">{label}</div>
-        <div className="spot-price" style={{ fontSize: "1.1rem", color: "var(--muted)" }}>
-          No data yet
-        </div>
-        <p style={{ fontSize: "0.55rem", color: "var(--muted)", marginTop: "0.5rem", lineHeight: 1.4 }}>
-          Run the spot ingest job (see README) or wait for the next scheduled run.
-        </p>
+      <div className="metric-card spot-metric">
+        <div className="metric-label">{label}</div>
+        <div className="metric-value muted">No data</div>
+        <div className="metric-detail">Spot ingest has not produced a valid row yet.</div>
       </div>
     );
   }
+  const perGram = spot.price / TROY_OUNCES_TO_GRAMS;
+  return (
+    <div className="metric-card spot-metric">
+      <div className="metric-label">{label}</div>
+      <div className="metric-value">{money(spot.price)}<span>/oz</span></div>
+      <div className="spot-subline">
+        <strong>{money(perGram)}/g</strong>
+        <span className={statusClass(spot.sourceState)}>{spot.sourceState}</span>
+      </div>
+      <div className="metric-detail">Updated {parseTs(spot.createdAt).toLocaleTimeString()}</div>
+    </div>
+  );
+}
 
-  const spotOz = Number(row.price);
-  const spotGram = spotOz / TROY_OUNCES_TO_GRAMS;
+function ProfitLossChart({ rows }: { rows: DailyProfitLoss[] }) {
+  const maxAbs = useMemo(() => {
+    const max = Math.max(...rows.map((r) => Math.abs(r.net)), 1);
+    return max;
+  }, [rows]);
 
   return (
-    <div className={`spot-card${emphasize ? " active" : ""}`}>
-      <div className="spot-label">{label}</div>
-      <div style={{ display: "flex", flexDirection: "column", gap: "0.3rem" }}>
-        <div className="spot-price" style={{ margin: 0 }}>
-          {fmtMoney(spotOz)}
-          <span className="spot-unit">/oz</span>
-        </div>
-        <div className="spot-price" style={{ margin: 0 }}>
-          {fmtMoney(spotGram)}
-          <span className="spot-unit">/g</span>
-        </div>
-      </div>
-      <div className="spot-live-text" style={{ marginTop: "0.35rem" }}>
-        <span className={spotStatusClass(row.source_state)}>{row.source_state}</span>
-        <span style={{ marginLeft: "0.5rem", color: "var(--muted)" }}>
-          {parseSqlUtc(row.created_at).toLocaleString()}
-        </span>
-      </div>
+    <div className="pl-chart" aria-label="Daily profit loss chart">
+      {rows.map((row) => {
+        const height = Math.max(6, (Math.abs(row.net) / maxAbs) * 96);
+        const isLoss = row.net < 0;
+        const d = new Date(`${row.date}T12:00:00`);
+        return (
+          <div className="pl-day" key={row.date}>
+            <div className="pl-bar-track" title={`${row.date}: ${money(row.net)}`}>
+              <div
+                className={`pl-bar ${isLoss ? "loss" : "profit"}`}
+                style={{ height: `${height}px` }}
+              />
+            </div>
+            <div className="pl-label">
+              {Number.isNaN(d.getTime()) ? row.date.slice(5) : d.toLocaleDateString(undefined, { month: "numeric", day: "numeric" })}
+            </div>
+            <div className={`pl-value ${isLoss ? "loss" : "profit"}`}>{compactMoney(row.net)}</div>
+          </div>
+        );
+      })}
     </div>
   );
 }
@@ -132,93 +208,147 @@ export function DashboardPage() {
     refetchIntervalInBackground: true,
     refetchOnWindowFocus: true
   });
-  const newestSpotMs = Math.max(
-    spot.data?.gold?.created_at ? parseSqlUtc(spot.data.gold.created_at).getTime() : 0,
-    spot.data?.silver?.created_at ? parseSqlUtc(spot.data.silver.created_at).getTime() : 0
-  );
-  const staleMs = newestSpotMs > 0 ? Date.now() - newestSpotMs : 0;
-  const isSpotStale = staleMs > 2 * 60 * 1000;
 
+  const admin = home.data?.admin;
   const last = home.data?.lastStream ?? null;
   const next = home.data?.nextSchedule ?? null;
+  const newestSpotMs = Math.max(
+    spot.data?.gold?.createdAt ? parseTs(spot.data.gold.createdAt).getTime() : 0,
+    spot.data?.silver?.createdAt ? parseTs(spot.data.silver.createdAt).getTime() : 0
+  );
+  const isSpotStale = newestSpotMs > 0 && Date.now() - newestSpotMs > 5 * 60 * 1000;
 
   return (
-    <section className="card">
-      <h2 className="pg-title">Home</h2>
-      {/* <p className="pg-sub">Streams, last session margin, live spot</p> */}
-
-      {spot.isSuccess ? (
-        <>
-          {isSpotStale ? (
-            <p style={{ fontSize: "0.6rem", color: "var(--gold)", marginBottom: "0.75rem" }}>
-              Spot feed appears stale (last update over 2 minutes ago). Check VPS push job and API push secret config.
-            </p>
-          ) : null}
-          {spot.data.partial ? (
-            <p style={{ fontSize: "0.6rem", color: "var(--gold)", marginBottom: "0.75rem" }}>
-              Spot feed is partial (only one metal has snapshots). Run spot ingest for both metals.
-            </p>
-          ) : null}
-          <div className="spot-ticker">
-            <SpotMetalCard label="Gold" row={spot.data.gold} emphasize />
-            <SpotMetalCard label="Silver" row={spot.data.silver} />
-          </div>
-        </>
-      ) : spot.isError ? (
-        <p className="error" style={{ marginBottom: "1rem" }}>
-          {(spot.error as Error).message}
-        </p>
-      ) : spot.isLoading ? (
-        <p style={{ fontSize: "0.65rem", color: "var(--muted)", marginBottom: "1rem" }}>Loading spot…</p>
-      ) : null}
-
-      {home.error ? <p className="error">{(home.error as Error).message}</p> : null}
-
-      <div className="stats-row" style={{ gridTemplateColumns: "repeat(3, 1fr)", marginBottom: "0.5rem" }}>
-        <div className="stat-box">
-          <div className="stat-lbl">Streams today (UTC)</div>
-          <div className="stat-val">{home.isLoading ? "—" : (home.data?.streamsToday ?? 0)}</div>
-        </div>
-        <div className="stat-box">
-          <div className="stat-lbl">Last stream · est. profit</div>
-          <div className="stat-val" style={{ fontSize: "1.35rem" }}>
-            {home.isLoading ? "—" : last ? fmtMoney(last.estimatedProfit) : "—"}
-          </div>
-        </div>
-        <div className="stat-box">
-          <div className="stat-lbl">Upcoming stream</div>
-          <div className="stat-val" style={{ fontSize: "1.05rem", lineHeight: 1.25 }}>
-            {home.isLoading ? "—" : next ? formatUpcomingSchedule(next) : "—"}
-          </div>
-          {!home.isLoading && !next ? (
-            <div style={{ fontSize: "0.58rem", color: "var(--muted)", marginTop: "0.35rem" }}>
-              No approved future slots
-            </div>
-          ) : null}
+    <section className="dashboard-page">
+      <div className="page-head">
+        <div>
+          <h1>Dashboard</h1>
+          <p>Live metals, stream activity, and operating performance.</p>
         </div>
       </div>
 
-      {last ? (
-        <div
-          style={{
-            fontSize: "0.65rem",
-            color: "var(--text-dim)",
-            borderTop: "1px solid var(--border)",
-            paddingTop: "1rem"
-          }}
-        >
-          <div>
-            <strong>Last stream</strong> · {new Date(last.startedAt).toLocaleString()}
-            {last.endedAt ? ` → ${new Date(last.endedAt).toLocaleString()}` : " · live"}
-          </div>
-          <div style={{ marginTop: "0.35rem" }}>
-            {last.itemCount} sale{last.itemCount === 1 ? "" : "s"} · spot value {fmtMoney(last.totalSpotValue)}{" "}
-            · ~{last.durationMinutes.toFixed(1)} min
-          </div>
-        </div>
-      ) : !home.isLoading && home.data ? (
-        <p style={{ fontSize: "0.65rem", color: "var(--muted)" }}>No streams yet for this account.</p>
+      {(home.error || spot.error) ? (
+        <p className="error">{((home.error ?? spot.error) as Error).message}</p>
       ) : null}
+
+      {spot.data?.partial ? <div className="notice">Spot feed is partial. One metal is missing a valid snapshot.</div> : null}
+      {isSpotStale ? <div className="notice">Spot feed looks stale. Check the VPS push job and API secret.</div> : null}
+
+      <div className="metric-grid dashboard-prices">
+        <SpotCard label="Gold spot" spot={spot.data?.gold ?? null} />
+        <SpotCard label="Silver spot" spot={spot.data?.silver ?? null} />
+        <MetricCard
+          label="Streams today"
+          value={home.isLoading ? "—" : (home.data?.streamsToday ?? 0)}
+          detail="For your account"
+        />
+        <MetricCard
+          label="Next approved stream"
+          value={home.isLoading ? "—" : next ? formatUpcomingSchedule(next) : "None"}
+          detail={next ? "Approved schedule" : "No future approved slots"}
+        />
+      </div>
+
+      {admin ? (
+        <>
+          <div className="dashboard-section">
+            <div className="section-title-row">
+              <h2>Profit / Loss</h2>
+              <span>Last 14 days</span>
+            </div>
+            <ProfitLossChart rows={admin.dailyProfitLoss} />
+          </div>
+
+          <div className="metric-grid">
+            <MetricCard
+              label="Net profit"
+              value={money(admin.profitMetrics.netProfit)}
+              tone={admin.profitMetrics.netProfit < 0 ? "bad" : "good"}
+              detail="Gross minus supplies and stream expenses"
+            />
+            <MetricCard
+              label="Gross profit"
+              value={money(admin.profitMetrics.grossProfit)}
+              tone={admin.profitMetrics.grossProfit < 0 ? "bad" : "good"}
+              detail={`${admin.profitMetrics.lineItemCount} stream line items`}
+            />
+            <MetricCard label="COGS" value={money(admin.profitMetrics.totalCogs)} detail="Inventory cost of goods" />
+            <MetricCard
+              label="Expenses"
+              value={money(admin.profitMetrics.totalExpenses + admin.profitMetrics.totalStreamExpenses)}
+              detail={`${money(admin.profitMetrics.totalExpenses)} supplies · ${money(admin.profitMetrics.totalStreamExpenses)} stream`}
+            />
+            <MetricCard
+              label="Inventory remaining"
+              value={`${admin.inventory.remainingPercent.toFixed(1)}%`}
+              detail={`${admin.inventory.remainingGrams.toFixed(2)}g of ${admin.inventory.totalGrams.toFixed(2)}g`}
+            />
+            <MetricCard
+              label="Sticker bags"
+              value={`${admin.bags.sold}/${admin.bags.total}`}
+              detail="Sold / total bags"
+            />
+          </div>
+        </>
+      ) : null}
+
+      <div className="dashboard-two-col">
+        <div className="dashboard-section">
+          <div className="section-title-row">
+            <h2>Last Stream</h2>
+          </div>
+          {last ? (
+            <div className="stream-summary">
+              <div>
+                <span>Started</span>
+                <strong>{parseTs(last.startedAt).toLocaleString()}</strong>
+              </div>
+              <div>
+                <span>Status</span>
+                <strong>{last.endedAt ? `Ended ${parseTs(last.endedAt).toLocaleTimeString()}` : "Live"}</strong>
+              </div>
+              <div>
+                <span>Items</span>
+                <strong>{last.itemCount}</strong>
+              </div>
+              <div>
+                <span>Spot value</span>
+                <strong>{money(last.totalSpotValue)}</strong>
+              </div>
+              <div>
+                <span>Estimated profit</span>
+                <strong className={last.estimatedProfit < 0 ? "bad" : "good"}>{money(last.estimatedProfit)}</strong>
+              </div>
+              <div>
+                <span>Duration</span>
+                <strong>{last.durationMinutes.toFixed(1)} min</strong>
+              </div>
+            </div>
+          ) : (
+            <div className="empty-state">No streams have been logged for this account.</div>
+          )}
+        </div>
+
+        {admin ? (
+          <div className="dashboard-section">
+            <div className="section-title-row">
+              <h2>Recent Streams</h2>
+            </div>
+            <div className="compact-list">
+              {admin.recentStreams.map((s) => (
+                <div className="compact-row" key={s.id}>
+                  <div>
+                    <strong>{s.host}</strong>
+                    <span>{parseTs(s.startedAt).toLocaleString()}</span>
+                  </div>
+                  <b>{s.completedEarnings == null ? "Open" : money(s.completedEarnings)}</b>
+                </div>
+              ))}
+              {!admin.recentStreams.length ? <div className="empty-state">No stream history yet.</div> : null}
+            </div>
+          </div>
+        ) : null}
+      </div>
     </section>
   );
 }

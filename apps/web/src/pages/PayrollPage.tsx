@@ -545,20 +545,56 @@ export function PayrollPage() {
   }, [schedules.data]);
 
   const weekLabel = `${weekDates[0].toLocaleDateString("en-US", { month: "short", day: "numeric" })} — ${weekDates[6].toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}`;
+  const payTotals = useMemo(() => {
+    const rows = weeklySummary.data?.users ?? [];
+    return rows.reduce(
+      (sum, row) => ({
+        hours: sum.hours + Number(row.hoursWorkedWeek ?? 0),
+        hourly: sum.hourly + Number(row.hourlyPay ?? 0),
+        commission: sum.commission + Number(row.commissionPay ?? 0),
+        total: sum.total + Number(row.totalPay ?? 0)
+      }),
+      { hours: 0, hourly: 0, commission: 0, total: 0 }
+    );
+  }, [weeklySummary.data]);
 
   return (
-    <section className="card">
-      <h2>Payroll</h2>
-      <p className="pg-sub" style={{ marginBottom: "1rem", fontSize: "0.65rem", color: "var(--text-dim)" }}>
-        Hourly labor hours are entered in the weekly attendance grid below. Commission pay uses stream activity in the
-        selected week (Mon–Sun).
-      </p>
+    <section className="card payroll-workspace">
+      <div className="page-head">
+        <div>
+          <h1>Payroll</h1>
+          <p>Weekly hourly labor, commission pay, and payroll import records.</p>
+        </div>
+      </div>
 
       {users.error || payroll.error || weeklySummary.error || schedules.error ? (
         <p className="error">
           {String((users.error ?? payroll.error ?? weeklySummary.error ?? schedules.error) as Error)}
         </p>
       ) : null}
+
+      <div className="metric-grid payroll-summary-grid">
+        <div className="metric-card">
+          <div className="metric-label">Week</div>
+          <div className="metric-value">{weekLabel}</div>
+          <div className="metric-detail">{from} to {to}</div>
+        </div>
+        <div className="metric-card">
+          <div className="metric-label">Total pay</div>
+          <div className="metric-value good">{weeklySummary.isFetching ? "—" : money(payTotals.total)}</div>
+          <div className="metric-detail">Hourly plus commission</div>
+        </div>
+        <div className="metric-card">
+          <div className="metric-label">Hourly labor</div>
+          <div className="metric-value">{weeklySummary.isFetching ? "—" : payTotals.hours.toFixed(2)}</div>
+          <div className="metric-detail">{weeklySummary.isFetching ? "Loading" : money(payTotals.hourly)}</div>
+        </div>
+        <div className="metric-card">
+          <div className="metric-label">Commission</div>
+          <div className="metric-value">{weeklySummary.isFetching ? "—" : money(payTotals.commission)}</div>
+          <div className="metric-detail">Based on completed stream net</div>
+        </div>
+      </div>
 
       <div className="card" style={{ marginBottom: "1.5rem", padding: "1.2rem", background: "var(--slate)" }}>
         <div style={{ display: "flex", alignItems: "center", gap: "1rem", marginBottom: "1rem" }}>
