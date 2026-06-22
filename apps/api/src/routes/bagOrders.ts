@@ -11,6 +11,18 @@ import { requireAuth, requireRole } from "./auth.js";
 
 type AllocationLine = { batchId: string; metal: "gold" | "silver"; weightGrams: number };
 
+function isPoolMetal(metal: string): metal is "gold" | "silver" {
+  return metal === "gold" || metal === "silver";
+}
+
+function normalizeStickerMetal(value: string | undefined, fallback: string): string {
+  const metal = String(value ?? "")
+    .trim()
+    .replace(/\s+/g, " ")
+    .slice(0, 40);
+  return metal || fallback;
+}
+
 async function readMetalPoolAverage(metal: "gold" | "silver"): Promise<number> {
   const row = await one<{ grams_on_hand: number; total_cost_on_hand: number }>(
     "select grams_on_hand, total_cost_on_hand from metal_inventory_pool where metal = ?",
@@ -82,6 +94,10 @@ export async function createBagOrderFromInput(body: CreateBagOrderInput) {
       : 0;
   const costBasisUsd = body.primaryWeightGrams * primaryAvg + (body.secondWeightGrams ?? 0) * secondAvg;
   const costBasisPerGram = totalWeight > 0 ? costBasisUsd / totalWeight : 0;
+  const stickerMetal = normalizeStickerMetal(
+    body.stickerMetal,
+    body.secondWeightGrams ? "mixed" : body.primaryMetal
+  );
 
   return withWriteTx(async (tx) => {
     const primaryAllocations = await allocateMetalFromPool(tx, body.primaryMetal, body.primaryWeightGrams);
@@ -105,7 +121,7 @@ export async function createBagOrderFromInput(body: CreateBagOrderInput) {
        ) values (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         primaryPoolBatchId,
-        body.secondWeightGrams ? "mixed" : body.primaryMetal,
+        stickerMetal,
         totalWeight,
         tierIndex,
         stickerCode,
@@ -186,7 +202,7 @@ export async function registerBagOrderRoutes(app: FastifyInstance) {
       if (!sessionId) {
         return req.server.httpErrors.badRequest("Start an inventory session before creating stickers");
       }
-      const session = await one<{ id: string; user_id: string; metal: "gold" | "silver"; ended_at: string | null }>(
+      const session = await one<{ id: string; user_id: string; metal: string; ended_at: string | null }>(
         "select id, user_id, metal, ended_at from inventory_sessions where id = ?",
         [sessionId]
       );
@@ -196,10 +212,10 @@ export async function registerBagOrderRoutes(app: FastifyInstance) {
       if (session.user_id !== actorId) {
         return req.server.httpErrors.forbidden("Inventory session belongs to another user");
       }
-      if (session.metal !== parsed.data.primaryMetal) {
+      if (isPoolMetal(session.metal) && session.metal !== parsed.data.primaryMetal) {
         return req.server.httpErrors.badRequest("Sticker metal must match the active inventory session");
       }
-      const row = await createBagOrderFromInput(parsed.data);
+      const row = await createBagOrderFromInput({ ...parsed.data, stickerMetal: isPoolMetal(session.metal) ? undefined : session.metal });
       await q(
         `insert into inventory_session_events (session_id, user_id, action, entity_type, entity_id, metadata)
          values (?, ?, 'create_sticker', 'bag_order', ?, ?)`,

@@ -25,6 +25,7 @@ function todayYmd(): string {
 
 export function InventoryMgmtPage() {
   const qc = useQueryClient();
+  const [batchOpen, setBatchOpen] = useState(false);
   const [modalOpen, setModalOpen] = useState(false);
   const [date, setDate] = useState(todayYmd);
   const [metal, setMetal] = useState<"gold" | "silver">("gold");
@@ -103,24 +104,34 @@ export function InventoryMgmtPage() {
   };
 
   return (
-    <section className="card">
-      <h2>Batch Management</h2>
-      <p
-        className="pg-sub"
-        style={{
-          marginBottom: "1.25rem",
-          fontSize: "0.58rem",
-          letterSpacing: "0.14em",
-          textTransform: "uppercase",
-          color: "var(--text-dim)"
-        }}
+    <section className="card batch-management-card">
+      <details
+        className="collapsible-panel"
+        open={batchOpen}
+        onToggle={(e) => setBatchOpen(e.currentTarget.open)}
       >
-        Metal batches · remaining weight after bagging &amp; stream sales
-      </p>
+        <summary className="collapsible-summary">
+          <div>
+            <h2>Batch Management</h2>
+            <p
+              className="pg-sub"
+              style={{
+                marginBottom: 0,
+                fontSize: "0.58rem",
+                letterSpacing: "0.14em",
+                textTransform: "uppercase",
+                color: "var(--text-dim)"
+              }}
+            >
+              Metal batches · remaining weight after bagging &amp; stream sales
+            </p>
+          </div>
+          <span className="collapsible-toggle">{batchOpen ? "Hide" : `Show (${stats.count})`}</span>
+        </summary>
 
-      {batches.error ? <p className="error">{(batches.error as Error).message}</p> : null}
+        {batches.error ? <p className="error">{(batches.error as Error).message}</p> : null}
 
-      <div className="stats-row" style={{ gridTemplateColumns: "repeat(4, 1fr)" }}>
+        <div className="stats-row" style={{ gridTemplateColumns: "repeat(4, 1fr)" }}>
         <div className="stat-box">
           <div className="stat-lbl">Total batches</div>
           <div className="stat-val">{stats.count}</div>
@@ -145,19 +156,19 @@ export function InventoryMgmtPage() {
             ${stats.totalCost.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
           </div>
         </div>
-      </div>
+        </div>
 
-      <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: "1rem" }}>
+        <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: "1rem" }}>
         <button type="button" className="btn btn-gold" onClick={openModal}>
           + Add batch
         </button>
-      </div>
+        </div>
 
-      {items.length === 0 ? (
+        {items.length === 0 ? (
         <div style={{ textAlign: "center", padding: "3rem", color: "var(--muted)", fontSize: "0.7rem" }}>
           No batches yet
         </div>
-      ) : (
+        ) : (
         byDate.map(([dateKey, group]) => {
           const groupCost = group.reduce((s, b) => s + Number(b.total_cost), 0);
           const dtLabel = new Date(dateKey + "T12:00:00").toLocaleDateString("en-US", {
@@ -245,7 +256,8 @@ export function InventoryMgmtPage() {
             </div>
           );
         })
-      )}
+        )}
+      </details>
 
       <div
         className={`modal-overlay${modalOpen ? " open" : ""}`}

@@ -27,7 +27,8 @@ export const createBagOrderSchema = z
     primaryWeightGrams: z.number().positive(),
     secondMetal: z.enum(["gold", "silver"]).optional(),
     secondWeightGrams: z.number().positive().optional(),
-    inventorySessionId: batchIdSchema
+    inventorySessionId: batchIdSchema.optional(),
+    stickerMetal: z.string().trim().min(1).max(40).optional()
   })
   .superRefine((input, ctx) => {
     const secondFields = [input.secondMetal, input.secondWeightGrams];

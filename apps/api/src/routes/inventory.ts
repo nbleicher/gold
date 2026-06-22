@@ -28,10 +28,16 @@ function isVirtualPoolBatch(value: boolean | number | null | undefined): boolean
 }
 
 const startInventorySessionSchema = z.object({
-  metal: z.enum(["gold", "silver"])
+  metal: z
+    .string()
+    .trim()
+    .min(1, "Metal is required")
+    .max(40, "Metal must be 40 characters or fewer")
 });
 
 export async function registerInventoryRoutes(app: FastifyInstance) {
+  await ensureInventorySessionSchema();
+
   app.get("/v1/inventory/sessions/active", { preHandler: requireAuth }, async (req) => {
     const userId = req.authUser?.sub;
     if (!userId) throw new Error("Unauthorized");
@@ -306,4 +312,47 @@ export async function registerInventoryRoutes(app: FastifyInstance) {
       silver: out.silver ?? { gramsOnHand: 0, avgCostPerGram: 0 }
     };
   });
+}
+
+async function ensureInventorySessionSchema() {
+  await q(`
+    create table if not exists inventory_sessions (
+      id text primary key default replace(gen_random_uuid()::text, '-', ''),
+      user_id text not null references users(id) on delete restrict,
+      metal text not null,
+      started_at timestamptz not null default now(),
+      ended_at timestamptz
+    )
+  `);
+  await q("alter table inventory_sessions drop constraint if exists inventory_sessions_metal_check");
+  await q(`
+    create index if not exists idx_inventory_sessions_user_active
+      on inventory_sessions (user_id, ended_at, started_at desc)
+  `);
+  await q(`
+    alter table bag_orders
+      add column if not exists inventory_session_id text references inventory_sessions(id) on delete set null
+  `);
+  await q(`
+    create index if not exists idx_bag_orders_inventory_session
+      on bag_orders (inventory_session_id)
+  `);
+  await q(`
+    create table if not exists inventory_session_events (
+      id text primary key default replace(gen_random_uuid()::text, '-', ''),
+      session_id text not null references inventory_sessions(id) on delete cascade,
+      user_id text not null references users(id) on delete restrict,
+      action text not null,
+      entity_type text not null,
+      entity_id text,
+      metadata jsonb not null default '{}'::jsonb,
+      created_at timestamptz not null default now()
+    )
+  `);
+  await q(`
+    create index if not exists idx_inventory_session_events_session
+      on inventory_session_events (session_id, created_at desc)
+  `);
+  await q("alter table bag_orders drop constraint if exists bag_orders_metal_check");
+  await q("alter table stream_items drop constraint if exists stream_items_metal_check");
 }
