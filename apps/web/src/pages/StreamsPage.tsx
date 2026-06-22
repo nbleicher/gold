@@ -411,8 +411,13 @@ export function StreamsPage() {
   const startDisabled = !user || startMutation.isPending || activeStreamId !== null;
 
   return (
-    <section className={`card${activeStreamId ? " stream-session-card" : ""}`}>
-      <h2>Streams</h2>
+    <section className={`card streams-workspace${activeStreamId ? " stream-session-card" : ""}`}>
+      <div className="page-head">
+        <div>
+          <h1>Streams</h1>
+          <p>{activeStreamId ? "Live stream controls, break progress, and session sales." : "Start a break or sticker stream."}</p>
+        </div>
+      </div>
 
       {!activeStreamId ? (
         <div style={{ marginTop: "0.75rem" }}>

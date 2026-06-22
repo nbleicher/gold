@@ -12,7 +12,6 @@ import { SchedulePage } from "./pages/SchedulePage";
 import { ExpensesPage } from "./pages/ExpensesPage";
 import { PayrollPage } from "./pages/PayrollPage";
 import { StreamLogPage } from "./pages/StreamLogPage";
-import { AdminDashboardPage } from "./pages/AdminDashboardPage";
 
 const STREAMS_LOG_PATH = "/streams/log";
 
@@ -57,6 +56,8 @@ function Shell() {
   const isAdmin = profile?.role === "admin";
   const userLabel = profile?.displayName?.trim() || profile?.username || "—";
   const adminSectionActive = pathname.startsWith("/admin/");
+  const operationsSectionActive =
+    pathname.startsWith("/admin/operations") || pathname.startsWith("/admin/inventory-management") || pathname === "/admin/expenses";
   const showAdminSubnav = isAdmin && adminSectionActive;
   const streamsSectionActive = pathname === "/streams";
 
@@ -96,16 +97,8 @@ function Shell() {
           ☰
         </button>
         <nav className="header-center">
-          {isAdmin ? (
-            <NavLink
-              to="/admin/dashboard"
-              className={() => `nav-tab${adminSectionActive ? " active" : ""}`}
-            >
-              Admin
-            </NavLink>
-          ) : null}
           <NavLink to="/" end className={navTabClass}>
-            Home
+            Dashboard
           </NavLink>
           <NavLink to="/streams" className={() => `nav-tab${streamsSectionActive ? " active" : ""}`}>
             Streams
@@ -113,6 +106,14 @@ function Shell() {
           <NavLink to="/schedule" className={navTabClass}>
             Schedule
           </NavLink>
+          {isAdmin ? (
+            <NavLink
+              to="/admin/operations/inventory"
+              className={() => `nav-tab${operationsSectionActive ? " active" : ""}`}
+            >
+              Operations
+            </NavLink>
+          ) : null}
         </nav>
         <div className="header-right">
           {isAdmin ? <span className="admin-badge">Admin</span> : null}
@@ -135,21 +136,8 @@ function Shell() {
             {isAdmin ? (
               <>
                 <div className="mobile-nav-section-label">Admin</div>
-                <NavLink to="/admin/dashboard" className={navTabClass} onClick={() => setMobileNavOpen(false)}>
-                  Admin Home
-                </NavLink>
-                <NavLink to="/admin/dashboard" className={navTabClass} onClick={() => setMobileNavOpen(false)}>
-                  Admin Dashboard
-                </NavLink>
-                <NavLink to="/admin/expenses" className={navTabClass} onClick={() => setMobileNavOpen(false)}>
-                  Supplies
-                </NavLink>
-                <NavLink
-                  to="/admin/inventory-management/nuggets"
-                  className={navTabClass}
-                  onClick={() => setMobileNavOpen(false)}
-                >
-                  Inventory
+                <NavLink to="/admin/operations/inventory" className={navTabClass} onClick={() => setMobileNavOpen(false)}>
+                  Operations
                 </NavLink>
                 <NavLink to="/admin/payroll" className={navTabClass} onClick={() => setMobileNavOpen(false)}>
                   Payroll
@@ -167,7 +155,7 @@ function Shell() {
             ) : null}
             <div className="mobile-nav-section-label">Main</div>
             <NavLink to="/" end className={navTabClass} onClick={() => setMobileNavOpen(false)}>
-              Home
+              Dashboard
             </NavLink>
             <NavLink to="/streams" className={navTabClass} onClick={() => setMobileNavOpen(false)}>
               Streams
@@ -184,14 +172,8 @@ function Shell() {
       {showAdminSubnav ? (
         <div className="admin-subnav">
           <nav className="admin-subnav-inner" aria-label="Admin sections">
-            <NavLink to="/admin/dashboard" className={navSubTabClass}>
-              Admin Dashboard
-            </NavLink>
-            <NavLink to="/admin/expenses" className={navSubTabClass}>
-              Supplies
-            </NavLink>
-            <NavLink to="/admin/inventory-management/nuggets" className={navSubTabClass}>
-              Inventory
+            <NavLink to="/admin/operations/inventory" className={navSubTabClass}>
+              Operations
             </NavLink>
             <NavLink to="/admin/payroll" className={navSubTabClass}>
               Payroll
@@ -220,26 +202,43 @@ function Shell() {
             />
             <Route
               path="/admin"
-              element={isAdmin ? <Navigate to="/admin/dashboard" replace /> : <Navigate to="/" replace />}
+              element={isAdmin ? <Navigate to="/" replace /> : <Navigate to="/" replace />}
             />
             <Route
               path="/admin/dashboard"
-              element={isAdmin ? <AdminDashboardPage /> : <Navigate to="/" replace />}
+              element={<Navigate to="/" replace />}
             />
             <Route
               path="/admin/breaks"
-              element={isAdmin ? <Navigate to="/admin/inventory-management/breaks" replace /> : <Navigate to="/" replace />}
+              element={isAdmin ? <Navigate to="/admin/operations/breaks" replace /> : <Navigate to="/" replace />}
             />
             <Route
               path="/admin/inventory-management"
+              element={isAdmin ? <Navigate to="/admin/operations/inventory" replace /> : <Navigate to="/" replace />}
+            />
+            <Route
+              path="/admin/inventory-management/nuggets"
+              element={isAdmin ? <Navigate to="/admin/operations/inventory" replace /> : <Navigate to="/" replace />}
+            />
+            <Route
+              path="/admin/inventory-management/breaks"
+              element={isAdmin ? <Navigate to="/admin/operations/breaks" replace /> : <Navigate to="/" replace />}
+            />
+            <Route
+              path="/admin/inventory-management/:section"
+              element={isAdmin ? <Navigate to="/admin/operations/inventory" replace /> : <Navigate to="/" replace />}
+            />
+            <Route
+              path="/admin/operations"
               element={isAdmin ? <InventoryLayout /> : <Navigate to="/" replace />}
             >
-              <Route index element={<Navigate to="nuggets" replace />} />
-              <Route path="nuggets" element={<NuggetsInventoryPage />} />
+              <Route index element={<Navigate to="inventory" replace />} />
+              <Route path="inventory" element={<NuggetsInventoryPage />} />
+              <Route path="supplies" element={<ExpensesPage />} />
               <Route path="breaks" element={<BreaksPage />} />
             </Route>
             <Route path="/admin/users" element={isAdmin ? <AdminUsersPage /> : <Navigate to="/" replace />} />
-            <Route path="/admin/expenses" element={isAdmin ? <ExpensesPage /> : <Navigate to="/" replace />} />
+            <Route path="/admin/expenses" element={isAdmin ? <Navigate to="/admin/operations/supplies" replace /> : <Navigate to="/" replace />} />
             <Route path="/admin/payroll" element={isAdmin ? <PayrollPage /> : <Navigate to="/" replace />} />
             <Route path="/schedule" element={<SchedulePage />} />
             <Route

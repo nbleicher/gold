@@ -26,6 +26,29 @@ function spotPushBearerOk(authHeader: string | undefined, secret: string): boole
   return timingSafeEqual(a, b);
 }
 
+type SpotDbRow = {
+  id: string;
+  metal: "gold" | "silver";
+  price: number | null;
+  price_per_oz_usd: number | null;
+  source_state: string | null;
+  source: string | null;
+  created_at: string;
+};
+
+function normalizeSpotRow(row: SpotDbRow | null) {
+  if (!row) return null;
+  const price = Number(row.price ?? row.price_per_oz_usd ?? 0);
+  if (!(price > 0)) return null;
+  return {
+    id: row.id,
+    metal: row.metal,
+    price,
+    sourceState: row.source_state ?? row.source ?? "unknown",
+    createdAt: row.created_at
+  };
+}
+
 export async function registerSpotRoutes(app: FastifyInstance) {
   app.post("/v1/spot/push", async (req, reply) => {
     const secret = env.spotPushSecret?.trim();
@@ -54,13 +77,21 @@ export async function registerSpotRoutes(app: FastifyInstance) {
     reply.header("Cache-Control", "no-store, no-cache, must-revalidate");
     reply.header("Pragma", "no-cache");
     reply.header("Expires", "0");
-    const [gold, silver] = await Promise.all([
-      one("select * from spot_snapshots where metal = 'gold' order by created_at desc limit 1"),
-      one("select * from spot_snapshots where metal = 'silver' order by created_at desc limit 1")
+    const [goldRow, silverRow] = await Promise.all([
+      one<SpotDbRow>(
+        `select id, metal, price, price_per_oz_usd, source_state, source, created_at
+         from spot_snapshots where metal = 'gold' order by created_at desc limit 1`
+      ),
+      one<SpotDbRow>(
+        `select id, metal, price, price_per_oz_usd, source_state, source, created_at
+         from spot_snapshots where metal = 'silver' order by created_at desc limit 1`
+      )
     ]);
 
-    const tGold = gold?.created_at ? new Date(String(gold.created_at)).getTime() : 0;
-    const tSilver = silver?.created_at ? new Date(String(silver.created_at)).getTime() : 0;
+    const gold = normalizeSpotRow(goldRow);
+    const silver = normalizeSpotRow(silverRow);
+    const tGold = gold?.createdAt ? new Date(String(gold.createdAt)).getTime() : 0;
+    const tSilver = silver?.createdAt ? new Date(String(silver.createdAt)).getTime() : 0;
     const maxT = Math.max(tGold, tSilver);
     const updatedAt = maxT > 0 ? new Date(maxT).toISOString() : new Date().toISOString();
 

@@ -266,11 +266,13 @@ export function SchedulePage() {
   const mutError = createMut.error ?? patchMut.error;
 
   return (
-    <section className="card">
-      <h2>Schedule</h2>
-      {/* <p className="pg-sub" style={{ marginBottom: "1rem", fontSize: "0.65rem", color: "var(--text-dim)" }}>
-        Weekly stream schedule
-      </p> */}
+    <section className="card schedule-workspace">
+      <div className="page-head">
+        <div>
+          <h1>Schedule</h1>
+          <p>{isAdmin ? "Review requests, order stream slots, and keep the week clear." : "Request and track your upcoming stream slots."}</p>
+        </div>
+      </div>
 
       {(isAdmin && users.error) || schedules.error || reorderMut.error ? (
         <p className="error">
